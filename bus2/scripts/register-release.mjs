@@ -49,10 +49,13 @@ async function put(path, body) {
 }
 
 async function main() {
-  await put('/api/releases/min-versions', {
-    minPcVersion: version,
-    minDriverVersion: version,
-  });
+  const setMin = process.argv.includes('--set-min');
+  if (setMin) {
+    await put('/api/releases/min-versions', {
+      minPcVersion: version,
+      minDriverVersion: version,
+    });
+  }
 
   if (pcUrl) {
     await put('/api/releases/pc', {

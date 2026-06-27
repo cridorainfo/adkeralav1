@@ -8,6 +8,7 @@ import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { isKioskMode, isLaunchedByRunScript } from '../lib/appRole';
 import SerialSettings from '../components/SerialSettings';
 import DriverConnectBanner from '../components/DriverConnectBanner';
+import FleetSetupOverlay from '../components/FleetSetupOverlay';
 import DisplayScreen from './DisplayScreen';
 
 /** Passenger screen — open on bus PC at /display */
@@ -84,6 +85,7 @@ export default function DisplayApp() {
 
   return (
     <>
+      <FleetSetupOverlay />
       <DisplayScreen passengerMode />
       {kioskMode && (
         <div className="display-kiosk-control-hint">

@@ -1,12 +1,14 @@
 import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { usePostgres } from './db/pool.js';
+import { pgGetPlatformSetting, pgSetPlatformSetting } from './storePg.js';
 import { loadStore, saveStore, listBuses } from './store.js';
 
 const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cloudPkg = require('./package.json');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const CLOUD_VERSION = cloudPkg.version;
 
 export function compareSemver(a, b) {
@@ -30,15 +32,31 @@ function defaultReleaseConfig() {
   };
 }
 
-export async function getReleaseConfig() {
+async function loadReleaseStore() {
+  if (usePostgres()) {
+    return { ...(await pgGetPlatformSetting('releases', defaultReleaseConfig())) };
+  }
   const store = await loadStore();
   return { ...defaultReleaseConfig(), ...(store.releases ?? {}) };
 }
 
-export async function setPcRelease(release) {
+async function saveReleaseStore(releases) {
+  if (usePostgres()) {
+    await pgSetPlatformSetting('releases', releases);
+    return;
+  }
   const store = await loadStore();
-  store.releases = { ...defaultReleaseConfig(), ...(store.releases ?? {}) };
-  store.releases.pc = {
+  store.releases = releases;
+  await saveStore();
+}
+
+export async function getReleaseConfig() {
+  return loadReleaseStore();
+}
+
+export async function setPcRelease(release) {
+  const releases = await loadReleaseStore();
+  releases.pc = {
     version: String(release.version ?? '').trim(),
     downloadUrl: String(release.downloadUrl ?? '').trim(),
     sha512: String(release.sha512 ?? '').trim(),
@@ -46,30 +64,28 @@ export async function setPcRelease(release) {
     releaseNotes: String(release.releaseNotes ?? '').trim(),
     publishedAt: Date.now(),
   };
-  await saveStore();
-  return store.releases.pc;
+  await saveReleaseStore(releases);
+  return releases.pc;
 }
 
 export async function setDriverRelease(release) {
-  const store = await loadStore();
-  store.releases = { ...defaultReleaseConfig(), ...(store.releases ?? {}) };
-  store.releases.driver = {
+  const releases = await loadReleaseStore();
+  releases.driver = {
     version: String(release.version ?? '').trim(),
     downloadUrl: String(release.downloadUrl ?? '').trim(),
     releaseNotes: String(release.releaseNotes ?? '').trim(),
     publishedAt: Date.now(),
   };
-  await saveStore();
-  return store.releases.driver;
+  await saveReleaseStore(releases);
+  return releases.driver;
 }
 
 export async function setMinVersions({ minPcVersion, minDriverVersion }) {
-  const store = await loadStore();
-  store.releases = { ...defaultReleaseConfig(), ...(store.releases ?? {}) };
-  if (minPcVersion != null) store.releases.minPcVersion = String(minPcVersion).trim();
-  if (minDriverVersion != null) store.releases.minDriverVersion = String(minDriverVersion).trim();
-  await saveStore();
-  return store.releases;
+  const releases = await loadReleaseStore();
+  if (minPcVersion != null) releases.minPcVersion = String(minPcVersion).trim();
+  if (minDriverVersion != null) releases.minDriverVersion = String(minDriverVersion).trim();
+  await saveReleaseStore(releases);
+  return releases;
 }
 
 export function buildPcLatestYml(pcRelease) {
@@ -78,7 +94,6 @@ export function buildPcLatestYml(pcRelease) {
   }
 
   const fileUrl = pcRelease.downloadUrl;
-  const filename = path.basename(fileUrl.split('?')[0]) || `AdKeralaDisplay-Setup-${pcRelease.version}.exe`;
   const releaseDate = new Date(pcRelease.publishedAt ?? Date.now()).toISOString();
   const lines = [
     `version: ${pcRelease.version}`,
@@ -101,6 +116,8 @@ export function buildPcLatestYml(pcRelease) {
   return lines.join('\n');
 }
 
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+
 export async function getFleetVersions() {
   const config = await getReleaseConfig();
   const buses = await listBuses();
@@ -115,7 +132,7 @@ export async function getFleetVersions() {
     minDriverVersion: config.minDriverVersion,
     buses: buses.map(({ busId, updatedAt, telemetry }) => {
       const appVersion = telemetry?.appVersion ?? null;
-      const online = Date.now() - updatedAt < 15000;
+      const online = Date.now() - updatedAt < ONLINE_MS;
       let pcStatus = 'unknown';
       if (appVersion && latestPc) {
         pcStatus = compareSemver(appVersion, latestPc) >= 0 ? 'current' : 'outdated';
@@ -134,5 +151,41 @@ export async function getFleetVersions() {
         plateDisplay: telemetry?.plateDisplay ?? null,
       };
     }),
+    drivers: await getDriverFleetVersions(config),
   };
+}
+
+async function getDriverFleetVersions(config) {
+  if (usePostgres()) {
+    const { query } = await import('./db/pool.js');
+    const { rows } = await query(
+      `SELECT driver_id, linked_bus_id, app_version, last_seen_at FROM drivers WHERE app_version IS NOT NULL`
+    );
+    return rows.map((row) => ({
+      driverId: row.driver_id,
+      linkedBusId: row.linked_bus_id,
+      appVersion: row.app_version,
+      lastSeenAt: row.last_seen_at ? Number(row.last_seen_at) : null,
+      status: driverVersionStatus(row.app_version, config),
+    }));
+  }
+  const store = await loadStore();
+  return Object.entries(store.drivers ?? {}).map(([driverId, d]) => ({
+    driverId,
+    linkedBusId: d.linkedBusId,
+    appVersion: d.appVersion ?? null,
+    lastSeenAt: d.lastSeenAt ?? null,
+    status: driverVersionStatus(d.appVersion, config),
+  }));
+}
+
+function driverVersionStatus(appVersion, config) {
+  if (!appVersion) return 'unknown';
+  if (config.minDriverVersion && compareSemver(appVersion, config.minDriverVersion) < 0) {
+    return 'below-minimum';
+  }
+  if (config.driver?.version && compareSemver(appVersion, config.driver.version) < 0) {
+    return 'outdated';
+  }
+  return 'current';
 }

@@ -7,9 +7,11 @@ import {
   fetchDriverSession,
   loadCloudUrl,
   pairDriver,
+  sendDriverHeartbeat,
   setCloudUrl,
   unlinkDriver,
 } from '../lib/driverCloud';
+import { downloadAndInstallApk } from '../lib/driverUpdate';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -92,9 +94,13 @@ export default function DriverConnect() {
   useEffect(() => {
     if (!ready || !driverId) return undefined;
     refreshSession();
-    const id = setInterval(refreshSession, 5000);
+    sendDriverHeartbeat(driverId, APP_VERSION, cloudUrl).catch(() => {});
+    const id = setInterval(() => {
+      refreshSession();
+      sendDriverHeartbeat(driverId, APP_VERSION, cloudUrl).catch(() => {});
+    }, 5000);
     return () => clearInterval(id);
-  }, [ready, driverId, refreshSession]);
+  }, [ready, driverId, refreshSession, cloudUrl]);
 
   const saveCloudUrl = async () => {
     await setCloudUrl(cloudDraft);
@@ -107,6 +113,10 @@ export default function DriverConnect() {
   const handlePair = async (e) => {
     e.preventDefault();
     if (!plateOrCode.trim() || !driverId) return;
+    if (driverUpdate?.required) {
+      setStatus('Update required before pairing. Install the latest driver app.');
+      return;
+    }
     setBusy(true);
     setStatus('Pairing…');
     try {
@@ -172,8 +182,19 @@ export default function DriverConnect() {
               {driverUpdate.required ? 'Update required' : 'Update available'} — v{driverUpdate.version}
             </strong>
             {driverUpdate.releaseNotes && <p>{driverUpdate.releaseNotes}</p>}
-            <a className="btn primary" href={driverUpdate.downloadUrl} target="_blank" rel="noreferrer">
-              Download update
+            <a
+              className="btn primary"
+              href={driverUpdate.downloadUrl}
+              onClick={(e) => {
+                if (window.Capacitor?.isNativePlatform?.()) {
+                  e.preventDefault();
+                  downloadAndInstallApk(driverUpdate.downloadUrl);
+                }
+              }}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {driverUpdate.required ? 'Update required' : 'Download update'}
             </a>
           </div>
         )}

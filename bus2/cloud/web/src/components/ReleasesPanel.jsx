@@ -76,6 +76,35 @@ export default function ReleasesPanel() {
             ))}
           </tbody>
         </table>
+
+        <h3>Driver apps</h3>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Driver</th>
+              <th>Bus</th>
+              <th>App version</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(fleet?.drivers ?? []).map((row) => (
+              <tr key={row.driverId}>
+                <td><code>{row.driverId.slice(0, 8)}…</code></td>
+                <td>{row.linkedBusId ?? '—'}</td>
+                <td>{row.appVersion ?? '—'}</td>
+                <td>
+                  <span className={`version-pill version-${row.status === 'current' ? 'current' : row.status === 'outdated' ? 'outdated' : row.status === 'below-minimum' ? 'below' : 'unknown'}`}>
+                    {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {!fleet?.drivers?.length && (
+              <tr><td colSpan={4} className="hint">No driver version reports yet</td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div className="grid-2">

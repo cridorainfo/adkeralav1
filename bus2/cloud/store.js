@@ -2,6 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import { usePostgres, runMigrations } from './db/pool.js';
+import * as pg from './storePg.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -14,6 +16,9 @@ const defaultStore = () => ({
   users: {},
   adCampaigns: {},
   commands: [],
+  fleetEnrollments: {},
+  busDevices: {},
+  auditLog: [],
   releases: {
     pc: null,
     driver: null,
@@ -58,6 +63,11 @@ async function ensureDataDir() {
 
 /** Call before accepting traffic — ensures DATA_DIR exists and is writable. */
 export async function warmUpStore() {
+  if (usePostgres()) {
+    await runMigrations();
+    await pg.pgPruneCommands();
+    return null;
+  }
   await ensureDataDir();
   return loadStore();
 }
@@ -80,7 +90,16 @@ export async function saveStore() {
   await fs.writeFile(STORE_FILE, JSON.stringify(cache, null, 2), 'utf8');
 }
 
-export async function upsertBusTelemetry(busId, { telemetry, state, displaySnapshot }) {
+async function pgGetBusCompat(busId) {
+  return pg.pgGetBus(busId);
+}
+
+export async function upsertBusTelemetry(busId, { telemetry, state, displaySnapshot } = {}) {
+  if (usePostgres()) {
+    await pg.pgUpsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
+    await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
+    return pgGetBusCompat(busId);
+  }
   const store = await loadStore();
   store.buses[busId] = {
     telemetry: telemetry ?? {},
@@ -94,11 +113,13 @@ export async function upsertBusTelemetry(busId, { telemetry, state, displaySnaps
 }
 
 export async function getBus(busId) {
+  if (usePostgres()) return pg.pgGetBus(busId);
   const store = await loadStore();
   return store.buses[busId] ?? null;
 }
 
 export async function listBuses({ ownerId = null } = {}) {
+  if (usePostgres()) return pg.pgListBuses({ ownerId });
   const store = await loadStore();
   const busIds = new Set([
     ...Object.keys(store.buses ?? {}),
@@ -122,6 +143,7 @@ export async function listBuses({ ownerId = null } = {}) {
 }
 
 export async function enqueueCommand(busId, type, payload) {
+  if (usePostgres()) return pg.pgEnqueueCommand(busId, type, payload);
   const store = await loadStore();
   const cmd = {
     id: randomUUID(),
@@ -137,6 +159,7 @@ export async function enqueueCommand(busId, type, payload) {
 }
 
 export async function pullPendingCommands(busId) {
+  if (usePostgres()) return pg.pgPullPendingCommands(busId);
   const store = await loadStore();
   const pending = store.commands.filter((c) => c.busId === busId && c.status === 'pending');
   for (const cmd of pending) {
@@ -148,6 +171,7 @@ export async function pullPendingCommands(busId) {
 }
 
 export async function ackCommand(commandId) {
+  if (usePostgres()) return pg.pgAckCommand(commandId);
   const store = await loadStore();
   const cmd = store.commands.find((c) => c.id === commandId);
   if (cmd) {
@@ -190,11 +214,11 @@ function collectGlobalPhraseMediaPaths(map = {}) {
   return [...paths];
 }
 
-export async function searchRoutes(query = '') {
-  const store = await loadStore();
+export async function searchRoutes(query = '', { ownerId = null } = {}) {
+  const routes = usePostgres() ? await pg.pgListAllRoutes(ownerId) : (await loadStore()).routeCatalog;
   const q = query.trim().toLowerCase();
-  if (!q) return store.routeCatalog;
-  return store.routeCatalog.filter(
+  if (!q) return routes;
+  return routes.filter(
     (r) =>
       r.name.toLowerCase().includes(q) ||
       r.startStop?.en?.toLowerCase().includes(q) ||
@@ -243,12 +267,20 @@ export async function matchRoutesByEndpoints(startEn, endEn) {
   return hits.sort((a, b) => a.route.name.localeCompare(b.route.name));
 }
 
+export async function listAllRoutes() {
+  if (usePostgres()) return pg.pgListAllRoutes();
+  const store = await loadStore();
+  return store.routeCatalog;
+}
+
 export async function getRouteById(routeId) {
+  if (usePostgres()) return pg.pgGetRouteById(routeId);
   const store = await loadStore();
   return store.routeCatalog.find((r) => r.id === routeId) ?? null;
 }
 
 export async function upsertRouteCatalog(route) {
+  if (usePostgres()) return pg.pgUpsertRoute(route, route.ownerId ?? null);
   const store = await loadStore();
   const idx = store.routeCatalog.findIndex((r) => r.id === route.id);
   if (idx >= 0) store.routeCatalog[idx] = route;
@@ -258,17 +290,13 @@ export async function upsertRouteCatalog(route) {
 }
 
 export async function deleteRouteFromCatalog(routeId) {
+  if (usePostgres()) return pg.pgDeleteRoute(routeId);
   const store = await loadStore();
   const before = store.routeCatalog.length;
   store.routeCatalog = store.routeCatalog.filter((r) => r.id !== routeId);
   if (store.routeCatalog.length === before) return false;
   await saveStore();
   return true;
-}
-
-export async function listAllRoutes() {
-  const store = await loadStore();
-  return store.routeCatalog;
 }
 
 function normalizeCatalogStop(body = {}) {
@@ -289,6 +317,7 @@ function stopCatalogKey(en) {
 }
 
 export async function searchStopCatalog(query = '') {
+  if (usePostgres()) return pg.pgSearchStopCatalog(query);
   const store = await loadStore();
   const catalog = store.stopCatalog ?? [];
   const q = query.trim().toLowerCase();
@@ -299,6 +328,11 @@ export async function searchStopCatalog(query = '') {
 }
 
 export async function upsertStopCatalog(entry) {
+  if (usePostgres()) {
+    const next = normalizeCatalogStop(entry);
+    if (!next.en) return null;
+    return pg.pgUpsertStopCatalog(next);
+  }
   const store = await loadStore();
   if (!store.stopCatalog) store.stopCatalog = [];
   const next = normalizeCatalogStop(entry);
@@ -320,6 +354,7 @@ export async function upsertStopCatalog(entry) {
 }
 
 export async function getStopFromCatalog(en) {
+  if (usePostgres()) return pg.pgGetStopFromCatalog(en);
   const store = await loadStore();
   const key = stopCatalogKey(en);
   return (store.stopCatalog ?? []).find((s) => stopCatalogKey(s.en) === key) ?? null;
@@ -431,11 +466,13 @@ function ensureBusProfile(store, busId) {
 }
 
 export async function getBusProfile(busId) {
+  if (usePostgres()) return pg.pgGetBusProfile(busId);
   const store = await loadStore();
   return store.busProfiles?.[busId] ?? null;
 }
 
 export async function upsertBusProfile(busId, patch = {}) {
+  if (usePostgres()) return pg.pgUpsertBusProfile(busId, patch);
   const store = await loadStore();
   const profile = ensureBusProfile(store, busId);
   Object.assign(profile, patch);
@@ -478,6 +515,19 @@ function findBusIdByPlateOrCode(store, plateOrCode) {
 }
 
 export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state = {}) {
+  if (usePostgres()) {
+    const profile = (await pg.pgGetBusProfile(busId)) ?? {};
+    const fromState = state.busProfile ?? {};
+    const patch = {};
+    if (fromState.plate && !profile.plate) {
+      patch.plate = normalizePlate(fromState.plate);
+      patch.plateDisplay = fromState.plateDisplay || fromState.plate;
+    }
+    if (fromState.pairingCode) patch.pairingCode = fromState.pairingCode;
+    if (telemetry.pairingCode && !state.driverLink) patch.pairingCode = telemetry.pairingCode;
+    if (Object.keys(patch).length) return pg.pgUpsertBusProfile(busId, patch);
+    return profile;
+  }
   const store = await loadStore();
   const profile = ensureBusProfile(store, busId);
   const fromState = state.busProfile ?? {};
@@ -519,7 +569,7 @@ export async function pairDriver(driverId, plateOrCode) {
   }
 
   const busRow = store.buses[busId];
-  const online = busRow && Date.now() - busRow.updatedAt < 15000;
+  const online = busRow && Date.now() - busRow.updatedAt < 20000;
   if (!online) {
     return { ok: false, error: 'Bus is offline. Start the bus server first.' };
   }
@@ -610,7 +660,7 @@ export async function getDriverSession(driverId) {
   const busId = driver.linkedBusId;
   const profile = store.busProfiles?.[busId] ?? {};
   const busRow = store.buses[busId];
-  const online = busRow && Date.now() - busRow.updatedAt < 15000;
+  const online = busRow && Date.now() - busRow.updatedAt < 20000;
   const telemetry = busRow?.telemetry ?? {};
 
   return {

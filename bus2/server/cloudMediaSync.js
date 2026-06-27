@@ -7,13 +7,16 @@ const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
 
 const BUS_KEY = process.env.ADKERALA_BUS_KEY ?? '';
 
-function getCloudUrl() {
-  return (process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
+function authHeaders(creds = {}) {
+  return {
+    ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+    ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+  };
 }
 
 /** Download missing media files from cloud admin into db/media/ (offline-first bus storage). */
-export async function syncCloudMedia(root, relativePaths) {
-  const cloudUrl = getCloudUrl();
+export async function syncCloudMedia(root, relativePaths, creds = {}) {
+  const cloudUrl = (creds.cloudUrl ?? process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
   if (!cloudUrl || !relativePaths?.length) return;
 
   const { mediaDir } = getDbPaths(root);
@@ -28,7 +31,7 @@ export async function syncCloudMedia(root, relativePaths) {
 
     try {
       const res = await fetch(`${cloudUrl}/api/media/${relPath}`, {
-        headers: BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {},
+        headers: authHeaders(creds),
       });
       if (!res.ok) continue;
       const buffer = Buffer.from(await res.arrayBuffer());

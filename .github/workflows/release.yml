@@ -38,6 +38,7 @@ jobs:
         run: npm run build:release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_CLOUD_URL: ${{ secrets.ADKERALA_CLOUD_URL }}
 
       - name: Upload PC artifacts
         uses: actions/upload-artifact@v4
@@ -80,11 +81,22 @@ jobs:
 
       - name: Build web + sync Capacitor
         run: npm run build:driver
+        env:
+          VITE_CLOUD_URL: ${{ secrets.ADKERALA_CLOUD_URL }}
 
       - name: Build debug APK (fleet sideload)
         run: cd android && ./gradlew assembleDebug
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Build release APK (when keystore configured)
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: cd android && ./gradlew assembleRelease
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ADKERALA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ADKERALA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ADKERALA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Upload driver APK
         uses: actions/upload-artifact@v4

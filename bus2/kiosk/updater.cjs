@@ -57,6 +57,31 @@ function setupAutoUpdater() {
 
   setTimeout(check, 15000);
   setInterval(check, CHECK_INTERVAL_MS);
+
+  setTimeout(async () => {
+    try {
+      const res = await fetch(`${cloudUrl}/api/releases/pc/latest`);
+      const json = await res.json();
+      const min = json?.minVersion;
+      if (min && compareSemver(APP_VERSION, min) < 0) {
+        console.warn(`AdKerala updater: below minimum PC version (${APP_VERSION} < ${min})`);
+      }
+    } catch {
+      /* cloud offline */
+    }
+  }, 20000);
+}
+
+function compareSemver(a, b) {
+  const pa = String(a ?? '0').split('.').map((n) => Number(n) || 0);
+  const pb = String(b ?? '0').split('.').map((n) => Number(n) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const av = pa[i] ?? 0;
+    const bv = pb[i] ?? 0;
+    if (av > bv) return 1;
+    if (av < bv) return -1;
+  }
+  return 0;
 }
 
 module.exports = { setupAutoUpdater };

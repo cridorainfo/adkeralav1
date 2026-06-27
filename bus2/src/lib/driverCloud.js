@@ -84,6 +84,17 @@ export async function fetchDriverSession(driverId, cloudUrl) {
   return res.json();
 }
 
+export async function sendDriverHeartbeat(driverId, appVersion, cloudUrl) {
+  const url = cloudUrl ?? (await loadCloudUrl());
+  if (!url || !driverId) return { ok: false };
+  const res = await fetch(`${url}/api/driver/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId, appVersion }),
+  });
+  return res.json().catch(() => ({ ok: false }));
+}
+
 export async function pairDriver(driverId, plateOrCode, cloudUrl) {
   const url = cloudUrl ?? (await loadCloudUrl());
   if (!url) return { ok: false, error: 'Cloud URL not configured' };

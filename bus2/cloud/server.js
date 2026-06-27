@@ -24,6 +24,7 @@ import {
   getStopFromCatalog,
   ensureStopCatalogFromRoutes,
   loadStore,
+  saveStore,
   warmUpStore,
   scanCatalogGaps,
   getGlobalPhraseAudio,
@@ -75,6 +76,19 @@ import {
   deleteCampaign,
   pushCampaignToBuses,
 } from './campaigns.js';
+import {
+  enrollDevice,
+  getEnrollmentStatus,
+  claimBusByCode,
+  listPendingEnrollments,
+  revokeBusDevice,
+  verifyBusDeviceToken,
+  findBusIdByDeviceToken,
+} from './fleet.js';
+import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.js';
+import { requestLogger, writeAudit } from './logger.js';
+import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl } from './mediaStorage.js';
+import { usePostgres, getPool } from './db/pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -90,6 +104,9 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
+app.use(requestLogger);
+
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
 
 async function assertBusAccess(req, res, busId) {
   const profile = await getBusProfile(busId);
@@ -131,6 +148,28 @@ function authFleet(req, res, next) {
 }
 
 function authBus(req, res, next) {
+  const busToken = req.headers['x-bus-token'] ?? '';
+  const busId = req.params.busId ?? req.body?.busId ?? null;
+
+  if (busToken) {
+    verifyBusDeviceToken(busId, busToken).then((valid) => {
+      if (!valid) {
+        findBusIdByDeviceToken(busToken).then((resolvedBusId) => {
+          if (resolvedBusId && (!busId || resolvedBusId === busId)) {
+            req.busId = resolvedBusId;
+            next();
+            return;
+          }
+          res.status(401).json({ ok: false, error: 'Invalid bus token' });
+        });
+        return;
+      }
+      req.busId = busId;
+      next();
+    });
+    return;
+  }
+
   const key = req.headers['x-bus-key'] ?? '';
   const expected = process.env.ADKERALA_BUS_KEY ?? '';
   if (expected && key !== expected) {
@@ -165,7 +204,7 @@ app.post('/api/auth/signup', async (req, res) => {
   res.json({ ok: true, user: result.user });
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body ?? {};
   const result = await authenticateUser(email, password);
   if (!result.ok) {
@@ -213,6 +252,56 @@ app.post('/api/buses/register', authFleet, async (req, res) => {
   const { busId, plate } = req.body ?? {};
   const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? null;
   const result = await registerBus({ busId, plate, ownerId });
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/fleet/enroll', enrollLimiter, async (req, res) => {
+  const { installId, fleetClaimCode, appVersion } = req.body ?? {};
+  const result = await enrollDevice({ installId, fleetClaimCode, appVersion });
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get('/api/fleet/enroll/:installId/status', enrollLimiter, async (req, res) => {
+  const result = await getEnrollmentStatus(req.params.installId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/fleet/claim', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
+  const { fleetClaimCode, plate, installId } = req.body ?? {};
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? req.user.id;
+  const result = await claimBusByCode({ fleetClaimCode, plate, ownerId, installId });
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get('/api/fleet/pending', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
+  const pending = await listPendingEnrollments({ ownerId });
+  res.json({ ok: true, pending });
+});
+
+app.post('/api/fleet/revoke/:busId', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
+  const result = await revokeBusDevice(req.params.busId, {
+    ownerId,
+    admin: req.user.role === 'admin',
+  });
   if (!result.ok) {
     res.status(400).json(result);
     return;
@@ -308,6 +397,17 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/health/details', async (_req, res) => {
   try {
     const releases = await getReleaseConfig();
+    const buses = await listBuses({});
+    const onlineCount = buses.filter((b) => Date.now() - b.updatedAt < ONLINE_MS).length;
+    let pgOk = null;
+    if (usePostgres()) {
+      try {
+        await getPool().query('SELECT 1');
+        pgOk = true;
+      } catch {
+        pgOk = false;
+      }
+    }
     res.json({
       ok: true,
       service: 'adkerala-cloud',
@@ -316,6 +416,10 @@ app.get('/api/health/details', async (_req, res) => {
       minDriverVersion: releases.minDriverVersion,
       latestPcVersion: releases.pc?.version ?? null,
       latestDriverVersion: releases.driver?.version ?? null,
+      postgres: pgOk,
+      r2: verifyR2Config(),
+      fleetOnline: onlineCount,
+      fleetTotal: buses.length,
     });
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });
@@ -345,7 +449,7 @@ app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
     res.json({ ok: true, online: false, telemetry: null, state: null, displaySnapshot: null, profile });
     return;
   }
-  const online = Date.now() - row.updatedAt < 15000;
+  const online = Date.now() - row.updatedAt < ONLINE_MS;
   res.json({
     ok: true,
     online,
@@ -380,14 +484,41 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   res.json({ ok: true, profile });
 });
 
-app.post('/api/driver/pair', async (req, res) => {
+app.post('/api/driver/pair', pairLimiter, async (req, res) => {
   const { driverId, plateOrCode } = req.body ?? {};
   const result = await pairDriver(String(driverId ?? '').trim(), plateOrCode);
   if (!result.ok) {
+    await writeAudit('driver.pair.failed', driverId, { plateOrCode, error: result.error });
     res.status(400).json(result);
     return;
   }
   res.json(result);
+});
+
+app.post('/api/driver/heartbeat', async (req, res) => {
+  const { driverId, appVersion } = req.body ?? {};
+  const id = String(driverId ?? '').trim();
+  if (!id) {
+    res.status(400).json({ ok: false, error: 'Missing driverId' });
+    return;
+  }
+  const store = await loadStore();
+  if (!store.drivers) store.drivers = {};
+  store.drivers[id] = {
+    ...(store.drivers[id] ?? {}),
+    appVersion: String(appVersion ?? '').trim() || store.drivers[id]?.appVersion,
+    lastSeenAt: Date.now(),
+  };
+  await saveStore();
+  if (usePostgres()) {
+    await getPool().query(
+      `INSERT INTO drivers (driver_id, app_version, last_seen_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (driver_id) DO UPDATE SET app_version = EXCLUDED.app_version, last_seen_at = EXCLUDED.last_seen_at`,
+      [id, store.drivers[id].appVersion ?? null, Date.now()]
+    );
+  }
+  res.json({ ok: true });
 });
 
 app.post('/api/driver/unlink', async (req, res) => {
@@ -621,9 +752,19 @@ app.post('/api/stops', authCatalog, async (req, res) => {
   res.json({ ok: true, stop });
 });
 
+let contentGapsCache = { at: 0, gaps: [] };
+const CONTENT_GAPS_TTL_MS = 5 * 60 * 1000;
+
 app.get('/api/content-gaps', authCatalog, async (_req, res) => {
+  const now = Date.now();
+  if (now - contentGapsCache.at < CONTENT_GAPS_TTL_MS) {
+    res.json({ ok: true, gaps: contentGapsCache.gaps, cached: true });
+    return;
+  }
+  const routes = await listAllRoutes();
   const store = await loadStore();
-  const gaps = scanCatalogGaps(store.routeCatalog, store.buses);
+  const gaps = scanCatalogGaps(routes, store.buses ?? {});
+  contentGapsCache = { at: now, gaps };
   res.json({ ok: true, gaps });
 });
 
@@ -670,11 +811,19 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   const buffer = Buffer.from(base64, 'base64');
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);
   const relPath = `${category}/${Date.now()}-${safeName}`;
-  const fullPath = path.join(MEDIA_DIR, relPath);
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, buffer);
+  const r2 = await uploadMediaBuffer(relPath, buffer, req.body?.contentType ?? 'application/octet-stream');
+  if (r2.local) {
+    const fullPath = path.join(MEDIA_DIR, relPath);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, buffer);
+  }
 
-  res.json({ ok: true, path: relPath, audioFile: relPath });
+  res.json({
+    ok: true,
+    path: relPath,
+    audioFile: relPath,
+    publicUrl: getPublicMediaUrl(relPath),
+  });
 });
 
 /** Bus pulls missing media from cloud when internet is available. */
@@ -769,6 +918,11 @@ app.get('*', (_req, res) => {
 async function start() {
   await warmUpStore();
   await bootstrapAdminIfNeeded();
+  if (usePostgres()) {
+    setInterval(() => {
+      import('./storePg.js').then((m) => m.pgPruneCommands()).catch(() => {});
+    }, 60 * 60 * 1000);
+  }
   app.listen(PORT, HOST, () => {
     console.log(`\n  AdKerala Cloud Admin v${CLOUD_VERSION}`);
     console.log(`  Listening: http://${HOST}:${PORT}/`);

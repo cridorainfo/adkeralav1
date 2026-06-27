@@ -59,5 +59,5 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
 }
 
 export function isBusOnline(updatedAt) {
-  return updatedAt && Date.now() - updatedAt < 15000;
+  return updatedAt && Date.now() - updatedAt < 20000;
 }

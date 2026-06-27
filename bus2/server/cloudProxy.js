@@ -3,14 +3,18 @@ import { applyCloudCommands } from './cloudCommands.js';
 import { getCloudConfig } from './cloudSync.js';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 
-const CLOUD_URL = () => getCloudConfig().cloudUrl;
+let proxyRoot = null;
+
+function cloudUrl() {
+  return getCloudConfig(proxyRoot).cloudUrl;
+}
 
 export async function searchCloudRoutes(query) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
   const res = await fetch(
-    `${CLOUD_URL()}/api/routes/search?q=${encodeURIComponent(query)}`,
+    `${cloudUrl()}/api/routes/search?q=${encodeURIComponent(query)}`,
     { headers: adminKey ? { 'X-Admin-Key': adminKey } : {} }
   );
   return res.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
@@ -18,13 +22,13 @@ export async function searchCloudRoutes(query) {
 
 export async function matchCloudRoutesByEndpoints(startEn, endEn) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
   const params = new URLSearchParams({
     start: String(startEn ?? ''),
     end: String(endEn ?? ''),
   });
-  const res = await fetch(`${CLOUD_URL()}/api/routes/match?${params}`, {
+  const res = await fetch(`${cloudUrl()}/api/routes/match?${params}`, {
     headers: adminKey ? { 'X-Admin-Key': adminKey } : {},
   });
   return res.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
@@ -32,9 +36,9 @@ export async function matchCloudRoutesByEndpoints(startEn, endEn) {
 
 export async function fetchCloudRoute(routeId) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return null;
+  if (!cloudUrl()) return null;
 
-  const res = await fetch(`${CLOUD_URL()}/api/routes/${encodeURIComponent(routeId)}`, {
+  const res = await fetch(`${cloudUrl()}/api/routes/${encodeURIComponent(routeId)}`, {
     headers: adminKey ? { 'X-Admin-Key': adminKey } : {},
   });
   const json = await res.json().catch(() => null);
@@ -43,10 +47,10 @@ export async function fetchCloudRoute(routeId) {
 
 export async function searchCloudStops(query) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
   const res = await fetch(
-    `${CLOUD_URL()}/api/stops/search?q=${encodeURIComponent(query)}`,
+    `${cloudUrl()}/api/stops/search?q=${encodeURIComponent(query)}`,
     { headers: adminKey ? { 'X-Admin-Key': adminKey } : {} }
   );
   return res.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
@@ -54,9 +58,9 @@ export async function searchCloudStops(query) {
 
 export async function fetchAllCloudStops() {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
-  const res = await fetch(`${CLOUD_URL()}/api/stops`, {
+  const res = await fetch(`${cloudUrl()}/api/stops`, {
     headers: adminKey ? { 'X-Admin-Key': adminKey } : {},
   });
   return res.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
@@ -64,9 +68,9 @@ export async function fetchAllCloudStops() {
 
 export async function upsertCloudStop(stop) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
-  const res = await fetch(`${CLOUD_URL()}/api/stops`, {
+  const res = await fetch(`${cloudUrl()}/api/stops`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -79,9 +83,9 @@ export async function upsertCloudStop(stop) {
 
 export async function publishCloudRoute(route) {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
-  const res = await fetch(`${CLOUD_URL()}/api/routes`, {
+  const res = await fetch(`${cloudUrl()}/api/routes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -94,9 +98,9 @@ export async function publishCloudRoute(route) {
 
 export async function fetchAllCloudRoutes() {
   const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-  if (!CLOUD_URL()) return { ok: false, error: 'Cloud not configured' };
+  if (!cloudUrl()) return { ok: false, error: 'Cloud not configured' };
 
-  const res = await fetch(`${CLOUD_URL()}/api/routes`, {
+  const res = await fetch(`${cloudUrl()}/api/routes`, {
     headers: adminKey ? { 'X-Admin-Key': adminKey } : {},
   });
   return res.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
@@ -155,8 +159,11 @@ export async function assignRouteLocally(root, route) {
 }
 
 export function setupCloudProxy(app, root) {
+  proxyRoot = root;
+  const cloudConfig = () => getCloudConfig(root);
+
   app.get('/api/cloud/config', (_req, res) => {
-    res.json({ ok: true, ...getCloudConfig() });
+    res.json({ ok: true, ...cloudConfig() });
   });
 
   app.get('/api/cloud/routes/search', async (req, res) => {
@@ -255,13 +262,13 @@ export function setupCloudProxy(app, root) {
   app.post('/api/cloud/driver/unlink', async (_req, res) => {
     try {
       const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
-      const busId = getCloudConfig().busId;
-      if (!CLOUD_URL()) {
+      const busId = getCloudConfig(root).busId;
+      if (!cloudUrl()) {
         res.status(400).json({ ok: false, error: 'Cloud not configured' });
         return;
       }
       const cloudRes = await fetch(
-        `${CLOUD_URL()}/api/buses/${encodeURIComponent(busId)}/unlink-driver`,
+        `${cloudUrl()}/api/buses/${encodeURIComponent(busId)}/unlink-driver`,
         {
           method: 'POST',
           headers: {

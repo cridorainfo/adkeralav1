@@ -64,6 +64,13 @@ export default function FleetPanel({ allowRegister = false }) {
     refreshSelected();
   }
 
+  async function revokeDevice() {
+    if (!selectedBusId || !window.confirm(`Revoke device credentials for ${selectedBusId}?`)) return;
+    await api(`/api/fleet/revoke/${encodeURIComponent(selectedBusId)}`, { method: 'POST' });
+    setMessage('Device revoked — bus must be re-claimed');
+    refreshSelected();
+  }
+
   return (
     <>
       <div className="grid-2">
@@ -128,6 +135,9 @@ export default function FleetPanel({ allowRegister = false }) {
             </button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={unlinkDriver}>
               Unlink driver
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={revokeDevice}>
+              Revoke device
             </button>
           </div>
           {message && <p className="hint">{message}</p>}
