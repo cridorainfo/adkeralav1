@@ -9,6 +9,8 @@ const STORE_FILE = path.join(DATA_DIR, 'store.json');
 
 const defaultStore = () => ({
   buses: {},
+  busProfiles: {},
+  drivers: {},
   commands: [],
   stopCatalog: [],
   globalAudioFragments: {},
@@ -71,6 +73,7 @@ export async function upsertBusTelemetry(busId, { telemetry, state, displaySnaps
     displaySnapshot: displaySnapshot ?? null,
     updatedAt: Date.now(),
   };
+  await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
   await saveStore();
   return store.buses[busId];
 }
@@ -364,4 +367,232 @@ export function scanCatalogGaps(routeCatalog, busStates = {}) {
   }
 
   return gaps;
+}
+
+export function normalizePlate(plate) {
+  return String(plate ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+}
+
+export function formatPlateDisplay(plate) {
+  const n = normalizePlate(plate);
+  if (!n) return '';
+  return n;
+}
+
+export function generatePairingCode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function ensureBusProfile(store, busId) {
+  if (!store.busProfiles) store.busProfiles = {};
+  if (!store.busProfiles[busId]) {
+    store.busProfiles[busId] = {
+      plate: '',
+      plateDisplay: '',
+      pairingCode: generatePairingCode(),
+      linkedDriverId: null,
+      linkedAt: null,
+    };
+  }
+  return store.busProfiles[busId];
+}
+
+export async function getBusProfile(busId) {
+  const store = await loadStore();
+  return store.busProfiles?.[busId] ?? null;
+}
+
+export async function upsertBusProfile(busId, patch = {}) {
+  const store = await loadStore();
+  const profile = ensureBusProfile(store, busId);
+  Object.assign(profile, patch);
+  await saveStore();
+  return profile;
+}
+
+export async function setBusProfilePlate(busId, plateInput) {
+  const store = await loadStore();
+  const profile = ensureBusProfile(store, busId);
+  const plate = normalizePlate(plateInput);
+  profile.plate = plate;
+  profile.plateDisplay = String(plateInput ?? '').trim() || plate;
+  if (!profile.pairingCode) profile.pairingCode = generatePairingCode();
+  await saveStore();
+  return profile;
+}
+
+function findBusIdByPlateOrCode(store, plateOrCode) {
+  const raw = String(plateOrCode ?? '').trim();
+  if (!raw) return null;
+
+  const asPlate = normalizePlate(raw);
+  const asCode = raw.replace(/\D/g, '');
+
+  for (const [busId, profile] of Object.entries(store.busProfiles ?? {})) {
+    if (profile.plate && profile.plate === asPlate) return busId;
+    if (profile.pairingCode && profile.pairingCode === asCode) return busId;
+  }
+
+  for (const [busId, row] of Object.entries(store.buses ?? {})) {
+    const tel = row.telemetry ?? {};
+    const stateProfile = row.state?.busProfile ?? {};
+    if (stateProfile.plate && stateProfile.plate === asPlate) return busId;
+    if (tel.pairingCode && tel.pairingCode === asCode) return busId;
+    if (stateProfile.pairingCode && stateProfile.pairingCode === asCode) return busId;
+  }
+
+  return null;
+}
+
+export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state = {}) {
+  const store = await loadStore();
+  const profile = ensureBusProfile(store, busId);
+  const fromState = state.busProfile ?? {};
+
+  if (fromState.plate && !profile.plate) {
+    profile.plate = normalizePlate(fromState.plate);
+    profile.plateDisplay = fromState.plateDisplay || fromState.plate;
+  }
+  if (fromState.pairingCode) profile.pairingCode = fromState.pairingCode;
+  if (telemetry.pairingCode && !state.driverLink) {
+    profile.pairingCode = telemetry.pairingCode;
+  }
+
+  await saveStore();
+  return profile;
+}
+
+async function queueDriverLinkMerge(busId, payload) {
+  return enqueueCommand(busId, 'MERGE_STATE', {
+    ...payload,
+    savedAt: Date.now(),
+  });
+}
+
+export async function pairDriver(driverId, plateOrCode) {
+  const store = await loadStore();
+  if (!driverId) return { ok: false, error: 'Missing driverId' };
+
+  if (!store.drivers) store.drivers = {};
+  const driver = store.drivers[driverId] ?? { linkedBusId: null, linkedAt: null, label: 'Driver' };
+
+  if (driver.linkedBusId) {
+    return { ok: false, error: 'Driver already linked to a bus. Unlink first.' };
+  }
+
+  const busId = findBusIdByPlateOrCode(store, plateOrCode);
+  if (!busId) {
+    return { ok: false, error: 'Bus not found. Check plate or code.' };
+  }
+
+  const busRow = store.buses[busId];
+  const online = busRow && Date.now() - busRow.updatedAt < 15000;
+  if (!online) {
+    return { ok: false, error: 'Bus is offline. Start the bus server first.' };
+  }
+
+  const profile = ensureBusProfile(store, busId);
+  if (profile.linkedDriverId && profile.linkedDriverId !== driverId) {
+    return { ok: false, error: 'Bus already linked to another driver.' };
+  }
+
+  const linkedAt = Date.now();
+  profile.linkedDriverId = driverId;
+  profile.linkedAt = linkedAt;
+  store.drivers[driverId] = {
+    ...driver,
+    linkedBusId: busId,
+    linkedAt,
+  };
+
+  await saveStore();
+  await queueDriverLinkMerge(busId, {
+    driverLink: { driverId, linkedAt },
+    busProfile: {
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+      pairingCode: profile.pairingCode,
+    },
+  });
+
+  return {
+    ok: true,
+    busId,
+    plate: profile.plateDisplay || profile.plate,
+    pairingCode: profile.pairingCode,
+    linkedAt,
+  };
+}
+
+export async function unlinkDriver(driverId) {
+  const store = await loadStore();
+  if (!driverId) return { ok: false, error: 'Missing driverId' };
+
+  const driver = store.drivers?.[driverId];
+  if (!driver?.linkedBusId) {
+    return { ok: false, error: 'Driver is not linked.' };
+  }
+
+  const busId = driver.linkedBusId;
+  const profile = ensureBusProfile(store, busId);
+  const newCode = generatePairingCode();
+
+  profile.linkedDriverId = null;
+  profile.linkedAt = null;
+  profile.pairingCode = newCode;
+  driver.linkedBusId = null;
+  driver.linkedAt = null;
+
+  await saveStore();
+  await queueDriverLinkMerge(busId, {
+    driverLink: null,
+    busProfile: {
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+      pairingCode: newCode,
+    },
+  });
+
+  return { ok: true, busId, pairingCode: newCode };
+}
+
+export async function unlinkDriverByBusId(busId) {
+  const store = await loadStore();
+  const profile = store.busProfiles?.[busId];
+  if (!profile?.linkedDriverId) {
+    return { ok: false, error: 'No driver linked to this bus.' };
+  }
+  return unlinkDriver(profile.linkedDriverId);
+}
+
+export async function getDriverSession(driverId) {
+  const store = await loadStore();
+  if (!driverId) return { ok: false, error: 'Missing driverId' };
+
+  const driver = store.drivers?.[driverId];
+  if (!driver?.linkedBusId) {
+    return { ok: true, linked: false, driverId };
+  }
+
+  const busId = driver.linkedBusId;
+  const profile = store.busProfiles?.[busId] ?? {};
+  const busRow = store.buses[busId];
+  const online = busRow && Date.now() - busRow.updatedAt < 15000;
+  const telemetry = busRow?.telemetry ?? {};
+
+  return {
+    ok: true,
+    linked: true,
+    driverId,
+    busId,
+    plate: profile.plateDisplay || profile.plate || busId,
+    pairingCode: profile.pairingCode ?? null,
+    lanIp: telemetry.lanIp ?? null,
+    controlPort: telemetry.controlPort ?? 5174,
+    online: Boolean(online),
+    linkedAt: driver.linkedAt ?? profile.linkedAt ?? null,
+  };
 }

@@ -34,7 +34,8 @@ export function applyCloudCommands(current, commands) {
       }
 
       case 'MERGE_STATE': {
-        const { stopAudio, audioFragments, routes, savedAt, ...rest } = payload;
+        const { stopAudio, audioFragments, routes, savedAt, driverLink, busProfile, ...rest } =
+          payload;
         if (Array.isArray(routes)) {
           next.routes = dedupeRoutes(routes);
         }
@@ -47,6 +48,12 @@ export function applyCloudCommands(current, commands) {
             : {}),
           savedAt: savedAt ?? Date.now(),
         };
+        if ('driverLink' in payload) {
+          next.driverLink = driverLink ?? null;
+        }
+        if (busProfile && typeof busProfile === 'object') {
+          next.busProfile = { ...(next.busProfile ?? {}), ...busProfile };
+        }
         break;
       }
 

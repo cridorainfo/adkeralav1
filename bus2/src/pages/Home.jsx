@@ -20,6 +20,17 @@ export default function Home() {
 
       <div className="home-cards">
         <div className="home-card">
+          <span className="home-card-icon">📱</span>
+          <h2>Driver app — Pair &amp; control</h2>
+          <p>
+            Enter the plate or 4-digit code from the bus display, then open control over bus Wi‑Fi.
+          </p>
+          <Link to="/driver" className="home-card-btn control">
+            Open Driver connect →
+          </Link>
+        </div>
+
+        <div className="home-card">
           <span className="home-card-icon">🎛️</span>
           <h2>Control — Driver Phone</h2>
           <p>

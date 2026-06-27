@@ -1,24 +1,24 @@
 # Kerala Bus Display MVP
 
-AdKerala — bus route display and advertising platform with **split control/display URLs**, driver phone sync, and optional **cloud admin dashboard**.
+AdKerala â€” bus route display and advertising platform with **split control/display URLs**, driver phone sync, and optional **cloud admin dashboard**.
 
 ## Screens
 
 | Screen | URL | Device |
 |--------|-----|--------|
-| Home | `/` | Setup — shows LAN URLs |
-| **Display** | `/display` | **Bus PC** — passenger screen (always live) |
-| **Control** | `/control` | **Driver phone** — routes, drive, settings |
+| Home | `/` | Setup â€” shows LAN URLs |
+| **Display** | `/display` | **Bus PC** â€” passenger screen (always live) |
+| **Control** | `/control` | **Driver phone** â€” routes, drive, settings |
 
 ## Quick Start
 
-**Bus PC** — double-click `run.bat` (opens `/display?autofs=1` fullscreen).
+**Bus PC** â€” double-click `run.bat` (opens `/display?autofs=1` fullscreen).
 
-The **local admin dashboard** starts automatically with `npm run dev` at **http://127.0.0.1:8787** (default API key: `local-dev-key`). You’ll also see an **Admin** card on the home page at http://127.0.0.1:5174/.
+The **local admin dashboard** starts automatically with `npm run dev` at **http://127.0.0.1:8787** (default API key: `local-dev-key`). Youâ€™ll also see an **Admin** card on the home page at http://127.0.0.1:5174/.
 
 To use a **remote** cloud admin (e.g. Railway) instead, set `ADKERALA_CLOUD_URL` and disable the embedded admin with `ADKERALA_LOCAL_ADMIN=0`.
 
-**Driver phone** — on the same Wi‑Fi, open the **Control** URL printed in the server window, e.g.:
+**Driver phone** â€” on the same Wiâ€‘Fi, open the **Control** URL printed in the server window, e.g.:
 
 `http://192.168.1.10:5174/control`
 
@@ -34,27 +34,27 @@ npm run dev
 
 - Both `/control` and `/display` poll `GET /api/state` every ~1.5s.
 - Driver changes (route, forward, announce, settings) save to `db/info.txt` via `POST /api/state`.
-- Bus display picks up changes automatically — no refresh needed.
+- Bus display picks up changes automatically â€” no refresh needed.
 
 ## Data storage (`db/` folder)
 
 | Location | What it stores |
 |----------|----------------|
-| **`db/info.txt`** | Routes, stops, ads, live sync fields (`savedAt`, `displayView`, …) |
+| **`db/info.txt`** | Routes, stops, ads, live sync fields (`savedAt`, `displayView`, â€¦) |
 | **`db/media/`** | Ad images/videos, banner ads, announcement audio |
 
-## Phase 1 — GPS, fleet cloud, per-bus commands
+## Phase 1 â€” GPS, fleet cloud, per-bus commands
 
 ### Admin route & voice editing
 
-Open **http://127.0.0.1:8787** (starts automatically with `npm run dev`) → **Route editor** tab:
+Open **http://127.0.0.1:8787** (starts automatically with `npm run dev`) â†’ **Route editor** tab:
 
 - Create/edit routes, start/end/middle stops (English, Malayalam, GPS)
-- **Save catalog** — persists to cloud `store.json`
-- **Push route to bus** — queues `UPSERT_ROUTE`; bus applies when online into `db/info.txt`
-- **Assign & activate** — sets active route on the bus PC
+- **Save catalog** â€” persists to cloud `store.json`
+- **Push route to bus** â€” queues `UPSERT_ROUTE`; bus applies when online into `db/info.txt`
+- **Assign & activate** â€” sets active route on the bus PC
 - Upload **stop name audio** per stop (stored on cloud, downloaded to `db/media/stops/` when bus syncs)
-- **Content gaps** tab — fix missing Malayalam/GPS/audio metadata
+- **Content gaps** tab â€” fix missing Malayalam/GPS/audio metadata
 
 All bus data stays **local-first** (`db/info.txt` + `db/media/`). Cloud commands queue until the bus PC has internet, then sync every ~5 seconds.
 
@@ -69,12 +69,12 @@ All bus data stays **local-first** (`db/info.txt` + `db/media/`). Cloud commands
 Add to stops in routes or cloud catalog:
 
 ```json
-{ "en": "Kollam", "ml": "കൊല്ലം", "lat": 8.8932, "lng": 76.6141, "radiusM": 80 }
+{ "en": "Kollam", "ml": "à´•àµŠà´²àµà´²à´‚", "lat": 8.8932, "lng": 76.6141, "radiusM": 80 }
 ```
 
 ### Run cloud admin + connect bus
 
-**Terminal 1 — cloud (admin dashboard):**
+**Terminal 1 â€” cloud (admin dashboard):**
 ```bash
 cd bus2
 set ADKERALA_ADMIN_KEY=your-secret-key
@@ -82,7 +82,7 @@ npm run cloud
 # http://localhost:8787
 ```
 
-**Terminal 2 — bus:**
+**Terminal 2 â€” bus:**
 ```bash
 set ADKERALA_CLOUD_URL=http://localhost:8787
 set ADKERALA_BUS_ID=bus-1
@@ -91,24 +91,24 @@ npm run dev
 ```
 
 Admin dashboard tabs:
-- **Fleet map** — live GPS for all buses
-- **Live bus** — telemetry + passenger screen mirror
-- **Ads** — push ads to one bus only
-- **Content gaps** — missing Malayalam/audio; fix and push to selected bus
-- **Route catalog** — search and assign route to one bus
+- **Fleet map** â€” live GPS for all buses
+- **Live bus** â€” telemetry + passenger screen mirror
+- **Ads** â€” push ads to one bus only
+- **Content gaps** â€” missing Malayalam/audio; fix and push to selected bus
+- **Route catalog** â€” search and assign route to one bus
 
 ### Driver: search cloud routes
 
-On `/control` → Routes tab → **Cloud routes** (when cloud is configured on bus PC).
+On `/control` â†’ Routes tab â†’ **Cloud routes** (when cloud is configured on bus PC).
 
 ## Cloud admin dashboard (optional)
 
-**Yes — remote admin over the internet is supported** via an outbound sync model (bus pushes to cloud; admin does not need direct access to the bus network).
+**Yes â€” remote admin over the internet is supported** via an outbound sync model (bus pushes to cloud; admin does not need direct access to the bus network).
 
 ### Architecture
 
 ```
-Admin browser  ←→  Cloud server (hosted)  ←←  Bus PC (outbound sync every 5s)
+Admin browser  â†â†’  Cloud server (hosted)  â†â†  Bus PC (outbound sync every 5s)
 ```
 
 ### Run cloud server locally (or deploy to Railway, Render, VPS)
@@ -140,7 +140,7 @@ The bus server pushes telemetry (route, stop, display mode, ads count) and pulls
 
 - Bus needs **mobile internet** (4G dongle / phone hotspot) for cloud sync.
 - Deploy `cloud/` to a public HTTPS host.
-- Extend admin dashboard for media upload (S3/Cloudflare R2) — current MVP queues ad metadata; media files must exist in `db/media/` or be added via a future upload API.
+- Extend admin dashboard for media upload (S3/Cloudflare R2) â€” current MVP queues ad metadata; media files must exist in `db/media/` or be added via a future upload API.
 
 ## ESP32 serial
 
@@ -148,24 +148,24 @@ USB serial buttons run on the **bus PC** (`/display?autofs=1`). Driver phone use
 
 ## Keyboard shortcuts (control)
 
-- **Ctrl+F** — trigger display-related action
-- **Ctrl+E** — focus control (when embedded)
+- **Ctrl+F** â€” trigger display-related action
+- **Ctrl+E** â€” focus control (when embedded)
 
 ## MVP Notes
 
 - Server listens on `0.0.0.0:5174` for LAN phone access.
-- Use the same Wi‑Fi for bus PC and driver phone.
-- Do not mix `127.0.0.1` and `localhost` across tabs — they are different origins.
+- Use the same Wiâ€‘Fi for bus PC and driver phone.
+- Do not mix `127.0.0.1` and `localhost` across tabs â€” they are different origins.
 
 ## Deploy cloud admin to Railway
 
-**Important:** Only the **`cloud/`** admin server belongs on Railway — **not** the full bus app.
+**Important:** Only the **`cloud/`** admin server belongs on Railway â€” **not** the full bus app.
 
 | Component | Where it runs | Why |
 |-----------|---------------|-----|
 | **Cloud admin** (`cloud/`) | Railway (HTTPS) | Fleet map, ads, route catalog, admin dashboard |
 | **Bus server** (`npm run dev`) | Bus PC (local) | Passenger display, driver LAN sync, `db/` media |
-| **Driver phone** | Browser → bus PC LAN | Low-latency `/control` sync |
+| **Driver phone** | Browser â†’ bus PC LAN | Low-latency `/control` sync |
 
 The bus app is **not ready** to replace the on-board PC with Railway alone. Buses still run `npm run dev` locally and **push outbound** to Railway.
 
@@ -178,34 +178,35 @@ The bus app is **not ready** to replace the on-board PC with Railway alone. Buse
 | Health check `/api/health` | Yes |
 | HTTPS for driver GPS (via cloud telemetry) | Yes (Railway provides TLS) |
 | Persistent data | **Add Railway Volume** (see below) |
-| PostgreSQL | Not yet — file store for MVP |
-| Media upload (S3/R2) | Not yet — ad JSON only |
+| PostgreSQL | Not yet â€” file store for MVP |
+| Media upload (S3/R2) | Not yet â€” ad JSON only |
 
 ### Step-by-step: Railway deploy
 
 1. **Push code to GitHub** (repo root = `bus2` folder or monorepo).
 
-2. **Create Railway project** → [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
+2. **Create Railway project** â†’ [railway.app](https://railway.app) â†’ **New Project** â†’ **Deploy from GitHub repo**.
 
-3. **Set root directory** to `cloud`:
-   - Service → **Settings** → **Root Directory** → `cloud`
+3. **Set root directory** to `bus2/cloud` (monorepo `adkeralav1` on GitHub):
+   - Service â†’ **Settings** â†’ **Root Directory** â†’ `bus2/cloud`
+   - Config-as-code: `bus2/cloud/railway.toml` (Dockerfile builder; not repo root or `cloud` alone)
 
-4. **Environment variables** (Service → **Variables**):
+4. **Environment variables** (Service â†’ **Variables**):
 
    | Variable | Value |
    |----------|--------|
    | `ADKERALA_ADMIN_KEY` | Long random secret (admin dashboard login) |
-   | `ADKERALA_BUS_KEY` | Optional — same value on every bus PC |
+   | `ADKERALA_BUS_KEY` | Optional â€” same value on every bus PC |
    | `NODE_ENV` | `production` |
 
-   Railway sets `PORT` automatically — do not override it.
+   Railway sets `PORT` automatically â€” do not override it.
 
-5. **Add a Volume** (recommended — data survives redeploys):
-   - Service → **Volumes** → **Add Volume**
+5. **Add a Volume** (recommended â€” data survives redeploys):
+   - Service â†’ **Volumes** â†’ **Add Volume**
    - Mount path: `/data`
    - Variable: `DATA_DIR` = `/data`
 
-6. **Deploy** → Railway builds `cloud/package.json` and runs `npm start`.
+6. **Deploy** â†’ Railway builds from `bus2/cloud/Dockerfile` (`npm ci` + `node server.js`).
 
 7. **Copy your public URL** e.g. `https://adkerala-cloud-production.up.railway.app`
 
@@ -227,23 +228,23 @@ $env:ADKERALA_BUS_KEY="optional-bus-key"
 npm run dev
 ```
 
-Use a **unique** `ADKERALA_BUS_ID` per vehicle (`bus-1`, `bus-2`, …).
+Use a **unique** `ADKERALA_BUS_ID` per vehicle (`bus-1`, `bus-2`, â€¦).
 
 For a permanent setup, set these as Windows user environment variables or a `.env` loader script.
 
 ### Admin dashboard
 
-Open `https://YOUR-APP.up.railway.app` → enter **Admin API key** → select bus ID → use Fleet map / Ads / Content gaps.
+Open `https://YOUR-APP.up.railway.app` â†’ enter **Admin API key** â†’ select bus ID â†’ use Fleet map / Ads / Content gaps.
 
 ### Driver phone GPS over HTTPS
 
-- Driver opens `http://192.168.x.x:5174/control` on **bus Wi‑Fi** (LAN) — still fine for drive controls.
+- Driver opens `http://192.168.x.x:5174/control` on **bus Wiâ€‘Fi** (LAN) â€” still fine for drive controls.
 - GPS telemetry reaches Railway via the **bus PC cloud sync** (every ~5s), not directly from the phone to Railway.
-- For phone GPS in the browser, production eventually needs HTTPS on the bus LAN or a tunnel — Phase 2.
+- For phone GPS in the browser, production eventually needs HTTPS on the bus LAN or a tunnel â€” Phase 2.
 
 ### What breaks without a Volume
 
-Railway’s disk is **ephemeral**. Without a Volume, bus telemetry, command queue, and catalog edits **reset on redeploy**. Always attach a Volume at `/data` with `DATA_DIR=/data`.
+Railwayâ€™s disk is **ephemeral**. Without a Volume, bus telemetry, command queue, and catalog edits **reset on redeploy**. Always attach a Volume at `/data` with `DATA_DIR=/data`.
 
 ### Not on Railway yet (future)
 

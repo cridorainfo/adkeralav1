@@ -32,6 +32,8 @@ export default function ControlScreen({
   driverMode = false,
   gpsPermission = 'unknown',
   onRequestGps,
+  gpsDriveStatus = null,
+  isGpsDriveMode = false,
 }) {
   const {
     state,
@@ -67,6 +69,7 @@ export default function ControlScreen({
     updateBannerAdSettings,
     updateDisplaySettings,
     updateAnnouncementSettings,
+    updateDriveSettings,
     updateAudioFragment,
     clearAudioFragment,
     updateStopAudioClip,
@@ -76,6 +79,7 @@ export default function ControlScreen({
   } = useBusStore();
 
   const [tab, setTab] = useState('drive');
+  const [unlinkStatus, setUnlinkStatus] = useState('');
   const [, tick] = useState(0);
   const [adsUnlocked, setAdsUnlocked] = useState(false);
   const [adsPasswordInput, setAdsPasswordInput] = useState('');
@@ -99,6 +103,17 @@ export default function ControlScreen({
     },
     [selectRoute, driverMode]
   );
+
+  const handleUnlinkDriver = useCallback(async () => {
+    setUnlinkStatus('Unlinking…');
+    try {
+      const res = await fetch('/api/cloud/driver/unlink', { method: 'POST' });
+      const json = await res.json();
+      setUnlinkStatus(json.ok ? 'Driver unlinked — new code on display' : (json.error ?? 'Failed'));
+    } catch {
+      setUnlinkStatus('Could not reach cloud');
+    }
+  }, []);
 
   const handleRouteActivated = useCallback(() => {
     if (driverMode) setTab('drive');
@@ -149,6 +164,8 @@ export default function ControlScreen({
     state.displayView === 'ad' || (tripStarted && !tripEnded) || tripEnded;
 
   const gps = state.driverLocation;
+  const driveSettings = state.driveSettings ?? {};
+  const driveMode = driveSettings.mode ?? 'manual';
   const nearestStop =
     gps?.lat != null && gps?.lng != null ? findNearestStopOnRoute(state, gps.lat, gps.lng) : null;
   const atStop =
@@ -420,6 +437,50 @@ export default function ControlScreen({
                   </div>
                 )}
 
+                {driverMode && (
+                  <div className="drive-mode-card">
+                    <div className="drive-mode-header">
+                      <span className="drive-mode-label">Stop advance mode</span>
+                      <div className="drive-mode-toggle" role="group" aria-label="Stop advance mode">
+                        <button
+                          type="button"
+                          className={driveMode === 'manual' ? 'active' : ''}
+                          onClick={() => updateDriveSettings({ mode: 'manual' })}
+                        >
+                          Manual
+                        </button>
+                        <button
+                          type="button"
+                          className={driveMode === 'gps' ? 'active' : ''}
+                          onClick={() => updateDriveSettings({ mode: 'gps' })}
+                        >
+                          GPS auto
+                        </button>
+                      </div>
+                    </div>
+                    {driveMode === 'manual' ? (
+                      <p className="drive-mode-hint">
+                        Press <strong>Forward</strong> when the bus leaves each stop.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="drive-mode-hint">
+                          Stops advance automatically when the bus leaves a stop geofence.
+                          Announcements use the same rules as manual Forward.
+                        </p>
+                        {gpsDriveStatus?.message && (
+                          <p className={`gps-drive-status phase-${gpsDriveStatus.phase ?? 'watching'}`}>
+                            {gpsDriveStatus.message}
+                          </p>
+                        )}
+                        {!isGpsDriveMode && (
+                          <p className="drive-mode-hint">Switch to GPS auto to enable.</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 <div className="stop-display-mini">
                   <div className="current-label">
                     {!tripStarted
@@ -516,12 +577,19 @@ export default function ControlScreen({
                       use <strong>Forward</strong> each time the bus leaves a stop.
                     </>
                   )}
-                  {showForwardButton && (
+                  {showForwardButton && driveMode === 'manual' && (
                     <>
                       Press <strong>Forward</strong> only when the bus <strong>leaves</strong> a stop —
                       the display and announcement move to the next stop. Use{' '}
                       <strong>Announce</strong> to repeat the current next stop anytime. Use{' '}
                       <strong>Undo</strong> if Forward was pressed by mistake.
+                    </>
+                  )}
+                  {showForwardButton && driveMode === 'gps' && (
+                    <>
+                      <strong>GPS auto</strong> advances when you leave each stop.{' '}
+                      <strong>Forward</strong> still works as a backup. Use <strong>Undo</strong> if
+                      needed.
                     </>
                   )}
                   {showEndButton && (
@@ -892,6 +960,21 @@ export default function ControlScreen({
             <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginTop: '0.5rem' }}>
               Banner ads rotate while stop details are shown. They are hidden during fullscreen ads.
             </p>
+
+            {state.driverLink?.driverId && (
+              <>
+                <h4 className="settings-section-title">Driver pairing</h4>
+                <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginBottom: '0.75rem' }}>
+                  A driver app is linked to this bus. Unlink to show a new pairing code on the display.
+                </p>
+                <button type="button" className="btn secondary" onClick={handleUnlinkDriver}>
+                  Unlink driver
+                </button>
+                {unlinkStatus && (
+                  <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{unlinkStatus}</p>
+                )}
+              </>
+            )}
 
             {!driverMode && (
               <SerialSettings

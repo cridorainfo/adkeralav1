@@ -1,0 +1,232 @@
+import { useCallback, useEffect, useState } from 'react';
+import { APP_NAME } from '../lib/brand';
+import {
+  controlUrlForSession,
+  ensureDriverId,
+  fetchDriverSession,
+  loadCloudUrl,
+  pairDriver,
+  setCloudUrl,
+  unlinkDriver,
+} from '../lib/driverCloud';
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export default function DriverConnect() {
+  const [driverId, setDriverId] = useState('');
+  const [cloudUrl, setCloudUrlState] = useState('');
+  const [cloudDraft, setCloudDraft] = useState('');
+  const [session, setSession] = useState(null);
+  const [plateOrCode, setPlateOrCode] = useState('');
+  const [status, setStatus] = useState('Loading…');
+  const [busy, setBusy] = useState(false);
+  const [needsCloudUrl, setNeedsCloudUrl] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [id, url] = await Promise.all([ensureDriverId(), loadCloudUrl()]);
+      if (cancelled) return;
+      setDriverId(id);
+      setCloudUrlState(url);
+      setCloudDraft(url);
+      setNeedsCloudUrl(!url);
+      setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    if (!driverId) return null;
+    const url = cloudUrl || (await loadCloudUrl());
+    if (!url) {
+      setNeedsCloudUrl(true);
+      setStatus('Set your cloud URL to continue.');
+      return null;
+    }
+    setNeedsCloudUrl(false);
+    setCloudUrlState(url);
+    try {
+      const json = await fetchDriverSession(driverId, url);
+      if (!json.ok && !json.linked) {
+        setStatus(json.error ?? 'Could not reach cloud');
+        setSession(null);
+        return null;
+      }
+      setSession(json);
+      if (json.linked) {
+        setStatus(json.online ? 'Linked — bus online' : 'Linked — waiting for bus Wi‑Fi');
+      } else {
+        setStatus('Not linked — enter plate or code from the bus display');
+      }
+      return json;
+    } catch {
+      setStatus('Cloud unreachable. Check URL and network.');
+      setSession(null);
+      return null;
+    }
+  }, [driverId, cloudUrl]);
+
+  useEffect(() => {
+    if (!ready || !driverId) return undefined;
+    refreshSession();
+    const id = setInterval(refreshSession, 5000);
+    return () => clearInterval(id);
+  }, [ready, driverId, refreshSession]);
+
+  const saveCloudUrl = async () => {
+    await setCloudUrl(cloudDraft);
+    const url = cloudDraft.trim().replace(/\/$/, '');
+    setCloudUrlState(url);
+    setNeedsCloudUrl(false);
+    refreshSession();
+  };
+
+  const handlePair = async (e) => {
+    e.preventDefault();
+    if (!plateOrCode.trim() || !driverId) return;
+    setBusy(true);
+    setStatus('Pairing…');
+    try {
+      const json = await pairDriver(driverId, plateOrCode, cloudUrl);
+      if (!json.ok) {
+        setStatus(json.error ?? 'Pair failed');
+        return;
+      }
+      setStatus('Linked — finding bus on Wi‑Fi…');
+      for (let i = 0; i < 12; i += 1) {
+        const next = await fetchDriverSession(driverId, cloudUrl);
+        if (next?.linked && next.lanIp) {
+          setSession(next);
+          const controlUrl = controlUrlForSession(next);
+          if (controlUrl) {
+            window.location.href = controlUrl;
+            return;
+          }
+        }
+        await sleep(2000);
+      }
+      await refreshSession();
+      setStatus('Linked — tap Open control when on bus Wi‑Fi');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!driverId) return;
+    setBusy(true);
+    try {
+      const json = await unlinkDriver(driverId, cloudUrl);
+      setStatus(json.ok ? 'Unlinked' : (json.error ?? 'Unlink failed'));
+      await refreshSession();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openControl = () => {
+    const url = controlUrlForSession(session);
+    if (url) window.location.href = url;
+    else setStatus('Bus LAN address not available yet. Stay on bus Wi‑Fi.');
+  };
+
+  const linked = Boolean(session?.linked);
+  const controlReady = linked && session?.lanIp;
+
+  return (
+    <div className="driver-connect-page">
+      <div className="driver-connect-card">
+        <div className="driver-connect-header">
+          <span className="driver-connect-logo">🌴</span>
+          <h1>{APP_NAME} Driver</h1>
+          <p>Pair with your bus, then open control over Wi‑Fi.</p>
+        </div>
+
+        {needsCloudUrl && !import.meta.env.VITE_CLOUD_URL && (
+          <div className="driver-connect-section">
+            <label htmlFor="cloudUrl">Cloud URL</label>
+            <input
+              id="cloudUrl"
+              type="url"
+              placeholder="https://your-app.up.railway.app"
+              value={cloudDraft}
+              onChange={(e) => setCloudDraft(e.target.value)}
+            />
+            <button type="button" className="btn primary" onClick={saveCloudUrl}>
+              Save cloud URL
+            </button>
+          </div>
+        )}
+
+        <p className="driver-connect-status" role="status">
+          {status}
+        </p>
+
+        {linked ? (
+          <div className="driver-connect-section">
+            <p>
+              <strong>Bus:</strong> {session.plate ?? session.busId}
+            </p>
+            {session.lanIp && (
+              <p>
+                <strong>LAN:</strong> {session.lanIp}:{session.controlPort ?? 5174}
+              </p>
+            )}
+            <div className="driver-connect-actions">
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!controlReady || busy}
+                onClick={openControl}
+              >
+                Open control
+              </button>
+              <button type="button" className="btn secondary" disabled={busy} onClick={handleUnlink}>
+                Unlink
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form className="driver-connect-section" onSubmit={handlePair}>
+            <label htmlFor="plateOrCode">Number plate or 4-digit code</label>
+            <input
+              id="plateOrCode"
+              type="text"
+              autoComplete="off"
+              inputMode="text"
+              placeholder="KL07AB1234 or 7291"
+              value={plateOrCode}
+              onChange={(e) => setPlateOrCode(e.target.value)}
+              disabled={busy || needsCloudUrl || !ready}
+            />
+            <button type="submit" className="btn primary" disabled={busy || needsCloudUrl || !ready}>
+              Connect to bus
+            </button>
+          </form>
+        )}
+
+        <p className="driver-connect-foot">
+          {driverId ? (
+            <>
+              Device ID: <code>{driverId.slice(0, 8)}…</code>
+            </>
+          ) : (
+            'Preparing device…'
+          )}
+          {cloudUrl && (
+            <>
+              {' · '}
+              Cloud: <code>{cloudUrl.replace(/^https?:\/\//, '')}</code>
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}

@@ -34,6 +34,14 @@ const defaultState = () => ({
     languages: ['ml', 'en'],
     pauseBetweenFragmentsMs: 300,
   },
+  /** Drive mode — separate from manual Forward; GPS auto uses gpsAutoDrive.js */
+  driveSettings: {
+    mode: 'manual',
+    autoForward: true,
+    minAccuracyM: 60,
+    departureHysteresisM: 25,
+    cooldownSec: 20,
+  },
   audioFragments: {},
   stopAudio: {},
   announcementRequest: null,
@@ -44,6 +52,14 @@ const defaultState = () => ({
   navigateRequest: null,
   /** Live GPS from driver phone — synced to bus display + cloud */
   driverLocation: null,
+  /** Number plate + pairing code for driver app link */
+  busProfile: {
+    plate: '',
+    plateDisplay: '',
+    pairingCode: '',
+  },
+  /** Active driver session from cloud pair */
+  driverLink: null,
   /** Shared stop names + GPS + ml — synced from cloud catalog */
   stopCatalog: [],
   serialSettings: {
@@ -239,6 +255,15 @@ function mergeStoredState(parsed) {
         ...defaults.announcementSettings,
         ...(hydrated.announcementSettings ?? {}),
       },
+      driveSettings: {
+        ...defaults.driveSettings,
+        ...(hydrated.driveSettings ?? {}),
+      },
+      busProfile: {
+        ...defaults.busProfile,
+        ...(hydrated.busProfile ?? {}),
+      },
+      driverLink: hydrated.driverLink ?? null,
       audioFragments: hydrated.audioFragments ?? {},
       stopAudio: hydrated.stopAudio ?? {},
       announcementRequest: reviveAnnouncementRequest(hydrated.announcementRequest),
@@ -470,6 +495,10 @@ export function subscribe(fn) {
 
 export function mergeRemoteState(prev, remoteHydrated) {
   return mergeStoredIntoPrev(prev, remoteHydrated);
+}
+
+export function generatePairingCode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 export function createId() {

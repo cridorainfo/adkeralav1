@@ -2,11 +2,13 @@ import { createServer as createHttpServer } from 'http';
 import express from 'express';
 import path from 'path';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
-import { buildNetworkUrls, getLanAddresses } from './networkInfo.js';
+import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
 import { startCloudSyncLoop } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
+import { startHttpsMirror, getHttpsPort } from './tls.js';
+import { ensureWindowsFirewallPorts } from './firewall.js';
 
 /**
  * Production bus server — static SPA + same API as dev.js (no Vite).
@@ -36,8 +38,10 @@ export async function startBusServer(options = {}) {
   setupDbApi(app, dataRoot);
   setupCloudProxy(app, dataRoot);
 
+  let httpsInfo = { httpsEnabled: false, httpsPort: null };
+
   app.get('/api/network', (_req, res) => {
-    const urls = buildNetworkUrls(PORT, HOST);
+    const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
     res.json({
       ok: true,
       ...urls,
@@ -53,35 +57,46 @@ export async function startBusServer(options = {}) {
 
   const stopCloud = startCloudSyncLoop(dataRoot);
 
+  let httpsMirror = { httpsServer: null, httpsPort: null, httpsEnabled: false };
+  try {
+    httpsMirror = await startHttpsMirror(app, {
+      dataRoot,
+      httpPort: PORT,
+      host: HOST,
+    });
+  } catch (err) {
+    console.warn('AdKerala HTTPS disabled:', err.message);
+  }
+  httpsInfo = {
+    httpsEnabled: httpsMirror.httpsEnabled,
+    httpsPort: httpsMirror.httpsPort,
+  };
+
   await new Promise((resolve, reject) => {
     httpServer.once('error', reject);
     httpServer.listen(PORT, HOST, resolve);
   });
 
-  const urls = buildNetworkUrls(PORT, HOST);
-  console.log(`\n  AdKerala (production)`);
-  console.log(`  Display: ${urls.displayUrl}  (bus PC)`);
-  console.log(`  Control: ${urls.controlUrl}  (driver phone)`);
-  if (localAdmin) {
-    console.log(`  Admin:   ${localAdmin.adminUrl}  (fleet dashboard)`);
-    console.log(`           API key: ${localAdmin.adminKey}`);
+  const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+  const firewallPorts = [PORT];
+  if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
+    firewallPorts.push(httpsInfo.httpsPort);
   }
-  console.log(`  Data:    db/info.txt  +  db/media/`);
-  const lan = getLanAddresses();
-  if (lan.length) {
-    console.log(`  LAN:     ${lan.map((n) => n.address).join(', ')}`);
-  } else {
-    console.log(`  Local:   http://127.0.0.1:${PORT}/`);
-  }
-  console.log('');
+  ensureWindowsFirewallPorts(firewallPorts);
+  logNetworkStartup(urls, {
+    production: true,
+    adminUrl: localAdmin?.adminUrl,
+    adminKey: localAdmin?.adminKey,
+  });
 
   const shutdown = () => {
     stopCloud();
     localAdmin?.stop();
+    httpsMirror.httpsServer?.close();
     httpServer.close();
   };
 
-  return { httpServer, shutdown, port: PORT, host: HOST, root: dataRoot, appRoot, urls };
+  return { httpServer, httpsServer: httpsMirror.httpsServer, shutdown, port: PORT, host: HOST, root: dataRoot, appRoot, urls };
 }
 
 const isDirectRun = process.argv[1]?.endsWith('prod.js');

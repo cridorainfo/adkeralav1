@@ -251,4 +251,34 @@ export function setupCloudProxy(app, root) {
       res.status(500).json({ ok: false, error: err.message });
     }
   });
+
+  app.post('/api/cloud/driver/unlink', async (_req, res) => {
+    try {
+      const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
+      const busId = getCloudConfig().busId;
+      if (!CLOUD_URL()) {
+        res.status(400).json({ ok: false, error: 'Cloud not configured' });
+        return;
+      }
+      const cloudRes = await fetch(
+        `${CLOUD_URL()}/api/buses/${encodeURIComponent(busId)}/unlink-driver`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(adminKey ? { 'X-Admin-Key': adminKey } : {}),
+          },
+          body: '{}',
+        }
+      );
+      const json = await cloudRes.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
+      if (!json.ok) {
+        res.status(400).json(json);
+        return;
+      }
+      res.json(json);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
 }

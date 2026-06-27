@@ -4,6 +4,7 @@ import { useEspSerialControl } from '../hooks/useEspSerialControl';
 import { useAppViewHotkeys } from '../hooks/useAppViewHotkeys';
 import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useDriverGps } from '../hooks/useDriverGps';
+import { useGpsAutoDrive } from '../hooks/useGpsAutoDrive';
 import ControlScreen from './ControlScreen';
 
 /** Driver / conductor panel — open on phone at /control */
@@ -21,6 +22,12 @@ export default function ControlApp() {
 
   useRemoteStateSync(true);
   const { permission: gpsPermission, requestGps } = useDriverGps(true);
+  const { status: gpsDriveStatus, isGpsMode } = useGpsAutoDrive({
+    enabled: true,
+    state,
+    driveSettings: state.driveSettings,
+    moveForward,
+  });
 
   const { handleValueChange } = useEspSerialControl({
     state,
@@ -56,6 +63,8 @@ export default function ControlApp() {
       isSerialSupported={isWebSerialSupported()}
       gpsPermission={gpsPermission}
       onRequestGps={requestGps}
+      gpsDriveStatus={gpsDriveStatus}
+      isGpsDriveMode={isGpsMode}
     />
   );
 }

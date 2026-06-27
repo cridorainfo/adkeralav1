@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 const { ensureFirewallOnce } = require('./firewall.cjs');
 
 const PORT = Number(process.env.PORT ?? 5174);
+const HTTPS_PORT = Number(process.env.ADKERALA_HTTPS_PORT ?? PORT + 1);
 const DISPLAY_URL = `http://127.0.0.1:${PORT}/display?kiosk=1`;
 
 let mainWindow = null;
@@ -121,6 +122,9 @@ app.whenReady().then(async () => {
   try {
     configureAppRoot();
     freePort(PORT);
+    if (process.env.ADKERALA_HTTPS !== '0') {
+      freePort(HTTPS_PORT);
+    }
     await ensureFirewallOnce(PORT);
     await startServer();
     await waitForServer(`http://127.0.0.1:${PORT}/`);

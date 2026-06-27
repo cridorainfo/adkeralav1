@@ -1,7 +1,8 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads } from './cloudCommands.js';
 import { syncCloudMedia } from './cloudMediaSync.js';
-import { getStopInfo } from '../src/store/busStore.js';
+import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
+import { getLanAddresses } from './networkInfo.js';
 
 import { mergeAudioMap } from './audioMerge.js';
 
@@ -52,6 +53,11 @@ function buildTelemetry(state) {
     bannerAdsCount: (state.bannerAds ?? []).length,
     announcementRequest: state.announcementRequest ?? null,
     driverLocation: state.driverLocation ?? null,
+    lanIp: getLanAddresses()[0]?.address ?? null,
+    controlPort: Number(process.env.PORT ?? 5174),
+    pairingCode: state.busProfile?.pairingCode ?? null,
+    plateDisplay: state.busProfile?.plateDisplay || state.busProfile?.plate || null,
+    linkedDriverId: state.driverLink?.driverId ?? null,
   };
 }
 
@@ -97,6 +103,18 @@ export async function runCloudSync(root) {
     return;
   }
   if (!state) return;
+
+  if (!state.busProfile?.pairingCode) {
+    state = {
+      ...state,
+      busProfile: {
+        ...(state.busProfile ?? {}),
+        pairingCode: generatePairingCode(),
+      },
+      savedAt: Date.now(),
+    };
+    await writeInfoFileSerialized(root, state);
+  }
 
   const telemetry = buildTelemetry(state);
   const displaySnapshot = buildDisplaySnapshot(state);

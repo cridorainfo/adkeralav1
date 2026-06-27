@@ -75,6 +75,13 @@
     ],
     "pauseBetweenFragmentsMs": 300
   },
+  "driveSettings": {
+    "mode": "manual",
+    "autoForward": true,
+    "minAccuracyM": 60,
+    "departureHysteresisM": 25,
+    "cooldownSec": 20
+  },
   "audioFragments": {
     "attention": {
       "en": {
@@ -127,7 +134,7 @@
     "accuracy": 50000,
     "heading": null,
     "speed": null,
-    "at": 1782587476848
+    "at": 1782593946929
   },
   "stopCatalog": [
     {
@@ -141,10 +148,10 @@
     {
       "en": "Kollam",
       "ml": "കൊല്ലം",
-      "lat": 8.8932,
-      "lng": 76.6141,
+      "lat": 8.9584,
+      "lng": 76.9245,
       "radiusM": 80,
-      "updatedAt": 1782587447337
+      "updatedAt": 1782590229465
     },
     {
       "en": "Alappuzha",
@@ -235,7 +242,7 @@
   },
   "currentAdIndex": 0,
   "nextAdIndex": 0,
-  "lastAdEndedAt": 1782587384131,
+  "lastAdEndedAt": 1782593134122,
   "adStartedAt": null,
-  "savedAt": 1782588254344
+  "savedAt": 1782595530068
 }

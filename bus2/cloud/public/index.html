@@ -132,6 +132,13 @@
         <div class="card">
           <h2>Fleet</h2>
           <div id="busList"></div>
+          <hr style="margin: 1rem 0; border: none; border-top: 1px solid #e2e8f0;" />
+          <h3 style="margin: 0 0 0.5rem; font-size: 1rem;">Number plate</h3>
+          <p class="hint">Set the plate for the selected bus — drivers can pair with plate or the 4-digit code on the display.</p>
+          <label for="busPlate">Plate</label>
+          <input id="busPlate" placeholder="KL 07 AB 1234" />
+          <button type="button" id="savePlateBtn">Save plate</button>
+          <p id="plateResult" class="hint"></p>
         </div>
         <div class="card">
           <h2>Live map</h2>
@@ -312,6 +319,20 @@
           (json.online ? 'Online' : 'Offline') + ' · ' + (json.updatedAt ? new Date(json.updatedAt).toLocaleString() : 'never');
         telemetryEl.textContent = JSON.stringify(json.telemetry ?? {}, null, 2);
         renderDisplayMirror(json.telemetry, json.displaySnapshot);
+
+        const plateEl = document.getElementById('busPlate');
+        const plateResult = document.getElementById('plateResult');
+        if (plateEl && json.profile) {
+          plateEl.value = json.profile.plateDisplay || json.profile.plate || '';
+          if (plateResult) {
+            const link = json.profile.linkedDriverId
+              ? ' · driver linked'
+              : json.profile.pairingCode
+                ? ' · code ' + json.profile.pairingCode
+                : '';
+            plateResult.textContent = (json.profile.plateDisplay || json.profile.plate || 'No plate set') + link;
+          }
+        }
 
         const loc = json.telemetry?.driverLocation;
         if (loc?.lat != null) {
@@ -607,6 +628,26 @@
         document.getElementById('editorStatus').textContent = json.ok ? 'Deleted' : (json.error ?? 'Failed');
         editorRoute = null;
         await loadEditorRoutes();
+      };
+
+      document.getElementById('savePlateBtn').onclick = async () => {
+        const busId = busIdEl.value.trim();
+        const plate = document.getElementById('busPlate').value.trim();
+        const resultEl = document.getElementById('plateResult');
+        if (!plate) {
+          resultEl.textContent = 'Enter a plate';
+          return;
+        }
+        const res = await fetch('/api/buses/' + encodeURIComponent(busId) + '/profile', {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify({ plate }),
+        });
+        const json = await res.json();
+        resultEl.textContent = json.ok
+          ? 'Saved · ' + (json.profile?.plateDisplay || json.profile?.plate)
+          : (json.error ?? 'Failed');
+        refreshSelected();
       };
 
       refreshFleet();

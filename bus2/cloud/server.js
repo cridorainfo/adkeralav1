@@ -26,6 +26,13 @@ import {
   scanCatalogGaps,
   getGlobalPhraseAudio,
   setGlobalPhraseAudio,
+  getBusProfile,
+  setBusProfilePlate,
+  upsertBusProfile,
+  pairDriver,
+  unlinkDriver,
+  unlinkDriverByBusId,
+  getDriverSession,
 } from './store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +48,17 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 
 const app = express();
 app.use(express.json({ limit: '25mb' }));
+
+app.use('/api/driver', (_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (_req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 function authAdmin(req, res, next) {
   const key = req.headers['x-admin-key'] ?? req.query.key;
@@ -83,8 +101,9 @@ app.get('/api/buses', authAdmin, async (_req, res) => {
 
 app.get('/api/buses/:busId/telemetry', authAdmin, async (req, res) => {
   const row = await getBus(req.params.busId);
+  const profile = await getBusProfile(req.params.busId);
   if (!row) {
-    res.json({ ok: true, online: false, telemetry: null, state: null, displaySnapshot: null });
+    res.json({ ok: true, online: false, telemetry: null, state: null, displaySnapshot: null, profile });
     return;
   }
   const online = Date.now() - row.updatedAt < 15000;
@@ -94,8 +113,70 @@ app.get('/api/buses/:busId/telemetry', authAdmin, async (req, res) => {
     telemetry: row.telemetry,
     state: row.state,
     displaySnapshot: row.displaySnapshot,
+    profile,
     updatedAt: row.updatedAt,
   });
+});
+
+app.put('/api/buses/:busId/profile', authAdmin, async (req, res) => {
+  const { plate, plateDisplay, pairingCode } = req.body ?? {};
+  let profile;
+  if (plate != null) {
+    profile = await setBusProfilePlate(req.params.busId, plate);
+  } else {
+    profile = await upsertBusProfile(req.params.busId, {
+      ...(plateDisplay != null ? { plateDisplay: String(plateDisplay).trim() } : {}),
+      ...(pairingCode != null ? { pairingCode: String(pairingCode).replace(/\D/g, '').slice(0, 4) } : {}),
+    });
+  }
+  await enqueueCommand(req.params.busId, 'MERGE_STATE', {
+    busProfile: {
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+      pairingCode: profile.pairingCode,
+    },
+    savedAt: Date.now(),
+  });
+  res.json({ ok: true, profile });
+});
+
+app.post('/api/driver/pair', async (req, res) => {
+  const { driverId, plateOrCode } = req.body ?? {};
+  const result = await pairDriver(String(driverId ?? '').trim(), plateOrCode);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/driver/unlink', async (req, res) => {
+  const { driverId } = req.body ?? {};
+  const result = await unlinkDriver(String(driverId ?? '').trim());
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get('/api/driver/session', async (req, res) => {
+  const driverId = String(req.query.driverId ?? '').trim();
+  const session = await getDriverSession(driverId);
+  if (session.error && !session.linked) {
+    res.status(400).json(session);
+    return;
+  }
+  res.json(session);
+});
+
+app.post('/api/buses/:busId/unlink-driver', authAdmin, async (req, res) => {
+  const result = await unlinkDriverByBusId(req.params.busId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
 });
 
 app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {

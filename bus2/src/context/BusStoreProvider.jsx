@@ -1043,6 +1043,16 @@ function useBusStoreLogic() {
     [update]
   );
 
+  const updateDriveSettings = useCallback(
+    (settings) => {
+      update((s) => ({
+        ...s,
+        driveSettings: { ...s.driveSettings, ...settings },
+      }));
+    },
+    [update]
+  );
+
   const updateAudioFragment = useCallback(
     (phraseKey, lang, audioUrl) => {
       (async () => {
@@ -1213,6 +1223,7 @@ function useBusStoreLogic() {
     updateAdSettings,
     updateDisplaySettings,
     updateAnnouncementSettings,
+    updateDriveSettings,
     updateAudioFragment,
     clearAudioFragment,
     updateStopAudioClip,

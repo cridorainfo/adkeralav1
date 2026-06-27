@@ -3,7 +3,6 @@ const path = require('path');
 const { execSync, spawnSync } = require('child_process');
 const { app, dialog } = require('electron');
 
-const RULE_PORT = 'AdKerala Bus Display Port 5174';
 const MARKER = '.adkerala-firewall-v1';
 
 function getDataRoot() {
@@ -14,9 +13,9 @@ function getDataRoot() {
   );
 }
 
-function hasPortRule(port) {
+function hasPortRule(port, ruleName) {
   try {
-    const out = execSync(`netsh advfirewall firewall show rule name="${RULE_PORT}"`, {
+    const out = execSync(`netsh advfirewall firewall show rule name="${ruleName}"`, {
       encoding: 'utf8',
       shell: true,
     });
@@ -26,9 +25,9 @@ function hasPortRule(port) {
   }
 }
 
-function tryInstallPortRule(port) {
+function tryInstallPortRule(port, ruleName) {
   try {
-    execSync(`netsh advfirewall firewall delete rule name="${RULE_PORT}"`, {
+    execSync(`netsh advfirewall firewall delete rule name="${ruleName}"`, {
       stdio: 'ignore',
       shell: true,
     });
@@ -38,10 +37,10 @@ function tryInstallPortRule(port) {
 
   try {
     execSync(
-      `netsh advfirewall firewall add rule name="${RULE_PORT}" dir=in action=allow protocol=TCP localport=${port} enable=yes profile=private,public,domain`,
+      `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${port} enable=yes profile=private,public,domain`,
       { stdio: 'ignore', shell: true }
     );
-    return hasPortRule(port);
+    return hasPortRule(port, ruleName);
   } catch {
     return false;
   }
@@ -71,11 +70,28 @@ function runElevatedFirewallBat() {
   return ps.status === 0;
 }
 
-/** One-time port rule so driver phones connect without repeated Windows firewall popups. */
-async function ensureFirewallOnce(port) {
+function ensurePorts(ports) {
+  let ok = true;
+  for (const { port, ruleName } of ports) {
+    if (hasPortRule(port, ruleName) || tryInstallPortRule(port, ruleName)) continue;
+    ok = false;
+  }
+  return ok;
+}
+
+/** One-time port rules so driver phones connect without repeated Windows firewall popups. */
+async function ensureFirewallOnce(httpPort) {
   if (process.platform !== 'win32') return;
 
-  if (hasPortRule(port) || tryInstallPortRule(port)) {
+  const httpsPort = Number(process.env.ADKERALA_HTTPS_PORT ?? httpPort + 1);
+  const ports = [
+    { port: httpPort, ruleName: `AdKerala Bus Port ${httpPort}` },
+  ];
+  if (process.env.ADKERALA_HTTPS !== '0') {
+    ports.push({ port: httpsPort, ruleName: `AdKerala Bus Port ${httpsPort}` });
+  }
+
+  if (ensurePorts(ports)) {
     try {
       fs.writeFileSync(path.join(getDataRoot(), MARKER), 'ok');
     } catch {
@@ -95,7 +111,7 @@ async function ensureFirewallOnce(port) {
     title: 'AdKerala — one-time firewall setup',
     message: 'Allow driver phones to connect without asking every time?',
     detail:
-      'Windows will ask for Administrator approval once. After that, the firewall rule is saved permanently and this dialog will not appear again.',
+      'Windows will ask for Administrator approval once. Opens ports for display (HTTP) and driver phone (HTTPS).',
   });
 
   if (response !== 0) {
@@ -108,7 +124,7 @@ async function ensureFirewallOnce(port) {
   }
 
   runElevatedFirewallBat();
-  tryInstallPortRule(port);
+  ensurePorts(ports);
 
   try {
     fs.writeFileSync(markerPath, 'ok');

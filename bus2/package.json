@@ -10,11 +10,15 @@
     "start": "node server/dev.js",
     "start:prod": "node server/prod.js",
     "build": "vite build",
+    "build:driver": "vite build && cap sync android",
     "build:kiosk": "vite build && electron-builder --win dir",
     "preview": "vite preview",
     "cloud": "cd cloud && npm install && npm start"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/preferences": "^8.0.1",
     "express": "^4.21.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -22,6 +26,7 @@
     "selfsigned": "^5.5.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",

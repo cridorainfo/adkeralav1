@@ -22,14 +22,18 @@ function ensureCloudDeps(cloudDir) {
   });
 }
 
+async function isAdminHealthy(adminUrl) {
+  try {
+    const res = await fetch(`${adminUrl}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForHealth(adminUrl, attempts = 40) {
   for (let i = 0; i < attempts; i += 1) {
-    try {
-      const res = await fetch(`${adminUrl}/api/health`);
-      if (res.ok) return true;
-    } catch {
-      /* server still starting */
-    }
+    if (await isAdminHealthy(adminUrl)) return true;
     await new Promise((r) => setTimeout(r, 250));
   }
   return false;
@@ -51,6 +55,15 @@ export async function startLocalAdmin(root) {
     process.env.ADKERALA_BUS_ID = 'bus-1';
   }
 
+  if (await isAdminHealthy(adminUrl)) {
+    console.log(`  Admin:   ${adminUrl}  (already running — reusing)`);
+    return {
+      adminUrl,
+      adminKey: process.env.ADKERALA_ADMIN_KEY,
+      stop: () => {},
+    };
+  }
+
   const cloudDir = path.join(root, 'cloud');
   await ensureCloudDeps(cloudDir);
 
@@ -69,9 +82,21 @@ export async function startLocalAdmin(root) {
     console.warn('AdKerala local admin failed to start:', err.message);
   });
 
+  child.on('exit', (code, signal) => {
+    if (code && code !== 0) {
+      console.warn(
+        `AdKerala local admin exited (code ${code}${signal ? `, ${signal}` : ''}). ` +
+          `If port ${adminPort} is in use, stop the other process or set ADKERALA_ADMIN_PORT.`
+      );
+    }
+  });
+
   const ready = await waitForHealth(adminUrl);
   if (!ready) {
-    console.warn('AdKerala local admin did not respond on', adminUrl);
+    console.warn(
+      `AdKerala local admin did not respond on ${adminUrl}. ` +
+        `Port may be in use by another app — try: npx kill-port ${adminPort}`
+    );
   }
 
   return {

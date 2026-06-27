@@ -4,10 +4,12 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
-import { buildNetworkUrls, getLanAddresses } from './networkInfo.js';
+import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
 import { startCloudSyncLoop } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
+import { startHttpsMirror } from './tls.js';
+import { ensureWindowsFirewallPorts } from './firewall.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -27,8 +29,10 @@ await ensureDbLayout(root);
 setupDbApi(app, root);
 setupCloudProxy(app, root);
 
+let httpsInfo = { httpsEnabled: false, httpsPort: null };
+
 app.get('/api/network', (_req, res) => {
-  const urls = buildNetworkUrls(PORT, HOST);
+  const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
   res.json({
     ok: true,
     ...urls,
@@ -55,28 +59,40 @@ app.use(vite.middlewares);
 
 const stopCloud = startCloudSyncLoop(root);
 
+let httpsMirror = { httpsServer: null, httpsPort: null, httpsEnabled: false };
+try {
+  httpsMirror = await startHttpsMirror(app, {
+    dataRoot: root,
+    httpPort: PORT,
+    host: HOST,
+  });
+} catch (err) {
+  console.warn('AdKerala HTTPS disabled:', err.message);
+}
+httpsInfo = {
+  httpsEnabled: httpsMirror.httpsEnabled,
+  httpsPort: httpsMirror.httpsPort,
+};
+
+const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+
 httpServer.listen(PORT, HOST, () => {
-  const urls = buildNetworkUrls(PORT, HOST);
-  console.log(`\n  AdKerala`);
-  console.log(`  Display: ${urls.displayUrl}  (bus PC)`);
-  console.log(`  Control: ${urls.controlUrl}  (driver phone)`);
-  if (localAdmin) {
-    console.log(`  Admin:   ${localAdmin.adminUrl}  (fleet dashboard)`);
-    console.log(`           API key: ${localAdmin.adminKey}`);
+  const firewallPorts = [PORT];
+  if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
+    firewallPorts.push(httpsInfo.httpsPort);
   }
-  console.log(`  Data:    db/info.txt  +  db/media/`);
-  const lan = getLanAddresses();
-  if (lan.length) {
-    console.log(`  LAN:     ${lan.map((n) => n.address).join(', ')}`);
-  } else {
-    console.log(`  Local:   http://127.0.0.1:${PORT}/`);
-  }
-  console.log('');
+  ensureWindowsFirewallPorts(firewallPorts);
+
+  logNetworkStartup(urls, {
+    adminUrl: localAdmin?.adminUrl,
+    adminKey: localAdmin?.adminKey,
+  });
 });
 
 process.on('SIGINT', () => {
   stopCloud();
   localAdmin?.stop();
+  httpsMirror.httpsServer?.close();
   httpServer.close();
   process.exit(0);
 });

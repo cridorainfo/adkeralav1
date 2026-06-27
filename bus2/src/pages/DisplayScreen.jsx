@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getStopInfo, sameStop, getUpcomingPassengerStop, findStopByEn } from '../store/busStore';
 import StopJourneyTimeline from '../components/StopJourneyTimeline';
 import BannerAdStrip from '../components/BannerAdStrip';
+import DriverPairingBanner from '../components/DriverPairingBanner';
 import { BilingualStop, LanguageAlternateProvider } from '../components/BilingualStop';
 import { useBusStore } from '../hooks/useBusStore';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
@@ -35,6 +36,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const adStartedAt = s.adStartedAt ?? null;
   const isVideoAd = showingAd && currentAd?.type === 'video';
   const announcementPlaying = s.announcementStatus === 'playing';
+  const pairingCompact = showTripOnDisplay && tripStarted && !tripEnded;
   const isPassengerView =
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
@@ -313,6 +315,14 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           </div>
         )}
       </main>
+
+      {!showingAd && (
+        <DriverPairingBanner
+          busProfile={s.busProfile}
+          driverLink={s.driverLink}
+          compact={pairingCompact}
+        />
+      )}
 
       {!showingAd && (
         <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />
