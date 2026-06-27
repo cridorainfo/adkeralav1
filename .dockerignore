@@ -1,0 +1,5 @@
+# Keep Docker build context small (monorepo root → bus2/cloud service).
+**
+!bus2/cloud/**
+bus2/cloud/node_modules
+bus2/cloud/data

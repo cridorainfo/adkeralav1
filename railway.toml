@@ -1,0 +1,10 @@
+# Monorepo: cloud admin lives in bus2/cloud. Railway reads this file from the repo root.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "bus2/cloud/Dockerfile"
+watchPatterns = ["bus2/cloud/**"]
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
