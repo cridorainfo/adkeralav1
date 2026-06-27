@@ -1,4 +1,5 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
@@ -34,6 +35,45 @@ import {
   unlinkDriverByBusId,
   getDriverSession,
 } from './store.js';
+import {
+  CLOUD_VERSION,
+  buildPcLatestYml,
+  getFleetVersions,
+  getReleaseConfig,
+  setDriverRelease,
+  setMinVersions,
+  setPcRelease,
+} from './releases.js';
+import {
+  authSession,
+  requireAuth,
+  requireRole,
+  authCatalog,
+  signToken,
+  getCookieName,
+  getCookieOptions,
+  sanitizeUser,
+  canAccessBus,
+} from './auth.js';
+import {
+  bootstrapAdminIfNeeded,
+  createUser,
+  authenticateUser,
+  findUserById,
+  listUsers,
+  updateUser,
+  registerBus,
+  getDriverAccountSession,
+  linkDriverToUser,
+} from './users.js';
+import {
+  listCampaigns,
+  getCampaign,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  pushCampaignToBuses,
+} from './campaigns.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -48,25 +88,45 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 
 const app = express();
 app.use(express.json({ limit: '25mb' }));
+app.use(cookieParser());
 
-app.use('/api/driver', (_req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (_req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
+async function assertBusAccess(req, res, busId) {
+  const profile = await getBusProfile(busId);
+  if (!canAccessBus(req.user, busId, profile)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return false;
   }
-  next();
-});
+  return true;
+}
 
 function authAdmin(req, res, next) {
-  const key = req.headers['x-admin-key'] ?? req.query.key;
-  if (key !== ADMIN_KEY) {
-    res.status(401).json({ ok: false, error: 'Unauthorized' });
-    return;
-  }
-  next();
+  authSession(req, res, () => {
+    if (!req.user) {
+      res.status(401).json({ ok: false, error: 'Unauthorized' });
+      return;
+    }
+    next();
+  });
+}
+
+function authAdminOnly(req, res, next) {
+  authSession(req, res, () => {
+    if (!req.user || req.user.role !== 'admin') {
+      res.status(req.user ? 403 : 401).json({ ok: false, error: req.user ? 'Forbidden' : 'Unauthorized' });
+      return;
+    }
+    next();
+  });
+}
+
+function authFleet(req, res, next) {
+  authSession(req, res, () => {
+    if (!req.user || !['admin', 'bus_owner'].includes(req.user.role)) {
+      res.status(req.user ? 403 : 401).json({ ok: false, error: req.user ? 'Forbidden' : 'Unauthorized' });
+      return;
+    }
+    next();
+  });
 }
 
 function authBus(req, res, next) {
@@ -79,6 +139,152 @@ function authBus(req, res, next) {
   next();
 }
 
+app.use('/api/driver', (_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (_req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
+/* ——— Auth ——— */
+
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, password, name, role } = req.body ?? {};
+  const result = await createUser({ email, password, name, role });
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  const token = signToken(result.user);
+  res.cookie(getCookieName(), token, getCookieOptions());
+  res.json({ ok: true, user: result.user });
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body ?? {};
+  const result = await authenticateUser(email, password);
+  if (!result.ok) {
+    res.status(401).json(result);
+    return;
+  }
+  const token = signToken(result.user);
+  res.cookie(getCookieName(), token, getCookieOptions());
+  res.json({ ok: true, user: result.user });
+});
+
+app.post('/api/auth/logout', (_req, res) => {
+  res.clearCookie(getCookieName(), { path: '/' });
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', authSession, requireAuth, async (req, res) => {
+  if (req.user.legacy) {
+    res.json({ ok: true, user: req.user });
+    return;
+  }
+  const user = await findUserById(req.user.id);
+  if (!user || user.status !== 'active') {
+    res.status(401).json({ ok: false, error: 'Account inactive' });
+    return;
+  }
+  res.json({ ok: true, user: sanitizeUser(user) });
+});
+
+app.get('/api/users', authAdminOnly, async (_req, res) => {
+  const users = await listUsers();
+  res.json({ ok: true, users });
+});
+
+app.patch('/api/users/:userId', authAdminOnly, async (req, res) => {
+  const result = await updateUser(req.params.userId, req.body ?? {});
+  if (!result.ok) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/buses/register', authFleet, async (req, res) => {
+  const { busId, plate } = req.body ?? {};
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? null;
+  const result = await registerBus({ busId, plate, ownerId });
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get('/api/campaigns', authSession, requireAuth, async (req, res) => {
+  if (!['admin', 'advertiser', 'bus_owner'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const campaigns = await listCampaigns(req.user);
+  res.json({ ok: true, campaigns });
+});
+
+app.post('/api/campaigns', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const result = await createCampaign(req.user, req.body ?? {});
+  res.json(result);
+});
+
+app.put('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const result = await updateCampaign(req.params.id, req.user, req.body ?? {});
+  if (!result.ok) {
+    res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.delete('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const result = await deleteCampaign(req.params.id, req.user);
+  if (!result.ok) {
+    res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/campaigns/:id/push', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
+  const store = await loadStore();
+  const result = await pushCampaignToBuses(req.params.id, req.user, store.busProfiles);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/campaigns/:id/approve', authAdminOnly, async (req, res) => {
+  const result = await updateCampaign(req.params.id, req.user, { status: 'active' });
+  if (!result.ok) {
+    res.status(404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.get('/api/driver/account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
+  const session = await getDriverAccountSession(req.user.id);
+  res.json(session);
+});
+
+app.post('/api/driver/link-account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
+  const { driverId } = req.body ?? {};
+  const result = await linkDriverToUser(String(driverId ?? '').trim(), req.user.id);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
 function normalizeRoute(body) {
   const id = body.id || `route-${randomUUID().slice(0, 8)}`;
   return {
@@ -90,16 +296,36 @@ function normalizeRoute(body) {
   };
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'adkerala-cloud', version: 3 });
+app.get('/api/health', async (_req, res) => {
+  const releases = await getReleaseConfig();
+  res.json({
+    ok: true,
+    service: 'adkerala-cloud',
+    version: CLOUD_VERSION,
+    minPcVersion: releases.minPcVersion,
+    minDriverVersion: releases.minDriverVersion,
+    latestPcVersion: releases.pc?.version ?? null,
+    latestDriverVersion: releases.driver?.version ?? null,
+  });
 });
 
-app.get('/api/buses', authAdmin, async (_req, res) => {
-  const buses = await listBuses();
+app.get('/api/buses', authSession, requireAuth, async (req, res) => {
+  if (req.user.role === 'advertiser') {
+    const buses = await listBuses({});
+    res.json({ ok: true, buses: buses.map((b) => ({ busId: b.busId })) });
+    return;
+  }
+  if (!['admin', 'bus_owner'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
+  const buses = await listBuses({ ownerId });
   res.json({ ok: true, buses });
 });
 
-app.get('/api/buses/:busId/telemetry', authAdmin, async (req, res) => {
+app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const row = await getBus(req.params.busId);
   const profile = await getBusProfile(req.params.busId);
   if (!row) {
@@ -118,7 +344,8 @@ app.get('/api/buses/:busId/telemetry', authAdmin, async (req, res) => {
   });
 });
 
-app.put('/api/buses/:busId/profile', authAdmin, async (req, res) => {
+app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { plate, plateDisplay, pairingCode } = req.body ?? {};
   let profile;
   if (plate != null) {
@@ -170,7 +397,8 @@ app.get('/api/driver/session', async (req, res) => {
   res.json(session);
 });
 
-app.post('/api/buses/:busId/unlink-driver', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/unlink-driver', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const result = await unlinkDriverByBusId(req.params.busId);
   if (!result.ok) {
     res.status(400).json(result);
@@ -196,7 +424,8 @@ app.post('/api/buses/:busId/commands/:commandId/ack', authBus, async (req, res) 
   res.json({ ok: true, command: cmd });
 });
 
-app.post('/api/buses/:busId/ads', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/ads', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { ads, bannerAds } = req.body ?? {};
   const cmd = await enqueueCommand(req.params.busId, 'UPDATE_ADS', {
     ...(ads ? { ads } : {}),
@@ -206,7 +435,8 @@ app.post('/api/buses/:busId/ads', authAdmin, async (req, res) => {
   res.json({ ok: true, queued: true, commandId: cmd.id });
 });
 
-app.post('/api/buses/:busId/command', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const patch = req.body?.patch;
   if (!patch || typeof patch !== 'object') {
     res.status(400).json({ ok: false, error: 'Missing patch object' });
@@ -219,7 +449,8 @@ app.post('/api/buses/:busId/command', authAdmin, async (req, res) => {
   res.json({ ok: true, queued: true, commandId: cmd.id });
 });
 
-app.post('/api/buses/:busId/assign-route', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const routeId = req.body?.routeId;
   const route = await getRouteById(routeId);
   if (!route) {
@@ -241,7 +472,8 @@ app.post('/api/buses/:busId/assign-route', authAdmin, async (req, res) => {
 });
 
 /** Push route to bus without resetting trip (merge into routes list). */
-app.post('/api/buses/:busId/push-route', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const routeId = req.body?.routeId ?? req.body?.route?.id;
   let route = req.body?.route ?? (routeId ? await getRouteById(routeId) : null);
   if (!route) {
@@ -256,7 +488,8 @@ app.post('/api/buses/:busId/push-route', authAdmin, async (req, res) => {
 });
 
 /** Push stop audio / announcement fragments to bus (queued until bus is online). */
-app.post('/api/buses/:busId/push-audio', authAdmin, async (req, res) => {
+app.post('/api/buses/:busId/push-audio', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { stopAudio, audioFragments, mediaFiles } = req.body ?? {};
   const cmd = await enqueueCommand(req.params.busId, 'MERGE_STATE', {
     ...(stopAudio ? { stopAudio } : {}),
@@ -273,14 +506,19 @@ app.get('/api/announcements/phrases', authBus, async (_req, res) => {
   res.json({ ok: true, ...payload });
 });
 
-app.put('/api/announcements/phrases', authAdmin, async (req, res) => {
+app.get('/api/announcements/phrases/catalog', authCatalog, async (_req, res) => {
+  const payload = await getGlobalPhraseAudio();
+  res.json({ ok: true, ...payload });
+});
+
+app.put('/api/announcements/phrases', authCatalog, async (req, res) => {
   const { audioFragments, mediaFiles } = req.body ?? {};
   const payload = await setGlobalPhraseAudio(audioFragments, mediaFiles);
   res.json({ ok: true, ...payload });
 });
 
 /** Full route + stops save to catalog and optional push to bus. */
-app.post('/api/routes', authAdmin, async (req, res) => {
+app.post('/api/routes', authCatalog, async (req, res) => {
   const route = normalizeRoute(req.body ?? {});
   await upsertRouteCatalog(route);
   for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
@@ -293,7 +531,7 @@ app.post('/api/routes', authAdmin, async (req, res) => {
   res.json({ ok: true, route, queuedFor: targetBusIds });
 });
 
-app.put('/api/routes/:routeId', authAdmin, async (req, res) => {
+app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
   const route = normalizeRoute({ ...req.body, id: req.params.routeId });
   await upsertRouteCatalog(route);
   for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
@@ -306,7 +544,7 @@ app.put('/api/routes/:routeId', authAdmin, async (req, res) => {
   res.json({ ok: true, route, queuedFor: targetBusIds });
 });
 
-app.delete('/api/routes/:routeId', authAdmin, async (req, res) => {
+app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
   const ok = await deleteRouteFromCatalog(req.params.routeId);
   if (!ok) {
     res.status(404).json({ ok: false, error: 'Route not found' });
@@ -322,17 +560,17 @@ app.delete('/api/routes/:routeId', authAdmin, async (req, res) => {
   res.json({ ok: true, deleted: req.params.routeId, queuedFor: targetBusIds });
 });
 
-app.get('/api/routes', authAdmin, async (_req, res) => {
+app.get('/api/routes', authCatalog, async (_req, res) => {
   const routes = await listAllRoutes();
   res.json({ ok: true, routes });
 });
 
-app.get('/api/routes/search', authAdmin, async (req, res) => {
+app.get('/api/routes/search', authCatalog, async (req, res) => {
   const routes = await searchRoutes(String(req.query.q ?? ''));
   res.json({ ok: true, routes });
 });
 
-app.get('/api/routes/match', authAdmin, async (req, res) => {
+app.get('/api/routes/match', authCatalog, async (req, res) => {
   const matches = await matchRoutesByEndpoints(
     String(req.query.start ?? ''),
     String(req.query.end ?? '')
@@ -340,7 +578,7 @@ app.get('/api/routes/match', authAdmin, async (req, res) => {
   res.json({ ok: true, matches });
 });
 
-app.get('/api/routes/:routeId', authAdmin, async (req, res) => {
+app.get('/api/routes/:routeId', authCatalog, async (req, res) => {
   const route = await getRouteById(req.params.routeId);
   if (!route) {
     res.status(404).json({ ok: false, error: 'Not found' });
@@ -349,19 +587,19 @@ app.get('/api/routes/:routeId', authAdmin, async (req, res) => {
   res.json({ ok: true, route });
 });
 
-app.get('/api/stops/search', authAdmin, async (req, res) => {
+app.get('/api/stops/search', authCatalog, async (req, res) => {
   await ensureStopCatalogFromRoutes();
   const stops = await searchStopCatalog(String(req.query.q ?? ''));
   res.json({ ok: true, stops });
 });
 
-app.get('/api/stops', authAdmin, async (_req, res) => {
+app.get('/api/stops', authCatalog, async (_req, res) => {
   await ensureStopCatalogFromRoutes();
   const store = await loadStore();
   res.json({ ok: true, stops: store.stopCatalog ?? [] });
 });
 
-app.post('/api/stops', authAdmin, async (req, res) => {
+app.post('/api/stops', authCatalog, async (req, res) => {
   const stop = await upsertStopCatalog(req.body ?? {});
   if (!stop) {
     res.status(400).json({ ok: false, error: 'Stop name required' });
@@ -370,13 +608,13 @@ app.post('/api/stops', authAdmin, async (req, res) => {
   res.json({ ok: true, stop });
 });
 
-app.get('/api/content-gaps', authAdmin, async (_req, res) => {
+app.get('/api/content-gaps', authCatalog, async (_req, res) => {
   const store = await loadStore();
   const gaps = scanCatalogGaps(store.routeCatalog, store.buses);
   res.json({ ok: true, gaps });
 });
 
-app.patch('/api/routes/:routeId/stops/:stopEn', authAdmin, async (req, res) => {
+app.patch('/api/routes/:routeId/stops/:stopEn', authCatalog, async (req, res) => {
   const { targetBusIds = [], ...stopPatch } = req.body ?? {};
   const route = await patchStopInCatalog(req.params.routeId, req.params.stopEn, stopPatch);
   if (!route) {
@@ -397,7 +635,11 @@ app.patch('/api/routes/:routeId/stops/:stopEn', authAdmin, async (req, res) => {
 });
 
 /** Admin upload voice/audio — stored on cloud, bus downloads when online. */
-app.post('/api/media/upload', authAdmin, async (req, res) => {
+app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
+  if (!['admin', 'bus_owner', 'advertiser'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
   const category = req.body?.category ?? 'stops';
   const allowed = new Set(['announcements', 'stops', 'ads', 'banners']);
   if (!allowed.has(category)) {
@@ -437,14 +679,83 @@ app.get('/api/media/:category/:filename', authBus, async (req, res) => {
   res.sendFile(fullPath);
 });
 
+/** ——— Remote release / fleet version APIs ——— */
+
+app.get('/api/releases', authAdminOnly, async (_req, res) => {
+  const config = await getReleaseConfig();
+  const fleet = await getFleetVersions();
+  res.json({ ok: true, ...config, cloudVersion: CLOUD_VERSION, fleet: fleet.buses });
+});
+
+app.get('/api/releases/fleet', authAdminOnly, async (_req, res) => {
+  const fleet = await getFleetVersions();
+  res.json({ ok: true, ...fleet });
+});
+
+app.put('/api/releases/pc', authAdminOnly, async (req, res) => {
+  const { version, downloadUrl, sha512, size, releaseNotes } = req.body ?? {};
+  if (!version || !downloadUrl) {
+    res.status(400).json({ ok: false, error: 'version and downloadUrl required' });
+    return;
+  }
+  const pc = await setPcRelease({ version, downloadUrl, sha512, size, releaseNotes });
+  res.json({ ok: true, pc });
+});
+
+app.put('/api/releases/driver', authAdminOnly, async (req, res) => {
+  const { version, downloadUrl, releaseNotes } = req.body ?? {};
+  if (!version || !downloadUrl) {
+    res.status(400).json({ ok: false, error: 'version and downloadUrl required' });
+    return;
+  }
+  const driver = await setDriverRelease({ version, downloadUrl, releaseNotes });
+  res.json({ ok: true, driver });
+});
+
+app.put('/api/releases/min-versions', authAdminOnly, async (req, res) => {
+  const releases = await setMinVersions(req.body ?? {});
+  res.json({ ok: true, releases });
+});
+
+/** electron-updater generic feed — public read */
+app.get('/api/releases/pc/latest.yml', async (_req, res) => {
+  const config = await getReleaseConfig();
+  const yml = buildPcLatestYml(config.pc);
+  if (!yml) {
+    res.status(404).type('text/plain').send('No PC release registered');
+    return;
+  }
+  res.type('text/yaml').send(yml);
+});
+
+app.get('/api/releases/pc/latest', async (_req, res) => {
+  const config = await getReleaseConfig();
+  res.json({
+    ok: true,
+    release: config.pc,
+    minVersion: config.minPcVersion,
+  });
+});
+
+/** Driver APK update check — public read */
+app.get('/api/releases/driver/latest', async (_req, res) => {
+  const config = await getReleaseConfig();
+  res.json({
+    ok: true,
+    release: config.driver,
+    minVersion: config.minDriverVersion,
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`\n  AdKerala Cloud Admin v3`);
+app.listen(PORT, HOST, async () => {
+  await bootstrapAdminIfNeeded();
+  console.log(`\n  AdKerala Cloud Admin v${CLOUD_VERSION}`);
   console.log(`  Listening: http://${HOST}:${PORT}/`);
   console.log(`  Data dir:  ${DATA_DIR}`);
   console.log(`  Health:    GET /api/health\n`);

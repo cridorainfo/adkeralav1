@@ -1,7 +1,7 @@
 {
   "name": "kerala-bus-display",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "AdKerala — bus route display and advertising platform",
   "type": "module",
   "main": "kiosk/main.cjs",
@@ -11,14 +11,19 @@
     "start:prod": "node server/prod.js",
     "build": "vite build",
     "build:driver": "vite build && cap sync android",
-    "build:kiosk": "vite build && electron-builder --win dir",
+    "build:kiosk": "vite build && electron-builder --win nsis dir",
+    "build:kiosk:dir": "vite build && electron-builder --win dir",
+    "build:release": "vite build && electron-builder --win nsis --publish never",
     "preview": "vite preview",
-    "cloud": "cd cloud && npm install && npm start"
+    "cloud": "cd cloud && npm install && npm run build:web && npm start",
+    "cloud:web": "cd cloud/web && npm install && npm run dev",
+    "cloud:build": "cd cloud && npm install && npm run build:web"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/preferences": "^8.0.1",
+    "electron-updater": "^6.8.9",
     "express": "^4.21.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

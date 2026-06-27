@@ -5,6 +5,7 @@ import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
 import { getLanAddresses } from './networkInfo.js';
 
 import { mergeAudioMap } from './audioMerge.js';
+import { APP_VERSION } from './version.js';
 
 function getCloudUrl() {
   return (process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
@@ -58,6 +59,7 @@ function buildTelemetry(state) {
     pairingCode: state.busProfile?.pairingCode ?? null,
     plateDisplay: state.busProfile?.plateDisplay || state.busProfile?.plate || null,
     linkedDriverId: state.driverLink?.driverId ?? null,
+    appVersion: APP_VERSION,
   };
 }
 

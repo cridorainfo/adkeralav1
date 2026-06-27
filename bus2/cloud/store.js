@@ -11,7 +11,15 @@ const defaultStore = () => ({
   buses: {},
   busProfiles: {},
   drivers: {},
+  users: {},
+  adCampaigns: {},
   commands: [],
+  releases: {
+    pc: null,
+    driver: null,
+    minPcVersion: '0.1.0',
+    minDriverVersion: '0.1.0',
+  },
   stopCatalog: [],
   globalAudioFragments: {},
   globalAudioSavedAt: 0,
@@ -83,13 +91,27 @@ export async function getBus(busId) {
   return store.buses[busId] ?? null;
 }
 
-export async function listBuses() {
+export async function listBuses({ ownerId = null } = {}) {
   const store = await loadStore();
-  return Object.entries(store.buses).map(([busId, row]) => ({
-    busId,
-    updatedAt: row.updatedAt,
-    telemetry: row.telemetry,
-  }));
+  const busIds = new Set([
+    ...Object.keys(store.buses ?? {}),
+    ...Object.keys(store.busProfiles ?? {}),
+  ]);
+
+  const rows = [];
+  for (const busId of busIds) {
+    const profile = store.busProfiles?.[busId];
+    if (ownerId && profile?.ownerId !== ownerId) continue;
+
+    const row = store.buses?.[busId];
+    rows.push({
+      busId,
+      updatedAt: row?.updatedAt ?? 0,
+      telemetry: row?.telemetry ?? null,
+      profile: profile ?? null,
+    });
+  }
+  return rows;
 }
 
 export async function enqueueCommand(busId, type, payload) {
@@ -395,6 +417,7 @@ function ensureBusProfile(store, busId) {
       pairingCode: generatePairingCode(),
       linkedDriverId: null,
       linkedAt: null,
+      ownerId: null,
     };
   }
   return store.busProfiles[busId];

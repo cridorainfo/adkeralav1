@@ -195,8 +195,12 @@ The bus app is **not ready** to replace the on-board PC with Railway alone. Buse
 
    | Variable | Value |
    |----------|--------|
-   | `ADKERALA_ADMIN_KEY` | Long random secret (admin dashboard login) |
-   | `ADKERALA_BUS_KEY` | Optional â€” same value on every bus PC |
+   | `ADKERALA_ADMIN_KEY` | Long random secret (legacy API + scripts) |
+   | `ADKERALA_JWT_SECRET` | Random 32+ char session secret |
+   | `ADKERALA_BOOTSTRAP_ADMIN_EMAIL` | First admin email (one-time) |
+   | `ADKERALA_BOOTSTRAP_ADMIN_PASSWORD` | First admin password (one-time) |
+   | `ADKERALA_BUS_KEY` | Optional — same value on every bus PC |
+   | `DATA_DIR` | `/data` (with Volume) |
    | `NODE_ENV` | `production` |
 
    Railway sets `PORT` automatically â€” do not override it.
@@ -252,4 +256,80 @@ Railwayâ€™s disk is **ephemeral**. Without a Volume, bus telemetry, command
 - PostgreSQL for multi-region fleet
 - S3/R2 for ad media uploads
 - WebSocket live updates (currently poll-based)
+
+## Remote updates (PC, cloud, driver)
+
+All three apps can be updated without visiting buses or drivers.
+
+### How it works
+
+| App | Mechanism |
+|-----|-----------|
+| **Cloud admin** | Push git tag `v1.0.0` → GitHub Actions deploys `cloud/` to Railway |
+| **Bus PC** | `electron-updater` pulls `latest.yml` from `{ADKERALA_CLOUD_URL}/api/releases/pc` every 6h + on startup |
+| **Driver APK** | `/driver` screen checks `{cloud}/api/releases/driver/latest` and shows download link |
+| **Bus data (`db/`)** | Existing cloud command queue (routes, ads, audio) |
+
+### One-time setup
+
+1. **GitHub repo secrets** (Settings → Secrets):
+   - `ADKERALA_CLOUD_URL` — e.g. `https://your-app.up.railway.app`
+   - `ADKERALA_ADMIN_KEY` — same as Railway
+   - `RAILWAY_TOKEN` — optional, for auto cloud deploy
+
+2. **Each bus PC** — Windows env vars (permanent):
+   ```powershell
+   $env:ADKERALA_CLOUD_URL="https://YOUR-APP.up.railway.app"
+   $env:ADKERALA_BUS_ID="bus-1"
+   ```
+
+3. **Install NSIS build** on each bus once (replaces portable folder). After that, updates are automatic.
+
+### Ship a release
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+CI builds PC installer + driver APK, creates GitHub Release, and registers download URLs on the cloud admin.
+
+### Admin dashboard
+
+Open cloud admin → **Releases** tab:
+
+- Register PC/driver download URLs manually (if not using CI)
+- Set minimum versions
+- See fleet PC app versions and update status
+
+### Manual register (without CI)
+
+```bash
+node bus2/scripts/register-release.mjs \
+  --cloud-url https://YOUR-APP.up.railway.app \
+  --admin-key YOUR_KEY \
+  --version 1.0.0 \
+  --pc-url https://github.com/you/repo/releases/download/v1.0.0/AdKeralaDisplay-Setup-1.0.0.exe \
+  --driver-url https://github.com/you/repo/releases/download/v1.0.0/AdKeralaDriver-1.0.0.apk
+```
+
+## Cloud portal (web UI)
+
+The Railway cloud service includes a React portal at `/`:
+
+| URL | Role |
+|-----|------|
+| `/` | Public landing |
+| `/signup` | Bus owner, driver, or advertiser registration |
+| `/login` | Account login |
+| `/admin/*` | Platform admin |
+| `/owner/*` | Bus owner |
+| `/advertiser/*` | Advertiser campaigns |
+| `/driver/*` | Driver account |
+
+**Scripts:** `npm run cloud:web` (dev UI on `:8788`), `npm run cloud` (build + start on `:8787`).
+
+**Railway env (add to step 4):** `ADKERALA_JWT_SECRET`, `ADKERALA_BOOTSTRAP_ADMIN_EMAIL`, `ADKERALA_BOOTSTRAP_ADMIN_PASSWORD`.
+
+Legacy `X-Admin-Key` header auth remains for bus sync and scripts.
 

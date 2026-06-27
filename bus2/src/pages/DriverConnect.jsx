@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { APP_NAME } from '../lib/brand';
+import { APP_VERSION, isNewerVersion } from '../lib/version';
 import {
   controlUrlForSession,
   ensureDriverId,
@@ -24,6 +25,7 @@ export default function DriverConnect() {
   const [busy, setBusy] = useState(false);
   const [needsCloudUrl, setNeedsCloudUrl] = useState(false);
   const [ready, setReady] = useState(false);
+  const [driverUpdate, setDriverUpdate] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,6 +37,21 @@ export default function DriverConnect() {
       setCloudDraft(url);
       setNeedsCloudUrl(!url);
       setReady(true);
+
+      if (url) {
+        try {
+          const res = await fetch(`${url}/api/releases/driver/latest`);
+          const json = await res.json();
+          const latest = json?.release?.version;
+          if (latest && isNewerVersion(latest, APP_VERSION)) {
+            setDriverUpdate(json.release);
+          } else if (json?.minVersion && isNewerVersion(json.minVersion, APP_VERSION)) {
+            setDriverUpdate({ ...json.release, version: json.minVersion, required: true });
+          }
+        } catch {
+          /* cloud offline */
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -146,7 +163,20 @@ export default function DriverConnect() {
           <span className="driver-connect-logo">🌴</span>
           <h1>{APP_NAME} Driver</h1>
           <p>Pair with your bus, then open control over Wi‑Fi.</p>
+          <p className="driver-connect-foot">App v{APP_VERSION}</p>
         </div>
+
+        {driverUpdate?.downloadUrl && (
+          <div className="driver-connect-section update-banner">
+            <strong>
+              {driverUpdate.required ? 'Update required' : 'Update available'} — v{driverUpdate.version}
+            </strong>
+            {driverUpdate.releaseNotes && <p>{driverUpdate.releaseNotes}</p>}
+            <a className="btn primary" href={driverUpdate.downloadUrl} target="_blank" rel="noreferrer">
+              Download update
+            </a>
+          </div>
+        )}
 
         {needsCloudUrl && !import.meta.env.VITE_CLOUD_URL && (
           <div className="driver-connect-section">

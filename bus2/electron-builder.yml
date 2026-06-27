@@ -29,14 +29,27 @@ extraResources:
 
 win:
   target:
+    - target: nsis
+      arch:
+        - x64
     - target: dir
       arch:
         - x64
-  artifactName: AdKeralaDisplay
+  artifactName: AdKeralaDisplay-${version}.${ext}
   signAndEditExecutable: false
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
 
 extraFiles:
   - from: scripts/allow-firewall.bat
     to: allow-firewall.bat
 
 asar: true
+
+publish:
+  provider: generic
+  url: https://example.com/api/releases/pc
