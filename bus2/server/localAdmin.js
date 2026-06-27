@@ -1,0 +1,84 @@
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+
+/** Start embedded cloud admin unless a remote cloud URL is configured. */
+export function shouldStartLocalAdmin() {
+  if (process.env.ADKERALA_LOCAL_ADMIN === '0') return false;
+  if (process.env.ADKERALA_CLOUD_URL && process.env.ADKERALA_LOCAL_ADMIN !== '1') return false;
+  return true;
+}
+
+function ensureCloudDeps(cloudDir) {
+  if (fs.existsSync(path.join(cloudDir, 'node_modules'))) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const install = spawn('npm', ['install'], { cwd: cloudDir, shell: true, stdio: 'inherit' });
+    install.on('error', reject);
+    install.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error('cloud npm install failed'));
+    });
+  });
+}
+
+async function waitForHealth(adminUrl, attempts = 40) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetch(`${adminUrl}/api/health`);
+      if (res.ok) return true;
+    } catch {
+      /* server still starting */
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+/** Spawn cloud/server.js and wire bus env for local fleet admin. */
+export async function startLocalAdmin(root) {
+  const adminPort = Number(process.env.ADKERALA_ADMIN_PORT ?? 8787);
+  const adminUrl = `http://127.0.0.1:${adminPort}`;
+  const adminKey = process.env.ADKERALA_ADMIN_KEY ?? 'local-dev-key';
+
+  if (!process.env.ADKERALA_CLOUD_URL) {
+    process.env.ADKERALA_CLOUD_URL = adminUrl;
+  }
+  if (!process.env.ADKERALA_ADMIN_KEY) {
+    process.env.ADKERALA_ADMIN_KEY = adminKey;
+  }
+  if (!process.env.ADKERALA_BUS_ID) {
+    process.env.ADKERALA_BUS_ID = 'bus-1';
+  }
+
+  const cloudDir = path.join(root, 'cloud');
+  await ensureCloudDeps(cloudDir);
+
+  const child = spawn('node', ['server.js'], {
+    cwd: cloudDir,
+    env: {
+      ...process.env,
+      PORT: String(adminPort),
+      HOST: '0.0.0.0',
+      ADKERALA_ADMIN_KEY: process.env.ADKERALA_ADMIN_KEY,
+    },
+    stdio: 'inherit',
+  });
+
+  child.on('error', (err) => {
+    console.warn('AdKerala local admin failed to start:', err.message);
+  });
+
+  const ready = await waitForHealth(adminUrl);
+  if (!ready) {
+    console.warn('AdKerala local admin did not respond on', adminUrl);
+  }
+
+  return {
+    adminUrl,
+    adminKey: process.env.ADKERALA_ADMIN_KEY,
+    stop: () => {
+      if (!child.killed) child.kill();
+    },
+  };
+}

@@ -1,0 +1,241 @@
+# AdKerala — routes, stops, settings (JSON below)
+# Edit this file in Notepad. Put media files in db/media/ subfolders.
+# Use "mediaFile" and "audioFile" for paths like "ads/promo.mp4" (relative to db/media/).
+{
+  "routes": [
+    {
+      "id": "route-tvm-kochi",
+      "name": "Thiruvananthapuram – Kochi Express",
+      "startStop": {
+        "en": "Thiruvananthapuram",
+        "ml": "തിരുവനന്തപുരം",
+        "lat": 8.4875,
+        "lng": 76.9525,
+        "radiusM": 80
+      },
+      "endStop": {
+        "en": "Kochi",
+        "ml": "കൊച്ചി",
+        "lat": 9.9312,
+        "lng": 76.2673,
+        "radiusM": 80
+      },
+      "stops": [
+        {
+          "en": "Kollam",
+          "ml": "കൊല്ലം",
+          "lat": 8.8932,
+          "lng": 76.6141,
+          "radiusM": 80
+        },
+        {
+          "en": "Alappuzha",
+          "ml": "ആലപ്പുഴ",
+          "lat": 9.4981,
+          "lng": 76.3388,
+          "radiusM": 80
+        },
+        {
+          "en": "Ernakulam",
+          "ml": "എറണാകുളം",
+          "lat": 9.9816,
+          "lng": 76.2999,
+          "radiusM": 80
+        }
+      ]
+    }
+  ],
+  "activeRouteId": "route-tvm-kochi",
+  "currentStopIndex": 0,
+  "tripStarted": true,
+  "tripEnded": false,
+  "tripDeparted": false,
+  "routeDirection": "forward",
+  "ads": [],
+  "bannerAds": [],
+  "adSettings": {
+    "enabled": true,
+    "intervalSec": 90,
+    "defaultDurationSec": 12,
+    "playAudio": true
+  },
+  "bannerAdSettings": {
+    "enabled": true,
+    "defaultDurationSec": 8
+  },
+  "displaySettings": {
+    "languageAlternateSec": 4
+  },
+  "announcementSettings": {
+    "enabled": true,
+    "autoAnnounceOnForward": true,
+    "languages": [
+      "ml",
+      "en"
+    ],
+    "pauseBetweenFragmentsMs": 300
+  },
+  "audioFragments": {
+    "attention": {
+      "en": {
+        "audioFile": "announcements/1782323300594-attention_en.webm"
+      }
+    },
+    "nextStop": {
+      "en": {
+        "audioFile": "announcements/1782323308116-nextStop_en.webm"
+      }
+    },
+    "pleaseAlight": {
+      "en": {
+        "audioFile": "announcements/1782323315484-pleaseAlight_en.webm"
+      }
+    },
+    "terminus": {
+      "en": {
+        "audioFile": "announcements/1782323322417-terminus_en.webm"
+      }
+    }
+  },
+  "stopAudio": {
+    "thiruvananthapuram": {
+      "en": {
+        "audioFile": "stops/1782323329140-thiruvananthapuram_en.webm"
+      }
+    },
+    "kollam": {
+      "en": {
+        "audioFile": "stops/1782323334948-kollam_en.webm"
+      }
+    },
+    "alappuzha": {
+      "en": {
+        "audioFile": "stops/1782323340236-alappuzha_en.webm"
+      }
+    },
+    "ernakulam": {
+      "en": {
+        "audioFile": "stops/1782323344142-ernakulam_en.webm"
+      }
+    }
+  },
+  "announcementRequest": null,
+  "displayView": "route",
+  "driverLocation": {
+    "lat": 8.9584,
+    "lng": 76.9245,
+    "accuracy": 50000,
+    "heading": null,
+    "speed": null,
+    "at": 1782587476848
+  },
+  "stopCatalog": [
+    {
+      "en": "Thiruvananthapuram",
+      "ml": "തിരുവനന്തപുരം",
+      "lat": 8.4875,
+      "lng": 76.9525,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Kollam",
+      "ml": "കൊല്ലം",
+      "lat": 8.8932,
+      "lng": 76.6141,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Alappuzha",
+      "ml": "ആലപ്പുഴ",
+      "lat": 9.4981,
+      "lng": 76.3388,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Ernakulam",
+      "ml": "എറണാകുളം",
+      "lat": 9.9816,
+      "lng": 76.2999,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Kochi",
+      "ml": "കൊച്ചി",
+      "lat": 9.9312,
+      "lng": 76.2673,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Kilimanoor",
+      "ml": "കിളിമാനൂർ",
+      "lat": 8.6628,
+      "lng": 76.8953,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Mottakuzhy",
+      "ml": "മൊട്ടക്കുഴി",
+      "lat": null,
+      "lng": null,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Kadakkal",
+      "ml": "കടയ്ക്കൽ",
+      "lat": 8.8167,
+      "lng": 76.9667,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Chithara",
+      "ml": "ചിതറ",
+      "lat": 8.85,
+      "lng": 77.0167,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    },
+    {
+      "en": "Madathara",
+      "ml": "മടത്തറ",
+      "lat": 8.8261,
+      "lng": 77.0636,
+      "radiusM": 80,
+      "updatedAt": 1782587447337
+    }
+  ],
+  "serialSettings": {
+    "enabled": false,
+    "portLocked": false,
+    "baudRate": 115200,
+    "savedPortInfo": null,
+    "buttonMappings": {
+      "forward": "1",
+      "backward": "2",
+      "speech": "3",
+      "idle": "0"
+    },
+    "fullscreenCommand": "fullscreen",
+    "exitCommand": "exit",
+    "debounceMs": 500
+  },
+  "serialRuntime": {
+    "status": "idle",
+    "portLabel": "",
+    "error": "",
+    "isConnected": false,
+    "at": 1782587384157
+  },
+  "currentAdIndex": 0,
+  "nextAdIndex": 0,
+  "lastAdEndedAt": 1782587384131,
+  "adStartedAt": null,
+  "savedAt": 1782588254344
+}

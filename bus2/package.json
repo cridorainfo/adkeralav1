@@ -1,0 +1,30 @@
+{
+  "name": "kerala-bus-display",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AdKerala — bus route display and advertising platform",
+  "type": "module",
+  "main": "kiosk/main.cjs",
+  "scripts": {
+    "dev": "node server/dev.js",
+    "start": "node server/dev.js",
+    "start:prod": "node server/prod.js",
+    "build": "vite build",
+    "build:kiosk": "vite build && electron-builder --win dir",
+    "preview": "vite preview",
+    "cloud": "cd cloud && npm install && npm start"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.0",
+    "selfsigned": "^5.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "vite": "^6.0.0"
+  }
+}

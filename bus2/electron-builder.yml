@@ -1,0 +1,42 @@
+appId: com.adkerala.display
+productName: AdKeralaDisplay
+copyright: Copyright © AdKerala
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - server/**/*
+  - kiosk/**/*
+  - src/store/**/*
+  - src/lib/**/*
+  - package.json
+  - node_modules/**/*
+  - "!node_modules/@vite/**/*"
+  - "!node_modules/vite/**/*"
+  - "!node_modules/@vitejs/**/*"
+  - "!node_modules/electron/**/*"
+  - "!node_modules/electron-builder/**/*"
+  - "!node_modules/.cache/**/*"
+
+extraResources:
+  - from: db
+    to: db
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  artifactName: AdKeralaDisplay
+  signAndEditExecutable: false
+
+extraFiles:
+  - from: scripts/allow-firewall.bat
+    to: allow-firewall.bat
+
+asar: true
