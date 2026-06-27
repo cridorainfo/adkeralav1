@@ -1,7 +1,9 @@
 # Monorepo: cloud admin lives in bus2/cloud. Railway reads this file from the repo root.
+# Build context = repo root → use /Dockerfile (paths prefixed with bus2/cloud/).
+# Alternative: set Railway Root Directory to bus2/cloud and use bus2/cloud/Dockerfile.
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "bus2/cloud/Dockerfile"
+dockerfilePath = "Dockerfile"
 watchPatterns = ["bus2/cloud/**"]
 
 [deploy]

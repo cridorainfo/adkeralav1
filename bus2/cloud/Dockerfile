@@ -15,7 +15,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY server.js store.js auth.js users.js campaigns.js releases.js ./
+COPY *.js ./
 COPY --from=web-build /app/public ./public
 
 ENV NODE_ENV=production
