@@ -8,5 +8,5 @@ watchPatterns = ["bus2/cloud/**"]
 
 [deploy]
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"

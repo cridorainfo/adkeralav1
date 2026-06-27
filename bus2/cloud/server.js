@@ -24,6 +24,7 @@ import {
   getStopFromCatalog,
   ensureStopCatalogFromRoutes,
   loadStore,
+  warmUpStore,
   scanCatalogGaps,
   getGlobalPhraseAudio,
   setGlobalPhraseAudio,
@@ -296,17 +297,29 @@ function normalizeRoute(body) {
   };
 }
 
-app.get('/api/health', async (_req, res) => {
-  const releases = await getReleaseConfig();
+app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'adkerala-cloud',
     version: CLOUD_VERSION,
-    minPcVersion: releases.minPcVersion,
-    minDriverVersion: releases.minDriverVersion,
-    latestPcVersion: releases.pc?.version ?? null,
-    latestDriverVersion: releases.driver?.version ?? null,
   });
+});
+
+app.get('/api/health/details', async (_req, res) => {
+  try {
+    const releases = await getReleaseConfig();
+    res.json({
+      ok: true,
+      service: 'adkerala-cloud',
+      version: CLOUD_VERSION,
+      minPcVersion: releases.minPcVersion,
+      minDriverVersion: releases.minDriverVersion,
+      latestPcVersion: releases.pc?.version ?? null,
+      latestDriverVersion: releases.driver?.version ?? null,
+    });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: err.message });
+  }
 });
 
 app.get('/api/buses', authSession, requireAuth, async (req, res) => {
@@ -753,10 +766,18 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, HOST, async () => {
+async function start() {
+  await warmUpStore();
   await bootstrapAdminIfNeeded();
-  console.log(`\n  AdKerala Cloud Admin v${CLOUD_VERSION}`);
-  console.log(`  Listening: http://${HOST}:${PORT}/`);
-  console.log(`  Data dir:  ${DATA_DIR}`);
-  console.log(`  Health:    GET /api/health\n`);
+  app.listen(PORT, HOST, () => {
+    console.log(`\n  AdKerala Cloud Admin v${CLOUD_VERSION}`);
+    console.log(`  Listening: http://${HOST}:${PORT}/`);
+    console.log(`  Data dir:  ${DATA_DIR}`);
+    console.log(`  Health:    GET /api/health\n`);
+  });
+}
+
+start().catch((err) => {
+  console.error('Failed to start cloud server:', err);
+  process.exit(1);
 });

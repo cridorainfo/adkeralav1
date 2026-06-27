@@ -13,19 +13,23 @@ RUN npm run build
 
 FROM node:22-alpine
 
+RUN apk add --no-cache su-exec
+
 WORKDIR /app
 
 COPY bus2/cloud/package.json bus2/cloud/package-lock.json* ./
 RUN npm install --omit=dev
 
 COPY bus2/cloud/*.js ./
+COPY bus2/cloud/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 COPY --from=web-build /app/public ./public
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
+ENV DATA_DIR=/data
 
 EXPOSE 8787
 
-USER node
-
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

@@ -1,5 +1,4 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import PublicLayout from './layouts/PublicLayout.jsx';
 import Landing from './pages/Landing.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
@@ -9,11 +8,18 @@ import OwnerApp from './dashboards/owner/OwnerApp.jsx';
 import AdvertiserApp from './dashboards/advertiser/AdvertiserApp.jsx';
 import DriverApp from './dashboards/driver/DriverApp.jsx';
 import { useAuth } from './lib/auth.jsx';
+import { GuestOnly } from './lib/GuestOnly.jsx';
 import { dashboardPathForRole } from './lib/brand.js';
 
 function HomeRedirect() {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="store-loading">
+        <p>Loading…</p>
+      </div>
+    );
+  }
   if (user && !user.legacy) {
     return <Navigate to={dashboardPathForRole(user.role)} replace />;
   }
@@ -23,11 +29,23 @@ function HomeRedirect() {
 export default function App() {
   return (
     <Routes>
-      <Route element={<PublicLayout />}>
-        <Route index element={<HomeRedirect />} />
-        <Route path="login" element={<Login />} />
-        <Route path="signup" element={<Signup />} />
-      </Route>
+      <Route index element={<HomeRedirect />} />
+      <Route
+        path="login"
+        element={
+          <GuestOnly>
+            <Login />
+          </GuestOnly>
+        }
+      />
+      <Route
+        path="signup"
+        element={
+          <GuestOnly>
+            <Signup />
+          </GuestOnly>
+        }
+      />
       <Route path="admin/*" element={<AdminApp />} />
       <Route path="owner/*" element={<OwnerApp />} />
       <Route path="advertiser/*" element={<AdvertiserApp />} />

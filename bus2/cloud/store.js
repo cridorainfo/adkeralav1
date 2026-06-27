@@ -53,6 +53,13 @@ let cache = null;
 
 async function ensureDataDir() {
   await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(path.join(DATA_DIR, 'media'), { recursive: true });
+}
+
+/** Call before accepting traffic — ensures DATA_DIR exists and is writable. */
+export async function warmUpStore() {
+  await ensureDataDir();
+  return loadStore();
 }
 
 export async function loadStore() {
