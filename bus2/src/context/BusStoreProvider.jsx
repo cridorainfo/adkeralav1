@@ -10,7 +10,6 @@ import {
   getActiveRoute,
   getAllStops,
   getStopInfo,
-  getUpcomingPassengerStop,
   getTripStartIndex,
   normalizeRouteMiddleStops,
   dedupeRoutes,
@@ -36,6 +35,12 @@ import {
   upsertCatalogEntry,
   catalogEntryFromStop,
 } from '../lib/stopCatalog';
+import {
+  applyStartTrip,
+  applyEndTrip,
+  applyMoveForward,
+  applyRequestAnnouncement,
+} from '../store/driveActions';
 
 function stopActiveAdPatch(state) {
   if (state?.displayView !== 'ad') return {};
@@ -592,119 +597,19 @@ function useBusStoreLogic() {
   );
 
   const startTrip = useCallback(() => {
-    update((s) => {
-      const route = getActiveRoute(s);
-      if (!route || s.tripStarted) return s;
-      const stops = getAllStops(route);
-      const dir = s.routeDirection ?? 'forward';
-      return {
-        ...s,
-        tripStarted: true,
-        tripEnded: false,
-        tripDeparted: false,
-        currentStopIndex: getTripStartIndex(stops, dir),
-        displayView: 'route',
-        announcementRequest: null,
-      };
-    });
+    update((s) => applyStartTrip(s));
   }, [update]);
 
   const endTrip = useCallback(() => {
-    update((s) => {
-      const route = getActiveRoute(s);
-      if (!route || !s.tripStarted) return s;
-      const stops = getAllStops(route);
-      const dir = s.routeDirection ?? 'forward';
-      return {
-        ...s,
-        tripStarted: false,
-        tripEnded: true,
-        tripDeparted: false,
-        currentStopIndex: getTripStartIndex(stops, dir),
-        displayView: 'route',
-        announcementRequest: null,
-      };
-    });
+    update((s) => applyEndTrip(s));
   }, [update]);
 
   const moveForward = useCallback(() => {
     let stateAfter = null;
     update((s) => {
-      const route = getActiveRoute(s);
-      if (!route || !s.tripStarted || s.tripEnded) return s;
-      const stops = getAllStops(route);
-      const dir = s.routeDirection ?? 'forward';
-      const tripStart = getTripStartIndex(stops, dir);
-
-      if (dir === 'forward') {
-        if (s.tripDeparted && s.currentStopIndex >= stops.length - 1) return s;
-
-        const nextDepartedIdx = s.tripDeparted
-          ? Math.min(s.currentStopIndex + 1, stops.length - 1)
-          : tripStart;
-
-        if (s.tripDeparted && nextDepartedIdx === s.currentStopIndex) return s;
-
-        const afterState = {
-          ...s,
-          tripDeparted: true,
-          currentStopIndex: nextDepartedIdx,
-        };
-        const announceStop = getUpcomingPassengerStop(afterState);
-        if (!announceStop) return s;
-
-        const isTerminus = sameStop(announceStop, stops[stops.length - 1]);
-        const shouldAnnounce =
-          (s.announcementSettings?.enabled ?? true) &&
-          (s.announcementSettings?.autoAnnounceOnForward ?? true);
-
-        stateAfter = {
-          ...afterState,
-          announcementRequest: shouldAnnounce
-            ? {
-                id: createId(),
-                stopEn: normalizeStop(announceStop).en,
-                isTerminus: Boolean(isTerminus),
-                at: Date.now(),
-              }
-            : null,
-        };
-        return stateAfter;
-      }
-
-      if (s.tripDeparted && s.currentStopIndex <= 0) return s;
-
-      const nextDepartedIdx = s.tripDeparted
-        ? Math.max(s.currentStopIndex - 1, 0)
-        : tripStart;
-
-      if (s.tripDeparted && nextDepartedIdx === s.currentStopIndex) return s;
-
-      const afterState = {
-        ...s,
-        tripDeparted: true,
-        currentStopIndex: nextDepartedIdx,
-      };
-      const announceStop = getUpcomingPassengerStop(afterState);
-      if (!announceStop) return s;
-
-      const isTerminus = sameStop(announceStop, stops[0]);
-      const shouldAnnounce =
-        (s.announcementSettings?.enabled ?? true) &&
-        (s.announcementSettings?.autoAnnounceOnForward ?? true);
-
-      stateAfter = {
-        ...afterState,
-        announcementRequest: shouldAnnounce
-          ? {
-              id: createId(),
-              stopEn: normalizeStop(announceStop).en,
-              isTerminus: Boolean(isTerminus),
-              at: Date.now(),
-            }
-          : null,
-      };
-      return stateAfter;
+      const next = applyMoveForward(s);
+      if (next.announcementRequest) stateAfter = next;
+      return next;
     });
     if (stateAfter?.announcementRequest) {
       playAnnouncementNow(stateAfter);
@@ -1163,15 +1068,10 @@ function useBusStoreLogic() {
       if (!stop) return;
       let stateAfter = null;
       update((s) => {
-        stateAfter = {
-          ...s,
-          announcementRequest: {
-            id: createId(),
-            stopEn: normalizeStop(stop).en,
-            isTerminus,
-            at: Date.now(),
-          },
-        };
+        stateAfter = applyRequestAnnouncement(s, {
+          stopEn: normalizeStop(stop).en,
+          isTerminus,
+        });
         return stateAfter;
       });
       if (stateAfter) playAnnouncementNow(stateAfter);

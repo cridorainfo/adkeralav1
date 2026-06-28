@@ -6,7 +6,11 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 watchPatterns = ["bus2/cloud/**"]
 
+# Build-time: bake primary cloud URL into the React portal.
+[build.args]
+VITE_CLOUD_URL = "https://adkeralav1-production.up.railway.app"
+
 [deploy]
 healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

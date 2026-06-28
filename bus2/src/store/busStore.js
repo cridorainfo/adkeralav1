@@ -27,6 +27,14 @@ const defaultState = () => ({
   },
   displaySettings: {
     languageAlternateSec: 4,
+    brandTitle: '',
+    theme: {
+      primaryColor: '#1a5632',
+      backgroundColor: '#0b1220',
+      fontScale: 1,
+      showClock: true,
+      showBanner: true,
+    },
   },
   announcementSettings: {
     enabled: true,
@@ -238,7 +246,14 @@ function mergeStoredState(parsed) {
         ...defaults.bannerAdSettings,
         ...(hydrated.bannerAdSettings ?? {}),
       },
-      displaySettings: { ...defaults.displaySettings, ...(hydrated.displaySettings ?? {}) },
+      displaySettings: {
+        ...defaults.displaySettings,
+        ...(hydrated.displaySettings ?? {}),
+        theme: {
+          ...defaults.displaySettings.theme,
+          ...(hydrated.displaySettings?.theme ?? {}),
+        },
+      },
       serialSettings: {
         ...defaults.serialSettings,
         ...(hydrated.serialSettings ?? {}),

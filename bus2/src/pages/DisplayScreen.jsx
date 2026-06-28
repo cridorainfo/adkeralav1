@@ -37,6 +37,23 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const isVideoAd = showingAd && currentAd?.type === 'video';
   const announcementPlaying = s.announcementStatus === 'playing';
   const pairingCompact = showTripOnDisplay && tripStarted && !tripEnded;
+  const theme = s.displaySettings?.theme ?? {};
+  const showClock = theme.showClock !== false;
+  const showBannerStrip =
+    theme.showBanner !== false && (s.bannerAdSettings?.enabled ?? true);
+  const brandTitle = s.displaySettings?.brandTitle?.trim() || APP_NAME;
+  const screenStyle = {
+    ...(theme.primaryColor ? { '--display-primary': theme.primaryColor } : {}),
+    ...(theme.backgroundColor ? { '--display-bg': theme.backgroundColor } : {}),
+    ...(theme.fontScale && theme.fontScale !== 1
+      ? { fontSize: `calc(1rem * ${theme.fontScale})` }
+      : {}),
+    ...(theme.primaryColor && theme.backgroundColor
+      ? {
+          background: `linear-gradient(160deg, ${theme.primaryColor} 0%, ${theme.backgroundColor} 100%)`,
+        }
+      : {}),
+  };
   const isPassengerView =
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
@@ -189,14 +206,14 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>
-    <div className={`display-screen ${isPassengerView ? 'fullscreen' : ''}`}>
+    <div className={`display-screen ${isPassengerView ? 'fullscreen' : ''}`} style={screenStyle}>
       <audio ref={audioRef} />
 
       <div className="display-top-bar">
         <div className="display-brand">
           <span className="display-brand-icon">🌴</span>
           <div className="display-brand-text">
-            <h2>{APP_NAME}</h2>
+            <h2>{brandTitle}</h2>
             <span>{APP_DISPLAY_TAGLINE}</span>
           </div>
         </div>
@@ -206,10 +223,12 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           )}
         </div>
         <div className="display-top-bar-right">
-          <div className="display-clock" aria-live="polite">
-            <span className="display-clock-time">{clockTime}</span>
-            <span className="display-clock-date">{clockDate}</span>
-          </div>
+          {showClock && (
+            <div className="display-clock" aria-live="polite">
+              <span className="display-clock-time">{clockTime}</span>
+              <span className="display-clock-date">{clockDate}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -324,7 +343,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
         />
       )}
 
-      {!showingAd && (
+      {!showingAd && showBannerStrip && (
         <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />
       )}
     </div>

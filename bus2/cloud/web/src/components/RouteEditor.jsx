@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, uploadMedia } from '../lib/api.js';
+import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
@@ -29,7 +29,7 @@ function StopRow({ stop, onChange, onRemove, showRemove }) {
 }
 
 export default function RouteEditor() {
-  const { selectedBusId, pushToBus } = useSelectedBus();
+  const { selectedBusId, pushToBus, targetBusIds } = useSelectedBus();
   const [routes, setRoutes] = useState([]);
   const [route, setRoute] = useState(null);
   const [status, setStatus] = useState('');
@@ -66,7 +66,7 @@ export default function RouteEditor() {
       startStop: normalizeStop(route.startStop),
       endStop: normalizeStop(route.endStop),
       stops: route.stops.map(normalizeStop),
-      targetBusIds: andPush && pushToBus ? [selectedBusId] : [],
+      targetBusIds: andPush && pushToBus ? targetBusIds : [],
     };
 
     const json = await api(`/api/routes/${encodeURIComponent(route.id)}`, {
@@ -85,15 +85,20 @@ export default function RouteEditor() {
       }
     }
 
-    if (Object.keys(stopAudio).length && andPush && pushToBus) {
-      await api(`/api/buses/${encodeURIComponent(selectedBusId)}/push-audio`, {
-        method: 'POST',
-        body: JSON.stringify({ stopAudio, mediaFiles }),
+    if (Object.keys(stopAudio).length && andPush && pushToBus && targetBusIds.length) {
+      await fleetBroadcast({
+        targetBusIds,
+        commandType: 'MERGE_STATE',
+        payload: { stopAudio, mediaFiles },
       });
     }
 
     setRoute(json.route);
-    setStatus(andPush && pushToBus ? `Saved · queued for ${selectedBusId}` : 'Saved');
+    setStatus(
+      andPush && pushToBus && targetBusIds.length
+        ? `Saved · queued for ${targetBusIds.join(', ')}`
+        : 'Saved'
+    );
     loadRoutes();
   }
 
@@ -110,7 +115,7 @@ export default function RouteEditor() {
     if (!route || !confirm(`Delete route "${route.name}"?`)) return;
     await api(`/api/routes/${encodeURIComponent(route.id)}`, {
       method: 'DELETE',
-      body: JSON.stringify({ targetBusIds: pushToBus ? [selectedBusId] : [] }),
+      body: JSON.stringify({ targetBusIds: pushToBus ? targetBusIds : [] }),
     });
     setRoute(null);
     setStatus('Deleted');

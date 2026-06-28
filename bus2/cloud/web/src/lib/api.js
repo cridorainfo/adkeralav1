@@ -27,6 +27,13 @@ export async function uploadMedia(file, category = 'stops') {
   });
 }
 
+export async function fleetBroadcast({ targetBusIds, commandType, payload }) {
+  return api('/api/fleet/broadcast', {
+    method: 'POST',
+    body: JSON.stringify({ targetBusIds, commandType, payload }),
+  });
+}
+
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

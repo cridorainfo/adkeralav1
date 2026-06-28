@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID, randomInt } from 'crypto';
 import { getDataRoot } from './getAppRoot.js';
+import { resolveCloudUrl } from '../shared/cloudUrls.js';
 
 const CONFIG_FILENAME = 'adkerala.device.json';
 
@@ -10,11 +11,7 @@ function configPath(dataRoot) {
 }
 
 function defaultCloudUrl() {
-  return (
-    process.env.ADKERALA_CLOUD_URL ??
-    process.env.VITE_CLOUD_URL ??
-    ''
-  ).replace(/\/+$/, '');
+  return resolveCloudUrl(process.env);
 }
 
 export function generateFleetClaimCode() {

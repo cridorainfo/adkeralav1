@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, uploadMedia } from '../lib/api.js';
+import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 
 const emptyAd = () => ({
@@ -19,7 +19,7 @@ const emptyBanner = () => ({
 });
 
 export default function AdsPanel() {
-  const { selectedBusId } = useSelectedBus();
+  const { targetBusIds } = useSelectedBus();
   const [ads, setAds] = useState([emptyAd()]);
   const [bannerAds, setBannerAds] = useState([emptyBanner()]);
   const [message, setMessage] = useState('');
@@ -45,15 +45,21 @@ export default function AdsPanel() {
   }
 
   async function pushAds() {
+    if (!targetBusIds.length) {
+      setMessage('Enable push and select at least one bus');
+      return;
+    }
     setMessage('Queuing…');
-    await api(`/api/buses/${encodeURIComponent(selectedBusId)}/ads`, {
-      method: 'POST',
-      body: JSON.stringify({
-        ads: ads.filter((a) => a.mediaFile),
-        bannerAds: bannerAds.filter((a) => a.mediaFile),
-      }),
+    const payload = {
+      ads: ads.filter((a) => a.mediaFile),
+      bannerAds: bannerAds.filter((a) => a.mediaFile),
+    };
+    const json = await fleetBroadcast({
+      targetBusIds,
+      commandType: 'UPDATE_ADS',
+      payload,
     });
-    setMessage(`Queued for ${selectedBusId}`);
+    setMessage(`Queued for ${(json.queuedFor ?? []).join(', ')}`);
   }
 
   return (
@@ -107,7 +113,7 @@ export default function AdsPanel() {
 
       <div className="editor-actions">
         <button type="button" className="btn btn-primary" onClick={pushAds}>
-          Queue for {selectedBusId}
+          Queue ads ({targetBusIds.length || 0} bus{targetBusIds.length === 1 ? '' : 'es'})
         </button>
       </div>
       {message && <p className="hint">{message}</p>}

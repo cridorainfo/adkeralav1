@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout.jsx';
 import { RequireAuth } from '../../lib/auth.jsx';
-import { SelectedBusProvider, BusSelector } from '../../components/BusContext.jsx';
+import { SelectedBusProvider, BusSelector, PushHint } from '../../components/BusContext.jsx';
 import FleetPanel from '../../components/FleetPanel.jsx';
 import LiveBusPanel from '../../components/LiveBusPanel.jsx';
 import RouteEditor from '../../components/RouteEditor.jsx';
@@ -12,7 +12,7 @@ import ContentGaps from '../../components/ContentGaps.jsx';
 import UsersPanel from '../../components/UsersPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import ReleasesPanel from '../../components/ReleasesPanel.jsx';
-import RouteCatalog from '../../components/RouteCatalog.jsx';
+import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
 import { useSelectedBus } from '../../components/BusContext.jsx';
 
 const NAV = [
@@ -22,6 +22,7 @@ const NAV = [
   { to: '/stops', label: 'Stops' },
   { to: '/voices', label: 'Voices' },
   { to: '/ads', label: 'Ads' },
+  { to: '/display', label: 'Display' },
   { to: '/campaigns', label: 'Campaigns' },
   { to: '/gaps', label: 'Content gaps' },
   { to: '/catalog', label: 'Route catalog' },
@@ -32,12 +33,15 @@ const NAV = [
 function AdminToolbar() {
   const { pushToBus, setPushToBus } = useSelectedBus();
   return (
-    <div className="toolbar">
-      <BusSelector />
-      <label style={{ fontSize: '0.85rem' }}>
-        <input type="checkbox" checked={pushToBus} onChange={(e) => setPushToBus(e.target.checked)} /> Push to selected bus
-      </label>
-    </div>
+    <>
+      <div className="toolbar">
+        <BusSelector />
+        <label style={{ fontSize: '0.85rem' }}>
+          <input type="checkbox" checked={pushToBus} onChange={(e) => setPushToBus(e.target.checked)} /> Enable push
+        </label>
+      </div>
+      <PushHint />
+    </>
   );
 }
 
@@ -52,6 +56,7 @@ function AdminRoutes() {
         <Route path="stops" element={<StopsCatalog />} />
         <Route path="voices" element={<VoicesPanel />} />
         <Route path="ads" element={<AdsPanel />} />
+        <Route path="display" element={<DisplaySettingsPanel />} />
         <Route path="campaigns" element={<CampaignsPanel adminMode />} />
         <Route path="gaps" element={<ContentGaps />} />
         <Route path="catalog" element={<RouteCatalog />} />

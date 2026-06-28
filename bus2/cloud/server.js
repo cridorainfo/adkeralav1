@@ -89,6 +89,7 @@ import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.
 import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl } from './mediaStorage.js';
 import { usePostgres, getPool } from './db/pool.js';
+import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -102,9 +103,27 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 }
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
 app.use(requestLogger);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowed = Boolean(origin && getCloudUrls().includes(origin.replace(/\/+$/, '')));
+  if (allowed) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS' && allowed) {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Key, X-Bus-Key, X-Bus-Token');
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
 
@@ -115,6 +134,22 @@ async function assertBusAccess(req, res, busId) {
     return false;
   }
   return true;
+}
+
+async function resolveTargetBusIds(req, targetBusIds) {
+  const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
+  const allBuses = await listBuses({ ownerId });
+  let ids = targetBusIds;
+  if (ids === 'all' || (Array.isArray(ids) && ids.length === 1 && ids[0] === 'all')) {
+    ids = allBuses.map((b) => b.busId);
+  }
+  if (!Array.isArray(ids) || !ids.length) return [];
+  const allowed = [];
+  for (const busId of ids) {
+    const profile = await getBusProfile(busId);
+    if (canAccessBus(req.user, busId, profile)) allowed.push(busId);
+  }
+  return allowed;
 }
 
 function authAdmin(req, res, next) {
@@ -391,7 +426,12 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     service: 'adkerala-cloud',
     version: CLOUD_VERSION,
+    publicUrl: getPublicUrl(),
   });
+});
+
+app.get('/api/public/config', (_req, res) => {
+  res.json({ ok: true, ...getPublicConfig() });
 });
 
 app.get('/api/health/details', async (_req, res) => {
@@ -412,6 +452,8 @@ app.get('/api/health/details', async (_req, res) => {
       ok: true,
       service: 'adkerala-cloud',
       version: CLOUD_VERSION,
+      publicUrl: getPublicUrl(),
+      cloudUrls: getCloudUrls(),
       minPcVersion: releases.minPcVersion,
       minDriverVersion: releases.minDriverVersion,
       latestPcVersion: releases.pc?.version ?? null,
@@ -642,6 +684,43 @@ app.post('/api/buses/:busId/push-audio', authFleet, async (req, res) => {
     savedAt: Date.now(),
   });
   res.json({ ok: true, commandId: cmd.id });
+});
+
+/** Queue the same command for multiple buses (fleet-wide push). */
+app.post('/api/fleet/broadcast', authFleet, async (req, res) => {
+  const { targetBusIds, commandType, payload } = req.body ?? {};
+  if (!commandType || typeof commandType !== 'string') {
+    res.status(400).json({ ok: false, error: 'Missing commandType' });
+    return;
+  }
+  const busIds = await resolveTargetBusIds(req, targetBusIds);
+  if (!busIds.length) {
+    res.status(400).json({ ok: false, error: 'No accessible target buses' });
+    return;
+  }
+  const mergedPayload = { ...(payload ?? {}), savedAt: Date.now() };
+  const commandIds = [];
+  for (const busId of busIds) {
+    const cmd = await enqueueCommand(busId, commandType, mergedPayload);
+    commandIds.push({ busId, commandId: cmd.id });
+  }
+  res.json({ ok: true, queuedFor: busIds, commandIds });
+});
+
+app.post('/api/buses/:busId/drive', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const action = req.body?.action;
+  if (!action || typeof action !== 'string') {
+    res.status(400).json({ ok: false, error: 'Missing action' });
+    return;
+  }
+  const { action: _a, ...rest } = req.body ?? {};
+  const cmd = await enqueueCommand(req.params.busId, 'DRIVE_ACTION', {
+    action,
+    ...rest,
+    savedAt: Date.now(),
+  });
+  res.json({ ok: true, queued: true, commandId: cmd.id });
 });
 
 /** Shared phrase clips for all buses (attention, next stop, etc.). */
@@ -916,19 +995,28 @@ app.get('*', (_req, res) => {
 });
 
 async function start() {
-  await warmUpStore();
-  await bootstrapAdminIfNeeded();
-  if (usePostgres()) {
-    setInterval(() => {
-      import('./storePg.js').then((m) => m.pgPruneCommands()).catch(() => {});
-    }, 60 * 60 * 1000);
-  }
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`\n  AdKerala Cloud Admin v${CLOUD_VERSION}`);
     console.log(`  Listening: http://${HOST}:${PORT}/`);
+    console.log(`  Public URL: ${getPublicUrl()}`);
+    console.log(`  Also served: ${getCloudUrls().filter((u) => u !== getPublicUrl()).join(', ') || '(none)'}`);
     console.log(`  Data dir:  ${DATA_DIR}`);
     console.log(`  Health:    GET /api/health\n`);
   });
+
+  try {
+    await warmUpStore();
+    await bootstrapAdminIfNeeded();
+    if (usePostgres()) {
+      setInterval(() => {
+        import('./storePg.js').then((m) => m.pgPruneCommands()).catch(() => {});
+      }, 60 * 60 * 1000);
+    }
+  } catch (err) {
+    console.error('Store warm-up failed (health endpoint still available):', err);
+  }
+
+  return server;
 }
 
 start().catch((err) => {

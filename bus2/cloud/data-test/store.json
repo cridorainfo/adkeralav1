@@ -1,0 +1,94 @@
+{
+  "buses": {},
+  "busProfiles": {},
+  "drivers": {},
+  "users": {},
+  "adCampaigns": {},
+  "commands": [],
+  "fleetEnrollments": {},
+  "busDevices": {},
+  "auditLog": [],
+  "releases": {
+    "pc": null,
+    "driver": null,
+    "minPcVersion": "0.1.0",
+    "minDriverVersion": "0.1.0"
+  },
+  "stopCatalog": [],
+  "globalAudioFragments": {},
+  "globalAudioSavedAt": 0,
+  "routeCatalog": [
+    {
+      "id": "route-tvm-kochi",
+      "name": "Thiruvananthapuram – Kochi Express",
+      "startStop": {
+        "en": "Thiruvananthapuram",
+        "ml": "തിരുവനന്തപുരം",
+        "lat": 8.4875,
+        "lng": 76.9525
+      },
+      "endStop": {
+        "en": "Kochi",
+        "ml": "കൊച്ചി",
+        "lat": 9.9312,
+        "lng": 76.2673
+      },
+      "stops": [
+        {
+          "en": "Kollam",
+          "ml": "കൊല്ലം",
+          "lat": 8.8932,
+          "lng": 76.6141
+        },
+        {
+          "en": "Alappuzha",
+          "ml": "ആലപ്പുഴ",
+          "lat": 9.4981,
+          "lng": 76.3388
+        },
+        {
+          "en": "Ernakulam",
+          "ml": "എറണാകുളം",
+          "lat": 9.9816,
+          "lng": 76.2999
+        }
+      ]
+    },
+    {
+      "id": "route-kilimanoor-madathara",
+      "name": "Kilimanoor – Madathara",
+      "startStop": {
+        "en": "Kilimanoor",
+        "ml": "കിളിമാനൂർ",
+        "lat": 8.6628,
+        "lng": 76.8953
+      },
+      "endStop": {
+        "en": "Madathara",
+        "ml": "മടത്തറ",
+        "lat": 8.8261,
+        "lng": 77.0636
+      },
+      "stops": [
+        {
+          "en": "Mottakuzhy",
+          "ml": "മൊട്ടക്കുഴി",
+          "lat": null,
+          "lng": null
+        },
+        {
+          "en": "Kadakkal",
+          "ml": "കടയ്ക്കൽ",
+          "lat": 8.8167,
+          "lng": 76.9667
+        },
+        {
+          "en": "Chithara",
+          "ml": "ചിതറ",
+          "lat": 8.85,
+          "lng": 77.0167
+        }
+      ]
+    }
+  ]
+}

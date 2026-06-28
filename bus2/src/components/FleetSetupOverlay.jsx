@@ -35,8 +35,9 @@ export default function FleetSetupOverlay() {
 
   if (!config || config.claimed) return null;
 
-  const claimUrl = config.cloudUrl
-    ? `${config.cloudUrl}/owner/claim${config.fleetClaimCode ? `?code=${config.fleetClaimCode}` : ''}`
+  const claimBase = config.publicUrl || config.cloudUrl;
+  const claimUrl = claimBase
+    ? `${claimBase}/owner/claim${config.fleetClaimCode ? `?code=${config.fleetClaimCode}` : ''}`
     : '';
 
   return (

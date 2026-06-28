@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, uploadMedia } from '../lib/api.js';
+import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 
 const PHRASES = ['attention', 'nextStop', 'pleaseAlight', 'terminus'];
 
 export default function VoicesPanel() {
-  const { selectedBusId, pushToBus } = useSelectedBus();
+  const { pushToBus, targetBusIds } = useSelectedBus();
   const [fragments, setFragments] = useState({});
   const [message, setMessage] = useState('');
 
@@ -36,13 +36,14 @@ export default function VoicesPanel() {
     setFragments(next);
     setMessage(`Uploaded ${phrase}`);
 
-    if (pushToBus) {
-      await api(`/api/buses/${encodeURIComponent(selectedBusId)}/push-audio`, {
-        method: 'POST',
-        body: JSON.stringify({
+    if (pushToBus && targetBusIds.length) {
+      await fleetBroadcast({
+        targetBusIds,
+        commandType: 'MERGE_STATE',
+        payload: {
           audioFragments: { [phrase]: next[phrase] },
           mediaFiles: [up.path],
-        }),
+        },
       });
     }
   }

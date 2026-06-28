@@ -20,7 +20,10 @@ export function getCookieName() {
 }
 
 export function getCookieOptions() {
-  return COOKIE_OPTS;
+  const opts = { ...COOKIE_OPTS };
+  const domain = process.env.ADKERALA_COOKIE_DOMAIN?.trim();
+  if (domain) opts.domain = domain;
+  return opts;
 }
 
 export async function hashPassword(password) {

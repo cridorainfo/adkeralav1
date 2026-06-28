@@ -1,4 +1,5 @@
 import { dedupeRoutes, normalizeRouteMiddleStops } from '../src/store/busStore.js';
+import { applyDriveAction } from '../src/store/driveActions.js';
 
 import { mergeAudioMap } from './audioMerge.js';
 
@@ -124,6 +125,13 @@ export function applyCloudCommands(current, commands) {
           };
         });
         next = { ...next, routes, savedAt: payload.savedAt ?? Date.now() };
+        break;
+      }
+
+      case 'DRIVE_ACTION': {
+        const { action, savedAt: _savedAt, ...actionPayload } = payload;
+        if (!action) break;
+        next = applyDriveAction(next, action, actionPayload);
         break;
       }
 

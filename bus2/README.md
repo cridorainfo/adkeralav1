@@ -273,7 +273,7 @@ All three apps can be updated without visiting buses or drivers.
 ### One-time setup
 
 1. **GitHub repo secrets** (Settings → Secrets):
-   - `ADKERALA_CLOUD_URL` — e.g. `https://your-app.up.railway.app`
+           - `ADKERALA_CLOUD_URL` — e.g. `https://adkerala.com` (or `https://adkeralav1-production.up.railway.app`)
    - `ADKERALA_ADMIN_KEY` — same as Railway
    - `RAILWAY_TOKEN` — optional, for auto cloud deploy
 

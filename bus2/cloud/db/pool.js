@@ -31,6 +31,29 @@ export async function query(text, params = []) {
 
 export async function runMigrations() {
   if (!usePostgres()) return;
+  await runMigrationsWithRetry();
+}
+
+export async function runMigrationsWithRetry({ attempts = 15, delayMs = 2000 } = {}) {
+  if (!usePostgres()) return;
+
+  let lastErr;
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await runMigrationsOnce();
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Postgres migration attempt ${i}/${attempts} failed: ${err.message}`);
+      if (i < attempts) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+async function runMigrationsOnce() {
   const p = getPool();
   await p.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

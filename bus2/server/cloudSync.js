@@ -11,6 +11,7 @@ import {
 } from './deviceConfig.js';
 import { mergeAudioMap } from './audioMerge.js';
 import { APP_VERSION } from './version.js';
+import { DEFAULT_CLOUD_URLS, resolveCloudUrl } from '../shared/cloudUrls.js';
 
 const BUS_KEY = process.env.ADKERALA_BUS_KEY ?? '';
 const SYNC_INTERVAL_MS = Number(process.env.ADKERALA_CLOUD_INTERVAL_MS ?? 5000);
@@ -212,10 +213,13 @@ export function startCloudSyncLoop(root) {
 
 export function getCloudConfig(root) {
   const creds = getDeviceCredentials(root ?? dataRootRef);
+  const envCloud = resolveCloudUrl(process.env);
   return {
-    cloudUrl: creds.cloudUrl,
+    cloudUrl: creds.cloudUrl || envCloud,
+    publicUrl: envCloud || DEFAULT_PUBLIC_CLOUD_URL,
+    cloudUrls: DEFAULT_CLOUD_URLS,
     busId: creds.busId,
-    enabled: Boolean(creds.cloudUrl),
+    enabled: Boolean(creds.cloudUrl || envCloud),
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
     fleetClaimCode: creds.fleetClaimCode,

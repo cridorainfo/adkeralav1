@@ -1,9 +1,73 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import FleetMap, { isBusOnline } from './FleetMap.jsx';
 import { useSelectedBus } from './BusContext.jsx';
 
-export default function FleetPanel({ allowRegister = false }) {
+function OnboardingWizard({ allowRegister, claimHref }) {
+  const [pcDownload, setPcDownload] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/releases/pc/latest')
+      .then((r) => r.json())
+      .then((json) => setPcDownload(json.release ?? null))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="card" style={{ marginBottom: '1rem' }}>
+      <h2>Add a new bus</h2>
+      <ol className="onboarding-steps" style={{ lineHeight: 1.7, paddingLeft: '1.25rem' }}>
+        <li>
+          <strong>Download PC app</strong> — install the AdKerala Display app on the bus computer.
+          {pcDownload?.downloadUrl ? (
+            <>
+              {' '}
+              <a href={pcDownload.downloadUrl} target="_blank" rel="noopener noreferrer">
+                Download v{pcDownload.version}
+              </a>
+            </>
+          ) : (
+            <span className="hint"> (register a release in Releases tab first)</span>
+          )}
+        </li>
+        <li>
+          <strong>Boot &amp; claim</strong> — on first launch the display shows a <strong>6-digit fleet code</strong>.
+          {allowRegister ? (
+            <>
+              {' '}
+              Register bus ID below
+              {claimHref ? (
+                <>
+                  , or <Link to={claimHref}>claim with fleet code</Link>
+                </>
+              ) : (
+                ', or have the owner claim in the Owner portal'
+              )}
+              .
+            </>
+          ) : claimHref ? (
+            <>
+              {' '}
+              Use <Link to={claimHref}>Claim bus</Link> with the code and plate.
+            </>
+          ) : null}
+        </li>
+        <li>
+          <strong>Verify online</strong> — bus polls cloud every ~5s; it appears in the fleet list with a green dot when online.
+        </li>
+        <li>
+          <strong>Pair driver</strong> — driver opens <code>http://&lt;bus-ip&gt;:5174/control</code> on bus Wi‑Fi, or the native driver app at <code>/driver</code>.
+        </li>
+        <li>
+          <strong>Push content</strong> — assign routes, ads, and voices from this dashboard; changes sync to the bus PC and driver phone automatically.
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+export default function FleetPanel({ allowRegister = false, claimHref = null }) {
   const { selectedBusId, setSelectedBusId } = useSelectedBus();
   const [buses, setBuses] = useState([]);
   const [profile, setProfile] = useState(null);
@@ -73,6 +137,7 @@ export default function FleetPanel({ allowRegister = false }) {
 
   return (
     <>
+      <OnboardingWizard allowRegister={allowRegister} claimHref={claimHref} />
       <div className="grid-2">
         <div className="card">
           <h2>Fleet</h2>
