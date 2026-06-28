@@ -29,6 +29,9 @@ import {
   scanCatalogGaps,
   getGlobalPhraseAudio,
   setGlobalPhraseAudio,
+  getStopAudioCatalog,
+  mergeStopAudioCatalog,
+  getStopAudioForRoute,
   getBusProfile,
   setBusProfilePlate,
   upsertBusProfile,
@@ -505,8 +508,8 @@ async function enrichRouteFromCatalog(route) {
   };
 }
 
-/** Queue global phrase clips + any stop audio already on the bus cloud snapshot. */
-async function queueAudioBundleForBus(busId) {
+/** Queue global phrase clips + stop audio from catalog for the bus route. */
+async function queueAudioBundleForBus(busId, { routeId = null } = {}) {
   const queued = [];
   const global = await getGlobalPhraseAudio();
   if (global?.audioFragments && Object.keys(global.audioFragments).length) {
@@ -518,8 +521,22 @@ async function queueAudioBundleForBus(busId) {
     queued.push(cmd.id);
   }
 
+  const catalog = await getStopAudioCatalog();
   const row = await getBus(busId);
-  const stopAudio = row?.state?.stopAudio;
+  const activeRouteId =
+    routeId ?? row?.state?.activeRouteId ?? row?.telemetry?.activeRouteId ?? null;
+
+  let stopAudio = {};
+  if (activeRouteId) {
+    const route = await getRouteById(activeRouteId);
+    if (route) {
+      stopAudio = getStopAudioForRoute(route, catalog.stopAudio ?? {});
+    }
+  }
+  if (!Object.keys(stopAudio).length && row?.state?.stopAudio) {
+    stopAudio = row.state.stopAudio;
+  }
+
   if (stopAudio && Object.keys(stopAudio).length) {
     const mediaFiles = collectAudioMediaPaths(stopAudio);
     const cmd = await enqueueCommand(busId, 'MERGE_STATE', {
@@ -784,7 +801,7 @@ app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
     activeRouteId: route.id,
     savedAt: Date.now(),
   });
-  const audioCommandIds = await queueAudioBundleForBus(req.params.busId);
+  const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
   res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
 
@@ -802,7 +819,7 @@ app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
     route,
     savedAt: Date.now(),
   });
-  const audioCommandIds = await queueAudioBundleForBus(req.params.busId);
+  const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
   res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
 
@@ -873,6 +890,18 @@ app.put('/api/announcements/phrases', authCatalog, async (req, res) => {
   res.json({ ok: true, ...payload });
 });
 
+/** Per-stop voice clips keyed by English stop name (shared catalog). */
+app.get('/api/stops/audio/catalog', authCatalog, async (_req, res) => {
+  const payload = await getStopAudioCatalog();
+  res.json({ ok: true, ...payload });
+});
+
+app.put('/api/stops/audio', authCatalog, async (req, res) => {
+  const { stopAudio, mediaFiles } = req.body ?? {};
+  const payload = await mergeStopAudioCatalog(stopAudio ?? {}, mediaFiles);
+  res.json({ ok: true, ...payload });
+});
+
 /** Full route + stops save to catalog and optional push to bus. */
 app.post('/api/routes', authCatalog, async (req, res) => {
   const route = normalizeRoute(req.body ?? {});
@@ -884,7 +913,7 @@ app.post('/api/routes', authCatalog, async (req, res) => {
   const targetBusIds = req.body?.targetBusIds ?? [];
   for (const busId of targetBusIds) {
     await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
-    await queueAudioBundleForBus(busId);
+    await queueAudioBundleForBus(busId, { routeId: enriched.id });
   }
   res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
 });
@@ -900,7 +929,7 @@ app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
     const targetBusIds = req.body?.targetBusIds ?? [];
     for (const busId of targetBusIds) {
       await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
-      await queueAudioBundleForBus(busId);
+      await queueAudioBundleForBus(busId, { routeId: enriched.id });
     }
     res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
   } catch (err) {
@@ -994,7 +1023,8 @@ app.get('/api/content-gaps', authCatalog, async (_req, res) => {
   }
   const routes = await listAllRoutes();
   const store = await loadStore();
-  const gaps = scanCatalogGaps(routes, store.buses ?? {});
+  const stopCatalog = await getStopAudioCatalog();
+  const gaps = scanCatalogGaps(routes, store.buses ?? {}, stopCatalog.stopAudio ?? {});
   contentGapsCache = { at: now, gaps };
   res.json({ ok: true, gaps });
 });
@@ -1042,12 +1072,10 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   const buffer = Buffer.from(base64, 'base64');
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);
   const relPath = `${category}/${Date.now()}-${safeName}`;
-  const r2 = await uploadMediaBuffer(relPath, buffer, req.body?.contentType ?? 'application/octet-stream');
-  if (r2.local) {
-    const fullPath = path.join(MEDIA_DIR, relPath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, buffer);
-  }
+  const fullPath = path.join(MEDIA_DIR, relPath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, buffer);
+  await uploadMediaBuffer(relPath, buffer, req.body?.contentType ?? 'application/octet-stream');
 
   res.json({
     ok: true,
@@ -1066,6 +1094,11 @@ app.get('/api/media/:category/:filename', authBus, async (req, res) => {
   }
   const fullPath = path.join(MEDIA_DIR, relPath);
   if (!existsSync(fullPath)) {
+    const publicUrl = getPublicMediaUrl(relPath);
+    if (publicUrl) {
+      res.redirect(publicUrl);
+      return;
+    }
     res.status(404).end();
     return;
   }

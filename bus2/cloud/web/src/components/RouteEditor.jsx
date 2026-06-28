@@ -4,7 +4,7 @@ import { useSelectedBus } from './BusContext.jsx';
 
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
 
-function StopRow({ stop, onChange, onRemove, showRemove }) {
+function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile }) {
   const fields = ['en', 'ml', 'lat', 'lng', 'radiusM'];
   const labels = { en: 'English', ml: 'Malayalam', lat: 'Lat', lng: 'Lng', radiusM: 'Radius' };
 
@@ -18,7 +18,16 @@ function StopRow({ stop, onChange, onRemove, showRemove }) {
           onChange={(e) => onChange({ ...stop, [f]: e.target.value })}
         />
       ))}
-      <input type="file" accept="audio/*" title="Stop voice (EN)" onChange={(e) => onChange({ ...stop, _voiceFile: e.target.files?.[0] })} />
+      <div className="stop-audio-cell">
+        <input type="file" accept="audio/*" title="Stop voice (EN)" onChange={(e) => onChange({ ...stop, _voiceFile: e.target.files?.[0] })} />
+        {stop._voiceFile ? (
+          <small className="hint">New: {stop._voiceFile.name}</small>
+        ) : savedAudioFile ? (
+          <small className="hint">Saved: {savedAudioFile}</small>
+        ) : (
+          <small className="hint">No audio</small>
+        )}
+      </div>
       {showRemove && (
         <button type="button" className="btn btn-secondary btn-sm" onClick={onRemove}>
           ✕
@@ -28,14 +37,40 @@ function StopRow({ stop, onChange, onRemove, showRemove }) {
   );
 }
 
+function attachSavedAudio(route, stopAudioCatalog) {
+  if (!route) return route;
+  const withAudio = (stop) => {
+    if (!stop?.en) return stop;
+    const key = stop.en.toLowerCase();
+    const file = stopAudioCatalog[key]?.en?.audioFile ?? null;
+    return file ? { ...stop, _savedAudioFile: file } : stop;
+  };
+  return {
+    ...route,
+    startStop: withAudio(route.startStop),
+    endStop: withAudio(route.endStop),
+    stops: (route.stops ?? []).map(withAudio),
+  };
+}
+
 export default function RouteEditor() {
   const { selectedBusId, pushToBus, targetBusIds, buses } = useSelectedBus();
   const [routes, setRoutes] = useState([]);
   const [route, setRoute] = useState(null);
+  const [stopAudioCatalog, setStopAudioCatalog] = useState({});
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  const loadStopAudio = useCallback(async () => {
+    try {
+      const json = await api('/api/stops/audio/catalog');
+      setStopAudioCatalog(json.stopAudio ?? {});
+    } catch {
+      setStopAudioCatalog({});
+    }
+  }, []);
 
   const loadRoutes = useCallback(async () => {
     setError('');
@@ -53,7 +88,12 @@ export default function RouteEditor() {
 
   useEffect(() => {
     loadRoutes();
-  }, [loadRoutes]);
+    loadStopAudio();
+  }, [loadRoutes, loadStopAudio]);
+
+  useEffect(() => {
+    setRoute((prev) => (prev ? attachSavedAudio(prev, stopAudioCatalog) : null));
+  }, [stopAudioCatalog]);
 
   function newRoute() {
     setError('');
@@ -72,8 +112,30 @@ export default function RouteEditor() {
     const found = routes.find((r) => r.id === id);
     if (found) {
       setError('');
-      setRoute(JSON.parse(JSON.stringify(found)));
+      setRoute(attachSavedAudio(JSON.parse(JSON.stringify(found)), stopAudioCatalog));
     }
+  }
+
+  async function uploadAndPersistStopAudio() {
+    const stopAudio = {};
+    const mediaFiles = [];
+    for (const s of [route.startStop, ...route.stops, route.endStop]) {
+      if (s._voiceFile && s.en) {
+        const up = await uploadMedia(s._voiceFile, 'stops');
+        const key = s.en.toLowerCase();
+        stopAudio[key] = { en: { audioFile: up.path } };
+        mediaFiles.push(up.path);
+      }
+    }
+    if (!Object.keys(stopAudio).length) return { stopAudio: {}, mediaFiles: [] };
+
+    const saved = await api('/api/stops/audio', {
+      method: 'PUT',
+      body: JSON.stringify({ stopAudio, mediaFiles }),
+    });
+    const merged = saved.stopAudio ?? { ...stopAudioCatalog, ...stopAudio };
+    setStopAudioCatalog(merged);
+    return { stopAudio, mediaFiles, catalog: merged };
   }
 
   async function saveRoute(andPush) {
@@ -100,27 +162,18 @@ export default function RouteEditor() {
         targetBusIds: andPush && pushToBus ? targetBusIds : [],
       };
 
+      const audioResult = await uploadAndPersistStopAudio();
+
       const json = await api(`/api/routes/${encodeURIComponent(route.id)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
-      const stopAudio = {};
-      const mediaFiles = [];
-      for (const s of [route.startStop, ...route.stops, route.endStop]) {
-        if (s._voiceFile && s.en) {
-          const up = await uploadMedia(s._voiceFile, 'stops');
-          const key = s.en.toLowerCase();
-          stopAudio[key] = { en: { audioFile: up.path } };
-          mediaFiles.push(up.path);
-        }
-      }
-
-      if (Object.keys(stopAudio).length && andPush && pushToBus && targetBusIds.length) {
+      if (andPush && pushToBus && targetBusIds.length && Object.keys(audioResult.stopAudio).length) {
         await fleetBroadcast({
           targetBusIds,
           commandType: 'MERGE_STATE',
-          payload: { stopAudio, mediaFiles },
+          payload: { stopAudio: audioResult.stopAudio, mediaFiles: audioResult.mediaFiles },
         });
       }
 
@@ -142,7 +195,7 @@ export default function RouteEditor() {
         }
       }
 
-      setRoute(json.route);
+      setRoute(attachSavedAudio(json.route, audioResult.catalog ?? stopAudioCatalog));
       setStatus(
         andPush && pushToBus && targetBusIds.length
           ? `Saved · queued for ${targetBusIds.join(', ')}`
@@ -197,6 +250,12 @@ export default function RouteEditor() {
     }
   }
 
+  function savedAudioForStop(stop) {
+    if (stop._savedAudioFile) return stop._savedAudioFile;
+    const key = stop.en?.toLowerCase?.();
+    return key ? stopAudioCatalog[key]?.en?.audioFile ?? null : null;
+  }
+
   if (!route) {
     return (
       <div className="card">
@@ -244,7 +303,8 @@ export default function RouteEditor() {
     <div className="card">
       <h2>Route editor</h2>
       <p className="hint">
-        Changes save to the cloud catalog. Enable <strong>push</strong> in the toolbar, then use Push or Assign.
+        Changes save to the cloud catalog. Stop audio is stored on the server — re-selecting a route shows saved files.
+        Enable <strong>push</strong> in the toolbar, then use Push or Assign.
       </p>
       <div className="editor-actions">
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRoute(null)}>
@@ -269,12 +329,17 @@ export default function RouteEditor() {
         <input value={route.name} onChange={(e) => setRoute({ ...route, name: e.target.value })} />
       </div>
       <h3>Start stop</h3>
-      <StopRow stop={route.startStop} onChange={(s) => setRoute({ ...route, startStop: s })} />
+      <StopRow
+        stop={route.startStop}
+        savedAudioFile={savedAudioForStop(route.startStop)}
+        onChange={(s) => setRoute({ ...route, startStop: s })}
+      />
       <h3>Middle stops</h3>
       {route.stops.map((s, i) => (
         <StopRow
           key={i}
           stop={s}
+          savedAudioFile={savedAudioForStop(s)}
           showRemove
           onChange={(updated) => {
             const stops = [...route.stops];
@@ -288,7 +353,11 @@ export default function RouteEditor() {
         + Add stop
       </button>
       <h3>End stop</h3>
-      <StopRow stop={route.endStop} onChange={(s) => setRoute({ ...route, endStop: s })} />
+      <StopRow
+        stop={route.endStop}
+        savedAudioFile={savedAudioForStop(route.endStop)}
+        onChange={(s) => setRoute({ ...route, endStop: s })}
+      />
       <div className="editor-actions">
         <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveRoute(false)}>
           Save catalog

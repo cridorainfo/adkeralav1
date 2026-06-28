@@ -26,6 +26,8 @@ const defaultStore = () => ({
     minDriverVersion: '0.1.0',
   },
   stopCatalog: [],
+  stopAudioCatalog: {},
+  stopAudioSavedAt: 0,
   globalAudioFragments: {},
   globalAudioSavedAt: 0,
   routeCatalog: [
@@ -227,7 +229,7 @@ export async function setGlobalPhraseAudio(audioFragments, mediaFiles = []) {
   };
 }
 
-function collectGlobalPhraseMediaPaths(map = {}) {
+function collectAudioMediaPathsFromMap(map = {}) {
   const paths = new Set();
   for (const entry of Object.values(map)) {
     for (const lang of Object.values(entry ?? {})) {
@@ -236,6 +238,45 @@ function collectGlobalPhraseMediaPaths(map = {}) {
     }
   }
   return [...paths];
+}
+
+function collectGlobalPhraseMediaPaths(map = {}) {
+  return collectAudioMediaPathsFromMap(map);
+}
+
+export async function getStopAudioCatalog() {
+  const store = await loadStore();
+  const stopAudio = store.stopAudioCatalog ?? {};
+  return {
+    stopAudio,
+    savedAt: store.stopAudioSavedAt ?? 0,
+    mediaFiles: collectAudioMediaPathsFromMap(stopAudio),
+  };
+}
+
+export async function mergeStopAudioCatalog(entries = {}, mediaFiles = []) {
+  const store = await loadStore();
+  store.stopAudioCatalog = { ...(store.stopAudioCatalog ?? {}), ...entries };
+  store.stopAudioSavedAt = Date.now();
+  await saveStore();
+  return {
+    stopAudio: store.stopAudioCatalog,
+    savedAt: store.stopAudioSavedAt,
+    mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(store.stopAudioCatalog),
+  };
+}
+
+/** Stop audio entries for all stops on a route (keyed by stop English name, lowercased). */
+export function getStopAudioForRoute(route, stopAudioCatalog = {}) {
+  if (!route) return {};
+  const result = {};
+  for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
+    const key = stop.en?.toLowerCase?.();
+    if (!key) continue;
+    const entry = stopAudioCatalog[key];
+    if (entry) result[key] = entry;
+  }
+  return result;
 }
 
 export async function searchRoutes(query = '', { ownerId = null } = {}) {
@@ -431,7 +472,7 @@ export async function patchStopInCatalog(routeId, stopKey, patch) {
   return route;
 }
 
-export function scanCatalogGaps(routeCatalog, busStates = {}) {
+export function scanCatalogGaps(routeCatalog, busStates = {}, stopAudioCatalog = {}) {
   const gaps = [];
 
   for (const route of routeCatalog) {
@@ -444,11 +485,16 @@ export function scanCatalogGaps(routeCatalog, busStates = {}) {
 
       const stopKey = stop.en?.toLowerCase?.() ?? '';
       let hasAudio = false;
-      for (const [, row] of Object.entries(busStates)) {
-        const stopAudio = row.state?.stopAudio ?? {};
-        const entry = stopAudio[stopKey];
-        if (entry?.ml?.audioFile || entry?.ml?.audioUrl) hasAudio = true;
-        if (entry?.en?.audioFile || entry?.en?.audioUrl) hasAudio = true;
+      const catalogEntry = stopAudioCatalog[stopKey];
+      if (catalogEntry?.en?.audioFile || catalogEntry?.en?.audioUrl) hasAudio = true;
+      if (catalogEntry?.ml?.audioFile || catalogEntry?.ml?.audioUrl) hasAudio = true;
+      if (!hasAudio) {
+        for (const [, row] of Object.entries(busStates)) {
+          const stopAudio = row.state?.stopAudio ?? {};
+          const entry = stopAudio[stopKey];
+          if (entry?.ml?.audioFile || entry?.ml?.audioUrl) hasAudio = true;
+          if (entry?.en?.audioFile || entry?.en?.audioUrl) hasAudio = true;
+        }
       }
       if (!hasAudio) missing.push('stop_audio');
 

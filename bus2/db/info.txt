@@ -244,5 +244,8 @@
   "nextAdIndex": 0,
   "lastAdEndedAt": 1782593134122,
   "adStartedAt": null,
-  "savedAt": 1782595530068
+  "savedAt": 1782661708947,
+  "busProfile": {
+    "pairingCode": "7122"
+  }
 }
