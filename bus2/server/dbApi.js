@@ -3,6 +3,7 @@ import path from 'path';
 import { createReadStream, existsSync } from 'fs';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
+import { requireDriverAuthUnlessLocal } from './driverAuth.js';
 
 const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
 
@@ -216,7 +217,7 @@ export function setupDbApi(app, root) {
     }
   });
 
-  app.post('/api/state', async (req, res) => {
+  app.post('/api/state', requireDriverAuthUnlessLocal, async (req, res) => {
     try {
       await ensureDbLayout(root);
       const current = (await readInfoFile(root)) ?? {};
@@ -229,7 +230,7 @@ export function setupDbApi(app, root) {
     }
   });
 
-  app.post('/api/media/:category', expressRawUpload, async (req, res) => {
+  app.post('/api/media/:category', requireDriverAuthUnlessLocal, expressRawUpload, async (req, res) => {
     try {
       const category = req.params.category;
       if (!MEDIA_CATEGORIES.has(category)) {
@@ -248,7 +249,7 @@ export function setupDbApi(app, root) {
     }
   });
 
-  app.delete('/api/media/file', async (req, res) => {
+  app.delete('/api/media/file', requireDriverAuthUnlessLocal, async (req, res) => {
     try {
       const relPath = String(req.query.path ?? '').trim();
       if (!relPath) {

@@ -1,4 +1,6 @@
 import { useNetworkUrls } from '../hooks/useNetworkUrls';
+import { buildDriverJoinUrl } from '../lib/driverJoinUrl';
+import DriverPairingQr from './DriverPairingQr';
 
 /** Passenger display overlay — plate, pairing code, and LAN URL for driver phone. */
 export default function DriverPairingBanner({ busProfile, driverLink, compact = false }) {
@@ -6,7 +8,6 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
   const plate = busProfile?.plateDisplay || busProfile?.plate || '';
   const code = busProfile?.pairingCode ?? '';
   const controlUrlHttp = network?.controlUrlHttp ?? network?.controlUrl ?? null;
-  const driverUrl = network?.driverUrl ?? null;
   const lanIp = network?.primaryIp ?? network?.lan?.[0]?.address ?? null;
   const controlPort = network?.port ?? 5174;
   const firewallBlocked = network?.firewallOk === false;
@@ -37,34 +38,41 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
       ? `http://${lanIp}:${controlPort}/control`
       : '';
 
+  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code);
+  const qrSize = compact ? 88 : 132;
+
   return (
     <div
       className={`driver-pairing-banner${compact ? ' driver-pairing-banner--compact' : ''}`}
       role="status"
       aria-label={`Driver control ${controlLabel}`}
     >
-      {plate && <div className="driver-pairing-plate">{plate}</div>}
-      {controlLabel && (
-        <div className="driver-pairing-lan-row">
-          <span className="driver-pairing-label">Driver phone — type exactly:</span>
-          <strong className="driver-pairing-lan">{controlLabel}</strong>
+      <div className="driver-pairing-banner-body">
+        {joinUrl && code && (
+          <div className="driver-pairing-qr-wrap">
+            <DriverPairingQr value={joinUrl} size={qrSize} />
+            {!compact && <span className="driver-pairing-qr-caption">Scan phone</span>}
+          </div>
+        )}
+        <div className="driver-pairing-banner-text">
+          {plate && <div className="driver-pairing-plate">{plate}</div>}
+          {code && (
+            <div className="driver-pairing-code-row">
+              <span className="driver-pairing-label">Pair code</span>
+              <strong className="driver-pairing-code">{code}</strong>
+            </div>
+          )}
+          {!compact && controlLabel && (
+            <div className="driver-pairing-lan-row">
+              <span className="driver-pairing-label">Or type URL</span>
+              <strong className="driver-pairing-lan">{controlLabel}</strong>
+            </div>
+          )}
         </div>
-      )}
-      {code && (
-        <div className="driver-pairing-code-row">
-          <span className="driver-pairing-label">Pair code</span>
-          <strong className="driver-pairing-code">{code}</strong>
-        </div>
-      )}
+      </div>
       {!compact && (
         <p className="driver-pairing-hint">
-          Same Wi‑Fi only. Copy the full URL including <strong>http://</strong> (not https).
-          {driverUrl && (
-            <>
-              {' '}
-              Pair: <strong>{driverUrl}</strong>
-            </>
-          )}
+          Same Wi‑Fi — scan QR or open URL, then enter <strong>admin OTP</strong> from the fleet dashboard.
         </p>
       )}
       {lanReachable === false && !compact && (

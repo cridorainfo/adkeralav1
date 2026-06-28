@@ -10,6 +10,8 @@ import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { startHttpsMirror } from './tls.js';
 import { ensureWindowsFirewallPorts } from './firewall.js';
+import { setupDriverAuth } from './driverAuth.js';
+import { verifyDriverControlOnCloud } from './cloudSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -27,6 +29,10 @@ app.use(express.json({ limit: '2mb' }));
 
 await ensureDbLayout(root);
 setupDbApi(app, root);
+setupDriverAuth(app, {
+  dataRoot: root,
+  verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(root, pairingCode, otp),
+});
 setupCloudProxy(app, root);
 
 let httpsInfo = { httpsEnabled: false, httpsPort: null };

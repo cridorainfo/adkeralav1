@@ -3670,26 +3670,72 @@ textarea {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 8200;
+  z-index: 10050;
   background: rgba(8, 28, 22, 0.92);
   color: #f0fdf4;
   border: 2px solid rgba(52, 211, 153, 0.45);
   border-radius: var(--radius-md, 12px);
   padding: 1rem 1.25rem;
-  min-width: 220px;
+  min-width: 240px;
+  max-width: min(420px, calc(100vw - 2rem));
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   pointer-events: none;
+}
+
+.driver-pairing-banner-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.driver-pairing-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.driver-pairing-qr-wrap {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.driver-pairing-qr {
+  display: block;
+  border-radius: 6px;
+  background: #fff;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.driver-pairing-qr-caption {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6ee7b7;
 }
 
 .driver-pairing-banner--compact {
   top: auto;
   bottom: 5.5rem;
   right: 1rem;
-  padding: 0.55rem 0.85rem;
+  padding: 0.55rem 0.75rem;
   min-width: 0;
+  max-width: none;
+}
+
+.driver-pairing-banner--compact .driver-pairing-banner-body {
+  gap: 0.55rem;
+  align-items: center;
 }
 
 .driver-pairing-banner--compact .driver-pairing-hint {
+  display: none;
+}
+
+.driver-pairing-banner--compact .driver-pairing-lan-row {
   display: none;
 }
 
@@ -3773,6 +3819,100 @@ textarea {
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   pointer-events: none;
+}
+
+.driver-control-gate {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: linear-gradient(160deg, #0b5c4a 0%, #064e3b 45%, #022c22 100%);
+  color: #ecfdf5;
+}
+
+.driver-control-gate-card {
+  width: 100%;
+  max-width: 22rem;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 1rem;
+  padding: 1.35rem 1.25rem;
+  backdrop-filter: blur(8px);
+}
+
+.driver-control-gate-card h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.driver-control-gate-lead {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  opacity: 0.92;
+}
+
+.driver-control-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.driver-control-gate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.driver-control-gate-field input {
+  font-size: 1.25rem;
+  letter-spacing: 0.15em;
+  text-align: center;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.2);
+  color: #fff;
+}
+
+.driver-control-gate-error {
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.driver-control-gate-submit {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.driver-control-gate-hint {
+  margin: 1rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+.driver-control-gate-status {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.driver-control-unlocked-bar {
+  position: sticky;
+  top: 0;
+  z-index: 9000;
+  background: #065f46;
+  color: #d1fae5;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
 }
 
 .fleet-setup-overlay {

@@ -226,4 +226,20 @@ export function getCloudConfig(root) {
   };
 }
 
+/** Verify driver pairing code + admin OTP via cloud (bus device token). */
+export async function verifyDriverControlOnCloud(dataRoot, pairingCode, otp) {
+  const creds = getDeviceCredentials(dataRoot ?? dataRootRef);
+  if (!creds.cloudUrl) {
+    return { ok: false, error: 'Cloud not configured on this bus' };
+  }
+  if (!creds.busId) {
+    return { ok: false, error: 'Bus not claimed — use admin portal first' };
+  }
+  const json = await cloudFetch(creds, `/api/buses/${encodeURIComponent(creds.busId)}/verify-driver-control`, {
+    method: 'POST',
+    body: JSON.stringify({ pairingCode, otp }),
+  });
+  return json ?? { ok: false, error: 'Cloud unreachable' };
+}
+
 export { ENROLL_POLL_MS };

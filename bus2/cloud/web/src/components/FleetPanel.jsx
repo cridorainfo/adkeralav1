@@ -57,7 +57,7 @@ function OnboardingWizard({ allowRegister, claimHref }) {
           <strong>Verify online</strong> — bus polls cloud every ~5s; it appears in the fleet list with a green dot when online.
         </li>
         <li>
-          <strong>Pair driver</strong> — driver opens <code>http://&lt;bus-ip&gt;:5174/control</code> on bus Wi‑Fi, or the native driver app at <code>/driver</code>.
+          <strong>Pair driver</strong> — driver opens <code>http://&lt;bus-ip&gt;:5174/control</code> on bus Wi‑Fi, enters the <strong>pair code</strong> from the display and the <strong>admin OTP</strong> from this dashboard.
         </li>
         <li>
           <strong>Push content</strong> — assign routes, ads, and voices from this dashboard; changes sync to the bus PC and driver phone automatically.
@@ -75,6 +75,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
+  const [driverOtp, setDriverOtp] = useState(null);
 
   const refresh = useCallback(async () => {
     const json = await api('/api/buses');
@@ -99,6 +100,22 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     const t = setInterval(refreshSelected, 4000);
     return () => clearInterval(t);
   }, [refreshSelected]);
+
+  const refreshDriverOtp = useCallback(async () => {
+    if (!selectedBusId) return;
+    const ownerId = profile?.ownerId;
+    const q = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : '';
+    try {
+      const json = await api(`/api/fleet/driver-otp${q}`);
+      setDriverOtp(json);
+    } catch {
+      setDriverOtp(null);
+    }
+  }, [selectedBusId, profile?.ownerId]);
+
+  useEffect(() => {
+    refreshDriverOtp();
+  }, [refreshDriverOtp]);
 
   async function savePlate() {
     setMessage('');
@@ -129,6 +146,21 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       refreshBuses();
     } catch (err) {
       setMessage(err.message ?? 'Register failed');
+    }
+  }
+
+  async function rotateDriverOtp() {
+    setMessage('');
+    try {
+      const ownerId = profile?.ownerId;
+      const json = await api('/api/fleet/driver-otp/refresh', {
+        method: 'POST',
+        body: JSON.stringify(ownerId ? { ownerId } : {}),
+      });
+      setDriverOtp(json);
+      setMessage('New driver OTP — share with drivers (old OTP no longer works)');
+    } catch (err) {
+      setMessage(err.message ?? 'Could not refresh OTP');
     }
   }
 
@@ -196,7 +228,18 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
           )}
 
           <h3>Pairing setup</h3>
-          <p className="hint">Drivers pair with plate or the 4-digit code shown on the bus display.</p>
+          <p className="hint">Drivers enter the pair code from the bus screen plus your fleet OTP below.</p>
+          {driverOtp?.otp && (
+            <div className="driver-otp-panel">
+              <p className="hint" style={{ marginBottom: '0.35rem' }}>
+                Driver OTP <span className="hint">(same for all your buses until refreshed)</span>
+              </p>
+              <p className="driver-otp-value">{driverOtp.otp}</p>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={rotateDriverOtp}>
+                New OTP
+              </button>
+            </div>
+          )}
           <div className="form-group">
             <label>Number plate</label>
             <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="KL 07 AB 1234" />

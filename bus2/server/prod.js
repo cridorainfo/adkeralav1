@@ -9,6 +9,8 @@ import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
 import { startHttpsMirror, getHttpsPort } from './tls.js';
 import { ensureWindowsFirewallPorts, checkFirewallPorts } from './firewall.js';
+import { setupDriverAuth } from './driverAuth.js';
+import { verifyDriverControlOnCloud } from './cloudSync.js';
 
 /**
  * Production bus server — static SPA + same API as dev.js (no Vite).
@@ -36,6 +38,10 @@ export async function startBusServer(options = {}) {
 
   await ensureDbLayout(dataRoot);
   setupDbApi(app, dataRoot);
+  setupDriverAuth(app, {
+    dataRoot,
+    verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(dataRoot, pairingCode, otp),
+  });
   setupCloudProxy(app, dataRoot);
 
   let httpsInfo = { httpsEnabled: false, httpsPort: null };

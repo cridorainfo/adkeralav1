@@ -885,6 +885,22 @@ button, input, select, textarea { font-family: inherit; }
 
 .hint { font-size: 0.85rem; color: var(--kerala-muted); margin-bottom: 0.75rem; }
 
+.driver-otp-panel {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.5rem;
+  background: rgba(11, 92, 74, 0.08);
+  border: 1px solid rgba(11, 92, 74, 0.2);
+}
+
+.driver-otp-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  margin: 0 0 0.65rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-dot {
   display: inline-block;
   width: 10px;

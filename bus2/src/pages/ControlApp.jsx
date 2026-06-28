@@ -6,9 +6,9 @@ import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useDriverGps } from '../hooks/useDriverGps';
 import { useGpsAutoDrive } from '../hooks/useGpsAutoDrive';
 import ControlScreen from './ControlScreen';
+import DriverControlGate from '../components/DriverControlGate';
 
-/** Driver / conductor panel — open on phone at /control */
-export default function ControlApp() {
+function ControlAppInner() {
   const {
     state,
     startTrip,
@@ -66,5 +66,14 @@ export default function ControlApp() {
       gpsDriveStatus={gpsDriveStatus}
       isGpsDriveMode={isGpsMode}
     />
+  );
+}
+
+/** Driver / conductor panel — open on phone at /control */
+export default function ControlApp() {
+  return (
+    <DriverControlGate>
+      <ControlAppInner />
+    </DriverControlGate>
   );
 }

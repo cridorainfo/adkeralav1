@@ -187,9 +187,16 @@ export function serializeStateForFile(state) {
 
 export async function saveStateToDb(state) {
   const body = serializeStateForFile(state);
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const token = sessionStorage.getItem('adkerala-driver-token');
+    if (token) headers['X-Driver-Token'] = token;
+  } catch {
+    /* private mode */
+  }
   const res = await fetch('/api/state', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body, null, 2),
   });
   const json = await res.json();

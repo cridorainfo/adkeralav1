@@ -90,6 +90,11 @@ import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl } from './mediaStorage.js';
 import { usePostgres, getPool } from './db/pool.js';
 import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
+import {
+  getOwnerDriverOtp,
+  refreshOwnerDriverOtp,
+  verifyDriverControlForBus,
+} from './driverOtp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -350,6 +355,35 @@ app.post('/api/fleet/revoke/:busId', authSession, requireAuth, requireRole('admi
   });
   if (!result.ok) {
     res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+function resolveFleetOwnerId(req, explicitOwnerId) {
+  if (req.user.role === 'bus_owner') return req.user.id;
+  return explicitOwnerId || 'platform';
+}
+
+app.get('/api/fleet/driver-otp', authFleet, async (req, res) => {
+  const ownerId = resolveFleetOwnerId(req, req.query.ownerId);
+  const entry = await getOwnerDriverOtp(ownerId);
+  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
+});
+
+app.post('/api/fleet/driver-otp/refresh', authFleet, async (req, res) => {
+  const ownerId = resolveFleetOwnerId(req, req.body?.ownerId);
+  const entry = await refreshOwnerDriverOtp(ownerId);
+  await writeAudit('fleet.driver_otp.refresh', req.user.id, { ownerId: entry.ownerId });
+  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
+});
+
+app.post('/api/buses/:busId/verify-driver-control', authBus, async (req, res) => {
+  const busId = req.busId ?? req.params.busId;
+  const { pairingCode, otp } = req.body ?? {};
+  const result = await verifyDriverControlForBus(busId, pairingCode, otp);
+  if (!result.ok) {
+    res.status(403).json(result);
     return;
   }
   res.json(result);
