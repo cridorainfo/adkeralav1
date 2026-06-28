@@ -1,4 +1,6 @@
 /** Convert db/info.txt JSON into app state shape (paths → URLs). */
+import { getStoredDriverToken } from './driverCredentials.js';
+
 export const MEDIA_BASE = '/db/media';
 
 export function hydrateStateFromFile(data) {
@@ -188,12 +190,8 @@ export function serializeStateForFile(state) {
 export async function saveStateToDb(state) {
   const body = serializeStateForFile(state);
   const headers = { 'Content-Type': 'application/json' };
-  try {
-    const token = sessionStorage.getItem('adkerala-driver-token');
-    if (token) headers['X-Driver-Token'] = token;
-  } catch {
-    /* private mode */
-  }
+  const token = getStoredDriverToken();
+  if (token) headers['X-Driver-Token'] = token;
   const res = await fetch('/api/state', {
     method: 'POST',
     headers,

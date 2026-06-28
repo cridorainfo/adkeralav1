@@ -16,6 +16,7 @@ import {
   findStopAtLocation,
   formatGpsAccuracy,
 } from '../lib/geoUtils';
+import { useDriverControl } from '../components/DriverControlContext';
 
 function secsUntilNextAd(state) {
   if (!state.adSettings?.enabled || !(state.ads?.length)) return null;
@@ -80,6 +81,7 @@ export default function ControlScreen({
 
   const [tab, setTab] = useState('drive');
   const [unlinkStatus, setUnlinkStatus] = useState('');
+  const { disconnect: disconnectDriverPhone } = useDriverControl();
   const [, tick] = useState(0);
   const [adsUnlocked, setAdsUnlocked] = useState(false);
   const [adsPasswordInput, setAdsPasswordInput] = useState('');
@@ -961,7 +963,19 @@ export default function ControlScreen({
               Banner ads rotate while stop details are shown. They are hidden during fullscreen ads.
             </p>
 
-            {state.driverLink?.driverId && (
+            {driverMode && (
+              <>
+                <h4 className="settings-section-title">This phone</h4>
+                <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginBottom: '0.75rem' }}>
+                  Disconnect to lock the control panel and show the pairing QR on the bus display again.
+                </p>
+                <button type="button" className="btn secondary" onClick={disconnectDriverPhone}>
+                  Disconnect from this bus
+                </button>
+              </>
+            )}
+
+            {!driverMode && state.driverLink?.driverId && (
               <>
                 <h4 className="settings-section-title">Driver pairing</h4>
                 <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginBottom: '0.75rem' }}>

@@ -3909,10 +3909,24 @@ textarea {
   z-index: 9000;
   background: #065f46;
   color: #d1fae5;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
   font-size: 0.78rem;
   font-weight: 600;
   padding: 0.35rem 0.5rem;
+}
+
+.driver-control-disconnect-btn {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.2);
+  color: #ecfdf5;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .fleet-setup-overlay {

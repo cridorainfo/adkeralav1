@@ -36,4 +36,4 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
 )
 echo.
 echo If phone still fails after this, check phone is on the SAME Wi-Fi (not mobile data).
-pause
+exit /b 0

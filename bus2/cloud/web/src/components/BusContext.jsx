@@ -79,8 +79,14 @@ export function useSelectedBus() {
 }
 
 function busLabel(bus) {
-  const plate = bus.profile?.plateDisplay || bus.profile?.plate;
-  return plate ? `${bus.busId} (${plate})` : bus.busId;
+  const p = bus.profile ?? {};
+  if (p.displayName) return p.displayName;
+  const plate = p.plateDisplay || p.plate;
+  return plate ? `${plate} (${bus.busId})` : bus.busId;
+}
+
+export function busDisplayLabel(bus) {
+  return busLabel(bus);
 }
 
 export function BusSelector() {

@@ -13,6 +13,26 @@ function getDataRoot() {
   );
 }
 
+function getMarkerPath() {
+  return path.join(getDataRoot(), MARKER);
+}
+
+function readMarker() {
+  try {
+    return fs.readFileSync(getMarkerPath(), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+function writeMarker(value) {
+  try {
+    fs.writeFileSync(getMarkerPath(), value);
+  } catch {
+    /* ignore */
+  }
+}
+
 function hasPortRule(port, ruleName) {
   try {
     const out = execSync(`netsh advfirewall firewall show rule name="${ruleName}"`, {
@@ -37,7 +57,7 @@ function tryInstallPortRule(port, ruleName) {
 
   try {
     execSync(
-      `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${port} enable=yes profile=private,public,domain`,
+      `netsh advfirewall firewall add rule name="${ruleName}" dir=in action=allow protocol=TCP localport=${port} localip=any remoteip=any enable=yes profile=private,public,domain`,
       { stdio: 'ignore', shell: true }
     );
     return hasPortRule(port, ruleName);
@@ -62,8 +82,10 @@ function runElevatedFirewallBat() {
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
+      '-WindowStyle',
+      'Hidden',
       '-Command',
-      `Start-Process -FilePath '${batPath.replace(/'/g, "''")}' -Verb RunAs -Wait`,
+      `Start-Process -FilePath '${batPath.replace(/'/g, "''")}' -Verb RunAs -Wait -WindowStyle Hidden`,
     ],
     { shell: true, encoding: 'utf8' }
   );
@@ -71,76 +93,65 @@ function runElevatedFirewallBat() {
 }
 
 function ensurePorts(ports) {
-  let ok = true;
   for (const { port, ruleName } of ports) {
     if (hasPortRule(port, ruleName) || tryInstallPortRule(port, ruleName)) continue;
-    ok = false;
+    return false;
   }
-  return ok;
+  return true;
 }
 
-/** One-time port rules so driver phones connect without repeated Windows firewall popups. */
-async function ensureFirewallOnce(httpPort) {
-  if (process.platform !== 'win32') return;
-
+function portsConfig(httpPort) {
   const httpsPort = Number(process.env.ADKERALA_HTTPS_PORT ?? httpPort + 1);
-  const ports = [
-    { port: httpPort, ruleName: `AdKerala Bus Port ${httpPort}` },
-  ];
+  const ports = [{ port: httpPort, ruleName: `AdKerala Bus Port ${httpPort}` }];
   if (process.env.ADKERALA_HTTPS !== '0') {
     ports.push({ port: httpsPort, ruleName: `AdKerala Bus Port ${httpsPort}` });
   }
+  return ports;
+}
+
+/** One-time firewall setup — no repeated prompts after configured or skipped. */
+async function ensureFirewallOnce(httpPort) {
+  if (process.platform !== 'win32') return;
+
+  const ports = portsConfig(httpPort);
+  const marker = readMarker();
 
   if (ensurePorts(ports)) {
-    try {
-      fs.writeFileSync(path.join(getDataRoot(), MARKER), 'ok');
-    } catch {
-      /* ignore */
-    }
+    if (marker !== 'ok') writeMarker('ok');
     return;
   }
 
-  const markerPath = path.join(getDataRoot(), MARKER);
-  const skipped = fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf8').trim() === 'skipped';
-
-  if (skipped) {
+  if (marker === 'ok' || marker === 'skipped') {
     console.warn(
-      'AdKerala: firewall ports blocked — driver phones cannot connect. Run allow-firewall.bat as Administrator.'
+      'AdKerala: driver phones may not connect — run allow-firewall.bat as Administrator once.'
     );
-    try {
-      fs.unlinkSync(markerPath);
-    } catch {
-      /* re-prompt so phones can connect after user allows firewall */
-    }
+    return;
   }
 
   const { response } = await dialog.showMessageBox({
     type: 'question',
-    buttons: ['Allow once (Administrator)', 'Not now'],
+    buttons: ['Allow (Administrator)', 'Skip for now'],
     defaultId: 0,
     cancelId: 1,
-    title: 'AdKerala — one-time firewall setup',
-    message: 'Allow driver phones to connect without asking every time?',
+    title: 'AdKerala — one-time setup',
+    message: 'Allow driver phones on Wi‑Fi?',
     detail:
-      'Windows will ask for Administrator approval once. Opens ports for display (HTTP) and driver phone (HTTPS).',
+      'Windows needs Administrator approval once to open port ' +
+      httpPort +
+      '.\n\nAfter this, the app starts normally — no more prompts.',
   });
 
   if (response !== 0) {
-    try {
-      fs.writeFileSync(markerPath, 'skipped');
-    } catch {
-      /* ignore */
-    }
+    writeMarker('skipped');
     return;
   }
 
   runElevatedFirewallBat();
-  ensurePorts(ports);
-
-  try {
-    fs.writeFileSync(markerPath, 'ok');
-  } catch {
-    /* ignore */
+  if (ensurePorts(ports)) {
+    writeMarker('ok');
+  } else {
+    writeMarker('skipped');
+    console.warn('AdKerala: firewall setup incomplete — run allow-firewall.bat as Administrator.');
   }
 }
 

@@ -87,7 +87,7 @@ export default function DisplayApp() {
     <>
       <FleetSetupOverlay />
       <DisplayScreen passengerMode />
-      {kioskMode && (
+      {kioskMode && !state.driverLink?.driverId && (
         <div className="display-kiosk-control-hint">
           <DriverConnectBanner />
         </div>

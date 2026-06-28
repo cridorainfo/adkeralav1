@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import FleetMap, { isBusOnline } from './FleetMap.jsx';
-import { useSelectedBus } from './BusContext.jsx';
+import { busDisplayLabel, useSelectedBus } from './BusContext.jsx';
 
 function OnboardingWizard({ allowRegister, claimHref }) {
   const [pcDownload, setPcDownload] = useState(null);
@@ -57,10 +57,10 @@ function OnboardingWizard({ allowRegister, claimHref }) {
           <strong>Verify online</strong> — bus polls cloud every ~5s; it appears in the fleet list with a green dot when online.
         </li>
         <li>
-          <strong>Pair driver</strong> — driver opens <code>http://&lt;bus-ip&gt;:5174/control</code> on bus Wi‑Fi, enters the <strong>pair code</strong> from the display and the <strong>admin OTP</strong> from this dashboard.
+          <strong>Pair driver</strong> — driver scans QR on the bus display and enters the <strong>admin OTP</strong>.
         </li>
         <li>
-          <strong>Push content</strong> — assign routes, ads, and voices from this dashboard; changes sync to the bus PC and driver phone automatically.
+          <strong>Push content</strong> — use <strong>Ads</strong> tab with a bus selected to push ads to that bus only.
         </li>
       </ol>
     </div>
@@ -72,6 +72,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [buses, setBuses] = useState([]);
   const [profile, setProfile] = useState(null);
   const [plate, setPlate] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
@@ -87,6 +88,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
     setProfile(json.profile);
     setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
+    setDisplayName(json.profile?.displayName ?? '');
   }, [selectedBusId]);
 
   useEffect(() => {
@@ -117,14 +119,16 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     refreshDriverOtp();
   }, [refreshDriverOtp]);
 
-  async function savePlate() {
+  async function saveProfile() {
+    if (!selectedBusId) return;
     setMessage('');
     await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
       method: 'PUT',
-      body: JSON.stringify({ plate }),
+      body: JSON.stringify({ plate, displayName }),
     });
-    setMessage('Plate saved');
+    setMessage('Bus profile saved');
     refreshSelected();
+    refreshBuses();
   }
 
   async function registerBus() {
@@ -164,9 +168,10 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     }
   }
 
-  async function unlinkDriver() {
+  async function disconnectDriver() {
+    if (!selectedBusId) return;
     await api(`/api/buses/${encodeURIComponent(selectedBusId)}/unlink-driver`, { method: 'POST' });
-    setMessage('Driver unlinked');
+    setMessage('Driver disconnected — pairing QR will show on the bus display');
     refreshSelected();
   }
 
@@ -175,6 +180,28 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     await api(`/api/fleet/revoke/${encodeURIComponent(selectedBusId)}`, { method: 'POST' });
     setMessage('Device revoked — bus must be re-claimed');
     refreshSelected();
+  }
+
+  async function deleteBus() {
+    if (!selectedBusId) return;
+    const label = displayName || plate || selectedBusId;
+    if (
+      !window.confirm(
+        `Delete bus "${label}" (${selectedBusId})?\n\nThis removes the bus from the fleet. The PC must be re-claimed.`
+      )
+    ) {
+      return;
+    }
+    setMessage('');
+    try {
+      await api(`/api/buses/${encodeURIComponent(selectedBusId)}`, { method: 'DELETE' });
+      setMessage(`Deleted ${selectedBusId}`);
+      setSelectedBusId('');
+      await refresh();
+      refreshBuses();
+    } catch (err) {
+      setMessage(err.message ?? 'Delete failed');
+    }
   }
 
   return (
@@ -194,13 +221,9 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
             >
               <span>
                 <span className={`status-dot ${isBusOnline(bus.updatedAt) ? 'online' : 'offline'}`} />
-                {bus.busId}
+                {busDisplayLabel(bus)}
               </span>
-              <small>
-                {bus.telemetry?.driverLocation?.lat != null
-                  ? `${bus.telemetry.driverLocation.lat.toFixed(4)}, ${bus.telemetry.driverLocation.lng.toFixed(4)}`
-                  : 'no GPS'}
-              </small>
+              <small>{bus.busId}</small>
             </div>
           ))}
           {!buses.length && <p className="hint">No buses yet. Register one below.</p>}
@@ -227,40 +250,58 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
             </>
           )}
 
-          <h3>Pairing setup</h3>
-          <p className="hint">Drivers enter the pair code from the bus screen plus your fleet OTP below.</p>
-          {driverOtp?.otp && (
-            <div className="driver-otp-panel">
-              <p className="hint" style={{ marginBottom: '0.35rem' }}>
-                Driver OTP <span className="hint">(same for all your buses until refreshed)</span>
-              </p>
-              <p className="driver-otp-value">{driverOtp.otp}</p>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={rotateDriverOtp}>
-                New OTP
-              </button>
-            </div>
+          {selectedBusId && (
+            <>
+              <h3>Bus profile</h3>
+              <p className="hint">Bus ID: <strong>{selectedBusId}</strong></p>
+              <div className="form-group">
+                <label>Friendly name</label>
+                <input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="e.g. Route 42 — Trivandrum"
+                />
+              </div>
+              <div className="form-group">
+                <label>Number plate</label>
+                <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="KL 07 AB 1234" />
+              </div>
+
+              <h3>Driver access</h3>
+              <p className="hint">Drivers scan the bus QR and enter this fleet OTP.</p>
+              {driverOtp?.otp && (
+                <div className="driver-otp-panel">
+                  <p className="hint" style={{ marginBottom: '0.35rem' }}>
+                    Driver OTP <span className="hint">(same for all buses until refreshed)</span>
+                  </p>
+                  <p className="driver-otp-value">{driverOtp.otp}</p>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={rotateDriverOtp}>
+                    New OTP
+                  </button>
+                </div>
+              )}
+              {profile && (
+                <p className="hint">
+                  Pairing code: <strong>{profile.pairingCode || '—'}</strong>
+                  {profile.linkedDriverId ? ' · Driver connected' : ''}
+                </p>
+              )}
+              <div className="editor-actions">
+                <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
+                  Save profile
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={disconnectDriver}>
+                  Disconnect driver
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={revokeDevice}>
+                  Revoke device
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={deleteBus}>
+                  Delete bus
+                </button>
+              </div>
+            </>
           )}
-          <div className="form-group">
-            <label>Number plate</label>
-            <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="KL 07 AB 1234" />
-          </div>
-          {profile && (
-            <p className="hint">
-              Pairing code: <strong>{profile.pairingCode || '—'}</strong>
-              {profile.linkedDriverId ? ' · Driver linked' : ''}
-            </p>
-          )}
-          <div className="editor-actions">
-            <button type="button" className="btn btn-primary btn-sm" onClick={savePlate}>
-              Save plate
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={unlinkDriver}>
-              Unlink driver
-            </button>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={revokeDevice}>
-              Revoke device
-            </button>
-          </div>
           {message && <p className="hint">{message}</p>}
         </div>
         <div className="card">

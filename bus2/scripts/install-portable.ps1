@@ -23,7 +23,7 @@ $Shortcut.Save()
 # Firewall (one-time, may prompt for Administrator)
 if (Test-Path $FirewallBat) {
   try {
-    Start-Process -FilePath $FirewallBat -Verb RunAs -Wait -ErrorAction SilentlyContinue | Out-Null
+    Start-Process -FilePath $FirewallBat -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
   } catch {
   }
 }

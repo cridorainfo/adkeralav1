@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readPairingCodeFromLocation } from '../lib/driverJoinUrl';
-
-const TOKEN_KEY = 'adkerala-driver-token';
-
-function getStoredToken() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
+import {
+  clearDriverCredentials,
+  getStoredDriverPlate,
+  getStoredDriverToken,
+  saveDriverCredentials,
+} from '../lib/driverCredentials';
+import { DriverControlContext } from './DriverControlContext';
 
 /** Gate /control — requires bus pairing code + admin OTP before showing the panel. */
 export default function DriverControlGate({ children }) {
@@ -24,9 +21,10 @@ export default function DriverControlGate({ children }) {
   const [plate, setPlate] = useState('');
 
   const checkUnlock = useCallback(async () => {
-    const token = getStoredToken();
+    const token = getStoredDriverToken();
     if (!token) {
       setUnlocked(false);
+      setPlate('');
       setChecking(false);
       return;
     }
@@ -36,10 +34,12 @@ export default function DriverControlGate({ children }) {
       });
       const json = await res.json();
       if (json.unlocked) {
+        setPlate(getStoredDriverPlate());
         setUnlocked(true);
       } else {
-        sessionStorage.removeItem(TOKEN_KEY);
+        clearDriverCredentials();
         setUnlocked(false);
+        setPlate('');
       }
     } catch {
       setUnlocked(false);
@@ -57,6 +57,37 @@ export default function DriverControlGate({ children }) {
     if (fromQr) setPairingCode(fromQr);
   }, [location.search]);
 
+  useEffect(() => {
+    if (!unlocked) return undefined;
+    const token = getStoredDriverToken();
+    if (!token) return undefined;
+
+    const ping = () => {
+      fetch('/api/driver/heartbeat', {
+        method: 'POST',
+        headers: { 'X-Driver-Token': token },
+      }).catch(() => {});
+    };
+
+    ping();
+    const id = setInterval(ping, 30000);
+    return () => clearInterval(id);
+  }, [unlocked]);
+
+  const disconnect = useCallback(async () => {
+    const token = getStoredDriverToken();
+    if (token) {
+      await fetch('/api/driver/disconnect', {
+        method: 'POST',
+        headers: { 'X-Driver-Token': token },
+      }).catch(() => {});
+    }
+    clearDriverCredentials();
+    setUnlocked(false);
+    setPlate('');
+    setOtp('');
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -72,15 +103,18 @@ export default function DriverControlGate({ children }) {
         setError(json.error ?? 'Verification failed');
         return;
       }
-      sessionStorage.setItem(TOKEN_KEY, json.token);
+      saveDriverCredentials({ token: json.token, plate: json.plate ?? '' });
       setPlate(json.plate ?? '');
       setUnlocked(true);
+      setOtp('');
     } catch {
       setError('Could not reach bus — check Wi‑Fi');
     } finally {
       setBusy(false);
     }
   };
+
+  const ctx = useMemo(() => ({ disconnect, plate }), [disconnect, plate]);
 
   if (checking) {
     return (
@@ -133,8 +167,7 @@ export default function DriverControlGate({ children }) {
             </button>
           </form>
           <p className="driver-control-gate-hint">
-            Same OTP works for all your fleet buses until admin generates a new one. Each bus has its own pair
-            code on the display.
+            Credentials stay saved on this phone for this bus until you disconnect or join a different bus.
           </p>
         </div>
       </div>
@@ -142,15 +175,18 @@ export default function DriverControlGate({ children }) {
   }
 
   return (
-    <>
+    <DriverControlContext.Provider value={ctx}>
       {plate && (
         <div className="driver-control-unlocked-bar" role="status">
-          Unlocked — {plate}
+          <span>Unlocked — {plate}</span>
+          <button type="button" className="driver-control-disconnect-btn" onClick={disconnect}>
+            Disconnect
+          </button>
         </div>
       )}
       {children}
-    </>
+    </DriverControlContext.Provider>
   );
 }
 
-export { TOKEN_KEY as DRIVER_CONTROL_TOKEN_KEY };
+export { DRIVER_TOKEN_KEY } from '../lib/driverCredentials';

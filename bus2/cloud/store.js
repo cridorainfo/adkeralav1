@@ -495,6 +495,7 @@ function ensureBusProfile(store, busId) {
     store.busProfiles[busId] = {
       plate: '',
       plateDisplay: '',
+      displayName: '',
       pairingCode: generatePairingCode(),
       linkedDriverId: null,
       linkedAt: null,
@@ -700,6 +701,24 @@ export async function unlinkDriverByBusId(busId) {
     return { ok: false, error: 'No driver linked to this bus.' };
   }
   return unlinkDriver(profile.linkedDriverId);
+}
+
+export async function deleteBus(busId) {
+  if (usePostgres()) return pg.pgDeleteBus(busId);
+  const store = await loadStore();
+  if (!store.busProfiles?.[busId]) {
+    return { ok: false, error: 'Bus not found' };
+  }
+  delete store.busProfiles[busId];
+  delete store.buses[busId];
+  for (const driver of Object.values(store.drivers ?? {})) {
+    if (driver.linkedBusId === busId) {
+      driver.linkedBusId = null;
+      driver.linkedAt = null;
+    }
+  }
+  await saveStore();
+  return { ok: true, busId };
 }
 
 export async function getDriverSession(driverId) {

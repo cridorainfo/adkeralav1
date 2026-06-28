@@ -1,0 +1,1 @@
+ALTER TABLE bus_profiles ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';

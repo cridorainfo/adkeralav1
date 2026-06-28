@@ -36,6 +36,7 @@ import {
   unlinkDriver,
   unlinkDriverByBusId,
   getDriverSession,
+  deleteBus,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -550,13 +551,19 @@ app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
 
 app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
-  const { plate, plateDisplay, pairingCode } = req.body ?? {};
+  const { plate, plateDisplay, pairingCode, displayName } = req.body ?? {};
   let profile;
   if (plate != null) {
     profile = await setBusProfilePlate(req.params.busId, plate);
+    if (displayName != null) {
+      profile = await upsertBusProfile(req.params.busId, {
+        displayName: String(displayName).trim().slice(0, 80),
+      });
+    }
   } else {
     profile = await upsertBusProfile(req.params.busId, {
       ...(plateDisplay != null ? { plateDisplay: String(plateDisplay).trim() } : {}),
+      ...(displayName != null ? { displayName: String(displayName).trim().slice(0, 80) } : {}),
       ...(pairingCode != null ? { pairingCode: String(pairingCode).replace(/\D/g, '').slice(0, 4) } : {}),
     });
   }
@@ -564,11 +571,23 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
     busProfile: {
       plate: profile.plate,
       plateDisplay: profile.plateDisplay,
+      displayName: profile.displayName ?? '',
       pairingCode: profile.pairingCode,
     },
     savedAt: Date.now(),
   });
   res.json({ ok: true, profile });
+});
+
+app.delete('/api/buses/:busId', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const result = await deleteBus(req.params.busId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  await writeAudit('fleet.bus.delete', req.user.id, { busId: req.params.busId });
+  res.json(result);
 });
 
 app.post('/api/driver/pair', pairLimiter, async (req, res) => {

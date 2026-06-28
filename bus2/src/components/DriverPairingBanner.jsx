@@ -17,17 +17,7 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
   );
 
   if (driverLink?.driverId) {
-    return (
-      <div className="driver-pairing-badge driver-pairing-badge--linked" role="status">
-        Driver connected
-        {controlUrlHttp && !compact && (
-          <span className="driver-pairing-lan">
-            {' '}
-            · {controlUrlHttp.replace(/^https?:\/\//, '')}
-          </span>
-        )}
-      </div>
-    );
+    return null;
   }
 
   if (!code && !controlUrlHttp && !lanIp) return null;

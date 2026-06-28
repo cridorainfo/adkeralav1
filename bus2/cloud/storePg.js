@@ -107,7 +107,7 @@ export async function pgGetBus(busId) {
 
 export async function pgListBuses({ ownerId = null } = {}) {
   let sql = `
-    SELECT bp.bus_id, bt.updated_at, bt.telemetry, bp.plate, bp.plate_display, bp.pairing_code,
+    SELECT bp.bus_id, bt.updated_at, bt.telemetry, bp.plate, bp.plate_display, bp.display_name, bp.pairing_code,
            bp.linked_driver_id, bp.linked_at, bp.owner_id
     FROM bus_profiles bp
     LEFT JOIN bus_telemetry bt ON bt.bus_id = bp.bus_id`;
@@ -124,6 +124,7 @@ export async function pgListBuses({ ownerId = null } = {}) {
     profile: {
       plate: row.plate,
       plateDisplay: row.plate_display,
+      displayName: row.display_name ?? '',
       pairingCode: row.pairing_code,
       linkedDriverId: row.linked_driver_id,
       linkedAt: row.linked_at ? Number(row.linked_at) : null,
@@ -139,6 +140,7 @@ export async function pgGetBusProfile(busId) {
   return {
     plate: row.plate,
     plateDisplay: row.plate_display,
+    displayName: row.display_name ?? '',
     pairingCode: row.pairing_code,
     linkedDriverId: row.linked_driver_id,
     linkedAt: row.linked_at ? Number(row.linked_at) : null,
@@ -151,6 +153,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   const profile = {
     plate: '',
     plateDisplay: '',
+    displayName: '',
     pairingCode: String(Math.floor(1000 + Math.random() * 9000)),
     linkedDriverId: null,
     linkedAt: null,
@@ -160,11 +163,12 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   };
 
   await query(
-    `INSERT INTO bus_profiles (bus_id, plate, plate_display, pairing_code, linked_driver_id, linked_at, owner_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (bus_id) DO UPDATE SET
        plate = EXCLUDED.plate,
        plate_display = EXCLUDED.plate_display,
+       display_name = EXCLUDED.display_name,
        pairing_code = EXCLUDED.pairing_code,
        linked_driver_id = EXCLUDED.linked_driver_id,
        linked_at = EXCLUDED.linked_at,
@@ -173,6 +177,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
       busId,
       profile.plate ?? '',
       profile.plateDisplay ?? '',
+      profile.displayName ?? '',
       profile.pairingCode ?? '',
       profile.linkedDriverId,
       profile.linkedAt,
@@ -180,6 +185,12 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
     ]
   );
   return profile;
+}
+
+export async function pgDeleteBus(busId) {
+  const { rowCount } = await query('DELETE FROM bus_profiles WHERE bus_id = $1', [busId]);
+  if (!rowCount) return { ok: false, error: 'Bus not found' };
+  return { ok: true, busId };
 }
 
 export async function pgEnqueueCommand(busId, type, payload) {
