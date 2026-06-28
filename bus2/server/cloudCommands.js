@@ -72,11 +72,12 @@ export function applyCloudCommands(current, commands) {
         const route = normalizeRouteMiddleStops(payload.route);
         if (!route?.id) break;
         const existing = (next.routes ?? []).find((r) => r.id === route.id);
-        const mergedRoute = existing ? mergeRouteById(existing, route) : route;
-        const routes = dedupeRoutes([
-          ...(next.routes ?? []).filter((r) => r.id !== route.id),
-          mergedRoute,
-        ]);
+        const mergedRoute = {
+          ...(existing ? mergeRouteById(existing, route) : route),
+          sharedFromCloud: true,
+          cloudRouteId: route.id,
+        };
+        const routes = dedupeRoutes([mergedRoute]);
         next = {
           ...next,
           routes,
@@ -96,9 +97,13 @@ export function applyCloudCommands(current, commands) {
         const route = normalizeRouteMiddleStops(payload.route);
         if (!route?.id) break;
         const existing = (next.routes ?? []).find((r) => r.id === route.id);
-        const mergedRoute = existing ? mergeRouteById(existing, route) : route;
+        const mergedRoute = {
+          ...(existing ? mergeRouteById(existing, route) : route),
+          sharedFromCloud: true,
+          cloudRouteId: route.id,
+        };
         const routes = dedupeRoutes([
-          ...(next.routes ?? []).filter((r) => r.id !== route.id),
+          ...(next.routes ?? []).filter((r) => r.sharedFromCloud && r.id !== route.id),
           mergedRoute,
         ]);
         next = { ...next, routes, savedAt: payload.savedAt ?? Date.now() };

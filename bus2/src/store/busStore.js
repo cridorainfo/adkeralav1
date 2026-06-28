@@ -112,26 +112,14 @@ export function setPersistenceReady(ready = true) {
   persistenceReady = Boolean(ready);
 }
 
-function readRouteCache() {
-  try {
-    const raw = localStorage.getItem(ROUTE_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.routes)) return null;
-    return {
-      routes: dedupeRoutes(parsed.routes),
-      activeRouteId: parsed.activeRouteId ?? null,
-      savedAt: parsed.savedAt ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function writeRouteCache(state) {
+  if (usingDbStorage) return;
   try {
     const routes = dedupeRoutes(state?.routes ?? []);
-    if (!routes.length) return;
+    if (!routes.length) {
+      localStorage.removeItem(ROUTE_CACHE_KEY);
+      return;
+    }
     localStorage.setItem(
       ROUTE_CACHE_KEY,
       JSON.stringify({
@@ -147,18 +135,14 @@ function writeRouteCache(state) {
 
 function applyRouteCacheFallback(state) {
   const routes = dedupeRoutes(state?.routes ?? []);
-  if (routes.length > 0) return state;
-  const cached = readRouteCache();
-  if (!cached?.routes?.length) return state;
-  return {
-    ...state,
-    routes: cached.routes,
-    activeRouteId:
-      state.activeRouteId && cached.routes.some((r) => r.id === state.activeRouteId)
-        ? state.activeRouteId
-        : cached.activeRouteId ?? cached.routes[0]?.id ?? null,
-    savedAt: Math.max(state.savedAt ?? 0, cached.savedAt ?? 0),
-  };
+  if (!routes.length) {
+    try {
+      localStorage.removeItem(ROUTE_CACHE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+  return state;
 }
 
 function getChannel() {
@@ -304,29 +288,13 @@ function mergeStoredState(parsed) {
 
 function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved) {
   const remoteIsNewer = remoteSaved >= prevSaved;
-  const byId = new Map();
+  const stored = dedupeRoutes(storedRoutes ?? []);
+  const prev = dedupeRoutes(prevRoutes ?? []);
 
-  const addRoutes = (routes) => {
-    for (const route of routes ?? []) {
-      if (!route?.id) continue;
-      const existing = byId.get(route.id);
-      byId.set(route.id, existing ? mergeRouteById(existing, route) : route);
-    }
-  };
+  // When bus db / cloud push is newer, trust it — do not union with stale browser routes.
+  if (remoteIsNewer) return stored;
 
-  if (remoteIsNewer) {
-    addRoutes(prevRoutes);
-    addRoutes(storedRoutes);
-  } else {
-    addRoutes(storedRoutes);
-    addRoutes(prevRoutes);
-  }
-
-  let routes = dedupeRoutes([...byId.values()]);
-  if (routes.length === 0 && ((prevRoutes?.length ?? 0) > 0 || (storedRoutes?.length ?? 0) > 0)) {
-    routes = dedupeRoutes((prevRoutes?.length ?? 0) > 0 ? prevRoutes : storedRoutes);
-  }
-  return routes;
+  return prev.length ? prev : stored;
 }
 
 function mergeHydratedAudioMap(existing = {}, incoming = {}) {
@@ -705,6 +673,15 @@ export function mergeRouteById(existing, incoming) {
     sharedFromCloud: right.sharedFromCloud ?? left.sharedFromCloud,
     cloudRouteId: right.cloudRouteId ?? left.cloudRouteId,
   });
+}
+
+/** Routes pushed from cloud admin (not created locally on the bus). */
+export function isAssignedRoute(route) {
+  return Boolean(route?.sharedFromCloud || route?.cloudRouteId);
+}
+
+export function getAssignedRoutes(routes = []) {
+  return dedupeRoutes(routes).filter(isAssignedRoute);
 }
 
 /** Merge route lists from two sync sources (used by server state merge too). */

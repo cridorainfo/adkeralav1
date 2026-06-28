@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
-import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop } from '../store/busStore';
+import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop, getAssignedRoutes } from '../store/busStore';
 import { APP_NAME, APP_CONTROL_SUBTITLE } from '../lib/brand';
 import RouteManager from '../components/RouteManager';
 import AdManager from '../components/AdManager';
@@ -76,7 +76,6 @@ export default function ControlScreen({
     updateStopAudioClip,
     clearStopAudioClip,
     requestAnnouncement,
-    commitServerState,
   } = useBusStore();
 
   const [tab, setTab] = useState('drive');
@@ -86,17 +85,7 @@ export default function ControlScreen({
   const [adsUnlocked, setAdsUnlocked] = useState(false);
   const [adsPasswordInput, setAdsPasswordInput] = useState('');
   const [adsPasswordError, setAdsPasswordError] = useState(false);
-  const { cloudEnabled, assignToBus } = useCloudRouteSearch();
-
-  const handleKeepSharedRoute = useCallback(
-    async (routeId) => {
-      const json = await assignToBus(routeId);
-      if (json.state) commitServerState(json.state);
-      if (driverMode) setTab('drive');
-      return json;
-    },
-    [assignToBus, commitServerState, driverMode]
-  );
+  const { cloudEnabled } = useCloudRouteSearch();
 
   const handleSelectRoute = useCallback(
     (id) => {
@@ -138,11 +127,14 @@ export default function ControlScreen({
     return json;
   }, []);
 
-  const busRoutes = state.routes ?? [];
+  const busRoutes = driverMode ? getAssignedRoutes(state.routes ?? []) : (state.routes ?? []);
+  const activeRouteId =
+    busRoutes.some((r) => r.id === state.activeRouteId) ? state.activeRouteId : (busRoutes[0]?.id ?? null);
   const hasBusRoutes = busRoutes.length > 0;
+  const hasRoute = Boolean(activeRouteId && busRoutes.some((r) => r.id === activeRouteId));
+  const driverState = driverMode ? { ...state, routes: busRoutes, activeRouteId } : state;
   const serialSettings = state.serialSettings ?? {};
-  const stopInfo = getStopInfo(state);
-  const hasRoute = !!state.activeRouteId;
+  const stopInfo = getStopInfo(driverState);
   const routeDir = state.routeDirection ?? 'forward';
   const atTripEnd = stopInfo.atTripEnd;
   const tripStarted = Boolean(state.tripStarted);
@@ -362,10 +354,19 @@ export default function ControlScreen({
               <div className="drive-no-route">
                 <p>No routes on this bus yet.</p>
                 <p className="drive-no-route-hint">
-                  Open the <strong>Routes</strong> tab to add a shared route or create a new one —
-                  then return here to select it and drive.
+                  {driverMode ? (
+                    <>
+                      Routes appear here after an admin assigns them from the cloud dashboard.
+                      This phone only shows server-assigned routes — not local drafts or old cache.
+                    </>
+                  ) : (
+                    <>
+                      Open the <strong>Routes</strong> tab to add a shared route or create a new one —
+                      then return here to select it and drive.
+                    </>
+                  )}
                 </p>
-                {driverMode && (
+                {!driverMode && (
                   <button type="button" className="btn btn-primary" onClick={() => setTab('routes')}>
                     Go to Routes
                   </button>
@@ -375,7 +376,7 @@ export default function ControlScreen({
               <>
                 <DriveRouteSelector
                   routes={busRoutes}
-                  activeRouteId={state.activeRouteId}
+                  activeRouteId={activeRouteId}
                   routeDirection={routeDir}
                   tripInProgress={tripStarted && !tripEnded}
                   onSelectRoute={handleSelectRoute}
@@ -651,30 +652,73 @@ export default function ControlScreen({
 
         {tab === 'routes' && (
           <>
-            {driverMode && (
-              <CloudRoutePicker onAssigned={handleRouteActivated} />
+            {driverMode ? (
+              <>
+                <div className="panel">
+                  <h3 className="panel-title">📋 Assigned routes</h3>
+                  <p className="panel-hint">
+                    Only routes assigned from the admin dashboard appear here. Routes are not
+                    stored on this phone until the server pushes them to the bus.
+                  </p>
+                  {!hasBusRoutes ? (
+                    <p className="panel-hint">No routes assigned yet — ask admin to assign from the cloud portal.</p>
+                  ) : (
+                    <ul className="route-list">
+                      {busRoutes.map((route) => (
+                        <li
+                          key={route.id}
+                          className={`route-item ${route.id === activeRouteId ? 'active' : ''}`}
+                          onClick={() => handleSelectRoute(route.id)}
+                        >
+                          <div className="route-item-info">
+                            <strong>{route.name}</strong>
+                            <small>Assigned from server</small>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {hasBusRoutes && (
+                  <RouteManager
+                    routes={busRoutes}
+                    activeRouteId={activeRouteId}
+                    driverLocation={gps}
+                    stopCatalog={state.stopCatalog ?? []}
+                    cloudEnabled={false}
+                    onSelectRoute={handleSelectRoute}
+                    onUpdateStopLocation={updateStopLocation}
+                    driverMode
+                    assignedRoutesOnly
+                    onRouteActivated={handleRouteActivated}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <CloudRoutePicker onAssigned={handleRouteActivated} />
+                <RouteManager
+                  routes={state.routes ?? []}
+                  activeRouteId={state.activeRouteId}
+                  driverLocation={gps}
+                  stopCatalog={state.stopCatalog ?? []}
+                  cloudEnabled={cloudEnabled}
+                  onAddRoute={addRoute}
+                  onImportRoute={importRoute}
+                  onSelectRoute={handleSelectRoute}
+                  onDeleteRoute={deleteRoute}
+                  onAddStop={addStop}
+                  onUpdateStopMalayalam={updateStopMalayalam}
+                  onRemoveStop={removeStop}
+                  onReorderMiddleStop={reorderMiddleStop}
+                  onUpdateStopLocation={updateStopLocation}
+                  onPublishRoute={cloudEnabled ? handlePublishRoute : null}
+                  onMergeCatalog={mergeStopCatalog}
+                  onAssignSharedRoute={null}
+                  driverMode={false}
+                />
+              </>
             )}
-            <RouteManager
-            routes={state.routes ?? []}
-            activeRouteId={state.activeRouteId}
-            driverLocation={gps}
-            stopCatalog={state.stopCatalog ?? []}
-            cloudEnabled={cloudEnabled}
-            onAddRoute={addRoute}
-            onImportRoute={importRoute}
-            onSelectRoute={handleSelectRoute}
-            onDeleteRoute={deleteRoute}
-            onAddStop={addStop}
-            onUpdateStopMalayalam={updateStopMalayalam}
-            onRemoveStop={removeStop}
-            onReorderMiddleStop={reorderMiddleStop}
-            onUpdateStopLocation={updateStopLocation}
-            onPublishRoute={cloudEnabled ? handlePublishRoute : null}
-            onMergeCatalog={mergeStopCatalog}
-            onAssignSharedRoute={driverMode && cloudEnabled ? handleKeepSharedRoute : null}
-            onRouteActivated={driverMode ? handleRouteActivated : null}
-            driverMode={driverMode}
-          />
           </>
         )}
 

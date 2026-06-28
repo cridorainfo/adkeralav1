@@ -23,7 +23,7 @@ files:
   - "!node_modules/.cache/**/*"
 
 extraResources:
-  - from: db
+  - from: portable-template/db
     to: db
     filter:
       - "**/*"
@@ -60,6 +60,8 @@ extraFiles:
     to: Install-AdKerala.bat
   - from: scripts/install-portable.ps1
     to: install-portable.ps1
+  - from: portable-template/INSTALL.txt
+    to: INSTALL.txt
 
 asar: true
 

@@ -1,0 +1,44 @@
+# AdKerala — routes, stops, settings (JSON below)
+# Fresh bus install — routes and content come from cloud admin after claim.
+{
+  "routes": [],
+  "activeRouteId": null,
+  "currentStopIndex": 0,
+  "tripStarted": false,
+  "tripEnded": false,
+  "tripDeparted": false,
+  "routeDirection": "forward",
+  "ads": [],
+  "bannerAds": [],
+  "adSettings": {
+    "enabled": true,
+    "intervalSec": 90,
+    "defaultDurationSec": 12,
+    "playAudio": true
+  },
+  "bannerAdSettings": {
+    "enabled": true,
+    "defaultDurationSec": 8
+  },
+  "displaySettings": {
+    "languageAlternateSec": 4
+  },
+  "announcementSettings": {
+    "enabled": true,
+    "autoAnnounceOnForward": true,
+    "languages": ["ml", "en"],
+    "pauseBetweenFragmentsMs": 300
+  },
+  "driveSettings": {
+    "mode": "manual",
+    "autoForward": true,
+    "minAccuracyM": 60,
+    "departureHysteresisM": 25,
+    "cooldownSec": 20
+  },
+  "audioFragments": {},
+  "stopAudio": {},
+  "announcementRequest": null,
+  "displayView": "route",
+  "savedAt": 0
+}

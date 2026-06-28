@@ -1,0 +1,34 @@
+AdKerala Bus PC — portable copy
+================================
+
+Copy this entire folder to any Windows PC (e.g. C:\AdKerala\).
+No install wizard — no old routes, ads, or fleet claim data included.
+
+First run
+---------
+1. Double-click  Install-AdKerala.bat  once
+   (desktop shortcut, firewall rule, launches app)
+   — or run  AdKeralaDisplay.exe  directly
+2. On first launch the app creates a new fleet claim code automatically
+
+Claim the bus
+-------------
+1. Note the 6-digit code on the bus screen
+2. Admin portal: https://adkeralav1-production.up.railway.app/admin/claim
+3. Enter code + bus plate number
+4. Push routes and ads from the admin dashboard
+
+Driver phone (same Wi-Fi)
+-------------------------
+1. Scan the QR code on the bus display (or open the URL shown)
+2. Enter the 6-digit OTP from the admin dashboard (Fleet → Driver OTP)
+
+Reset this PC to unclaimed
+--------------------------
+Close app (Ctrl+Shift+Q) → delete  adkerala.device.json  in this folder
+→ delete the  db  folder (optional — clears local routes/media cache)
+→ open AdKerala Display again (fresh claim code)
+
+Support
+-------
+Cloud: https://adkeralav1-production.up.railway.app

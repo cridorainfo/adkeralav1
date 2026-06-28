@@ -41,6 +41,7 @@ export default function RouteManager({
   onAssignSharedRoute,
   onRouteActivated,
   driverMode = false,
+  assignedRoutesOnly = false,
 }) {
   const [routeName, setRouteName] = useState('');
   const [startStop, setStartStop] = useState('');
@@ -95,7 +96,7 @@ export default function RouteManager({
 
   const handleCreate = (e) => {
     e.preventDefault();
-    if (!routeName.trim() || !startStop.trim() || !endStop.trim()) return;
+    if (!onAddRoute || !routeName.trim() || !startStop.trim() || !endStop.trim()) return;
     onAddRoute(routeName.trim(), startStop.trim(), endStop.trim(), startStopMl, endStopMl);
     setRouteName('');
     setStartStop('');
@@ -213,6 +214,7 @@ export default function RouteManager({
 
   return (
     <>
+      {!assignedRoutesOnly && (
       <div className="panel">
         <h3 className="panel-title">
           {driverMode ? '🗺️ Routes — pick, create, or edit' : '🗺️ Create Route'}
@@ -347,8 +349,9 @@ export default function RouteManager({
           </div>
         )}
       </div>
+      )}
 
-      {routes.length > 0 && (
+      {!assignedRoutesOnly && routes.length > 0 && (
         <div className="panel">
           <h3 className="panel-title">
             {driverMode ? '📋 Routes on this bus' : '📋 Your routes'}

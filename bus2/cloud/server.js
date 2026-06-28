@@ -876,7 +876,7 @@ app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
   res.json({ ok: true, queued: true, commandId: cmd.id });
 });
 
-app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
+  app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const routeId = req.body?.routeId;
   const route = await enrichRouteFromCatalog(await getRouteById(routeId));
@@ -891,6 +891,8 @@ app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
       startStop: route.startStop,
       endStop: route.endStop,
       stops: route.stops ?? [],
+      sharedFromCloud: true,
+      cloudRouteId: route.id,
     },
     activeRouteId: route.id,
     savedAt: Date.now(),
@@ -910,7 +912,11 @@ app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
   }
   route = await enrichRouteFromCatalog(normalizeRoute(route));
   const cmd = await enqueueCommand(req.params.busId, 'UPSERT_ROUTE', {
-    route,
+    route: {
+      ...route,
+      sharedFromCloud: true,
+      cloudRouteId: route.id,
+    },
     savedAt: Date.now(),
   });
   const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
