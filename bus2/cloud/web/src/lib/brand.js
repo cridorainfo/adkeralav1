@@ -17,7 +17,7 @@ export function dashboardPathForRole(role) {
     case 'advertiser':
       return '/advertiser';
     case 'driver':
-      return '/driver';
+      return '/driver/portal';
     default:
       return '/';
   }

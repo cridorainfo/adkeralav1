@@ -85,7 +85,7 @@ function DriverHome() {
 export default function DriverApp() {
   return (
     <RequireAuth roles={['driver']}>
-      <DashboardLayout basePath="/driver" navItems={NAV} title="Driver portal">
+      <DashboardLayout basePath="/driver/portal" navItems={NAV} title="Driver portal">
         <Routes>
           <Route index element={<DriverHome />} />
         </Routes>

@@ -14,7 +14,7 @@ export default function PublicLayout() {
         <div className="public-nav-links">
           {user ? (
             <>
-              <Link to={user.role === 'admin' ? '/admin' : user.role === 'bus_owner' ? '/owner' : user.role === 'advertiser' ? '/advertiser' : '/driver'} className="btn btn-outline btn-sm">
+              <Link to={user.role === 'admin' ? '/admin' : user.role === 'bus_owner' ? '/owner' : user.role === 'advertiser' ? '/advertiser' : '/driver/portal'} className="btn btn-outline btn-sm">
                 Dashboard
               </Link>
               <button type="button" className="btn btn-secondary btn-sm" onClick={logout}>

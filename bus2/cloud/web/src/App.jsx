@@ -7,6 +7,7 @@ import AdminApp from './dashboards/admin/AdminApp.jsx';
 import OwnerApp from './dashboards/owner/OwnerApp.jsx';
 import AdvertiserApp from './dashboards/advertiser/AdvertiserApp.jsx';
 import DriverApp from './dashboards/driver/DriverApp.jsx';
+import DriverConnect from './pages/DriverConnect.jsx';
 import { useAuth } from './lib/auth.jsx';
 import { GuestOnly } from './lib/GuestOnly.jsx';
 import { dashboardPathForRole } from './lib/brand.js';
@@ -49,7 +50,8 @@ export default function App() {
       <Route path="admin/*" element={<AdminApp />} />
       <Route path="owner/*" element={<OwnerApp />} />
       <Route path="advertiser/*" element={<AdvertiserApp />} />
-      <Route path="driver/*" element={<DriverApp />} />
+      <Route path="driver" element={<DriverConnect />} />
+      <Route path="driver/portal/*" element={<DriverApp />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -1024,3 +1024,92 @@ button, input, select, textarea { font-family: inherit; }
   padding: 2rem;
   color: var(--kerala-muted);
 }
+
+/* Public mobile driver connect (/driver) */
+.driver-connect-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: linear-gradient(160deg, #ecfdf5 0%, #f8fafc 45%, #e0f2fe 100%);
+}
+
+.driver-connect-card {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 1.75rem;
+  box-shadow: 0 12px 40px rgba(11, 92, 74, 0.12);
+  border: 1px solid rgba(11, 92, 74, 0.08);
+}
+
+.driver-connect-header {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.driver-connect-logo {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.driver-connect-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.5rem;
+  color: var(--kerala-green);
+}
+
+.driver-connect-header p {
+  margin: 0;
+  color: var(--kerala-muted);
+  font-size: 0.9rem;
+}
+
+.driver-connect-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.driver-connect-section label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--kerala-green);
+}
+
+.driver-connect-section input {
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 1rem;
+}
+
+.driver-connect-status {
+  font-size: 0.88rem;
+  color: var(--kerala-muted);
+  margin: 0 0 1rem;
+  text-align: center;
+}
+
+.driver-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.driver-connect-foot {
+  margin: 1.25rem 0 0;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.driver-connect-foot code {
+  font-size: 0.72rem;
+}
