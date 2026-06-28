@@ -2,9 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 
+const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
 
-function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile }) {
+function basename(path) {
+  if (!path) return '';
+  const parts = String(path).split('/');
+  return parts[parts.length - 1] || path;
+}
+
+function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile, onUploadFile, uploading }) {
   const fields = ['en', 'ml', 'lat', 'lng', 'radiusM'];
   const labels = { en: 'English', ml: 'Malayalam', lat: 'Lat', lng: 'Lng', radiusM: 'Radius' };
 
@@ -19,13 +26,23 @@ function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile }) {
         />
       ))}
       <div className="stop-audio-cell">
-        <input type="file" accept="audio/*" title="Stop voice (EN)" onChange={(e) => onChange({ ...stop, _voiceFile: e.target.files?.[0] })} />
-        {stop._voiceFile ? (
-          <small className="hint">New: {stop._voiceFile.name}</small>
+        <input
+          type="file"
+          accept={AUDIO_ACCEPT}
+          title="Stop voice (EN) — MP3/MPEG supported"
+          disabled={uploading}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) onUploadFile(file);
+          }}
+        />
+        {uploading ? (
+          <small className="hint">Uploading…</small>
         ) : savedAudioFile ? (
-          <small className="hint">Saved: {savedAudioFile}</small>
+          <small className="hint">Saved: {basename(savedAudioFile)}</small>
         ) : (
-          <small className="hint">No audio</small>
+          <small className="hint">No audio — pick MP3/MPEG</small>
         )}
       </div>
       {showRemove && (
@@ -37,13 +54,17 @@ function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile }) {
   );
 }
 
+function audioFileForStop(stop, stopAudioCatalog) {
+  if (!stop?.en) return stop?.audioEn ?? stop?._savedAudioFile ?? null;
+  const key = stop.en.trim().toLowerCase();
+  return stop.audioEn ?? stop._savedAudioFile ?? stopAudioCatalog[key]?.en?.audioFile ?? null;
+}
+
 function attachSavedAudio(route, stopAudioCatalog) {
   if (!route) return route;
   const withAudio = (stop) => {
-    if (!stop?.en) return stop;
-    const key = stop.en.toLowerCase();
-    const file = stopAudioCatalog[key]?.en?.audioFile ?? null;
-    return file ? { ...stop, _savedAudioFile: file } : stop;
+    const file = audioFileForStop(stop, stopAudioCatalog);
+    return file ? { ...stop, _savedAudioFile: file, audioEn: file } : stop;
   };
   return {
     ...route,
@@ -58,6 +79,7 @@ export default function RouteEditor() {
   const [routes, setRoutes] = useState([]);
   const [route, setRoute] = useState(null);
   const [stopAudioCatalog, setStopAudioCatalog] = useState({});
+  const [uploadingStopKey, setUploadingStopKey] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -67,8 +89,9 @@ export default function RouteEditor() {
     try {
       const json = await api('/api/stops/audio/catalog');
       setStopAudioCatalog(json.stopAudio ?? {});
-    } catch {
+    } catch (err) {
       setStopAudioCatalog({});
+      console.warn('Stop audio catalog:', err.message);
     }
   }, []);
 
@@ -95,6 +118,29 @@ export default function RouteEditor() {
     setRoute((prev) => (prev ? attachSavedAudio(prev, stopAudioCatalog) : null));
   }, [stopAudioCatalog]);
 
+  const persistStopAudioEntry = useCallback(async (stopEn, file) => {
+    const key = String(stopEn ?? '').trim().toLowerCase();
+    if (!key) throw new Error('Enter the English stop name before uploading audio.');
+    setUploadingStopKey(key);
+    setError('');
+    try {
+      const up = await uploadMedia(file, 'stops');
+      const relPath = up.path ?? up.audioFile;
+      if (!relPath) throw new Error('Upload did not return a file path.');
+      const stopAudio = { [key]: { en: { audioFile: relPath } } };
+      const saved = await api('/api/stops/audio', {
+        method: 'PUT',
+        body: JSON.stringify({ stopAudio, mediaFiles: [relPath] }),
+      });
+      const merged = saved.stopAudio ?? { ...stopAudioCatalog, ...stopAudio };
+      setStopAudioCatalog(merged);
+      setStatus(`Audio saved for "${stopEn}"`);
+      return relPath;
+    } finally {
+      setUploadingStopKey(null);
+    }
+  }, [stopAudioCatalog]);
+
   function newRoute() {
     setError('');
     setStatus('');
@@ -116,18 +162,29 @@ export default function RouteEditor() {
     }
   }
 
-  async function uploadAndPersistStopAudio() {
+  async function handleStopAudioUpload(stop, file, applyStop) {
+    try {
+      const relPath = await persistStopAudioEntry(stop.en, file);
+      applyStop({ ...stop, _savedAudioFile: relPath, audioEn: relPath, _voiceFile: null });
+    } catch (err) {
+      setError(err.message ?? 'Audio upload failed');
+      setStatus('');
+    }
+  }
+
+  async function uploadPendingVoiceFiles() {
     const stopAudio = {};
     const mediaFiles = [];
     for (const s of [route.startStop, ...route.stops, route.endStop]) {
       if (s._voiceFile && s.en) {
         const up = await uploadMedia(s._voiceFile, 'stops');
-        const key = s.en.toLowerCase();
-        stopAudio[key] = { en: { audioFile: up.path } };
-        mediaFiles.push(up.path);
+        const relPath = up.path ?? up.audioFile;
+        const key = s.en.trim().toLowerCase();
+        stopAudio[key] = { en: { audioFile: relPath } };
+        mediaFiles.push(relPath);
       }
     }
-    if (!Object.keys(stopAudio).length) return { stopAudio: {}, mediaFiles: [] };
+    if (!Object.keys(stopAudio).length) return { stopAudio: {}, mediaFiles: [], catalog: stopAudioCatalog };
 
     const saved = await api('/api/stops/audio', {
       method: 'PUT',
@@ -162,19 +219,22 @@ export default function RouteEditor() {
         targetBusIds: andPush && pushToBus ? targetBusIds : [],
       };
 
-      const audioResult = await uploadAndPersistStopAudio();
+      const audioResult = await uploadPendingVoiceFiles();
 
       const json = await api(`/api/routes/${encodeURIComponent(route.id)}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
 
-      if (andPush && pushToBus && targetBusIds.length && Object.keys(audioResult.stopAudio).length) {
-        await fleetBroadcast({
-          targetBusIds,
-          commandType: 'MERGE_STATE',
-          payload: { stopAudio: audioResult.stopAudio, mediaFiles: audioResult.mediaFiles },
-        });
+      if (andPush && pushToBus && targetBusIds.length) {
+        const catalog = await getStopAudioCatalogForRoute(route, audioResult.catalog ?? stopAudioCatalog);
+        if (Object.keys(catalog.stopAudio).length) {
+          await fleetBroadcast({
+            targetBusIds,
+            commandType: 'MERGE_STATE',
+            payload: { stopAudio: catalog.stopAudio, mediaFiles: catalog.mediaFiles },
+          });
+        }
       }
 
       if (andPush && pushToBus && targetBusIds.length) {
@@ -251,9 +311,12 @@ export default function RouteEditor() {
   }
 
   function savedAudioForStop(stop) {
-    if (stop._savedAudioFile) return stop._savedAudioFile;
-    const key = stop.en?.toLowerCase?.();
-    return key ? stopAudioCatalog[key]?.en?.audioFile ?? null : null;
+    return audioFileForStop(stop, stopAudioCatalog);
+  }
+
+  function isStopUploading(stop) {
+    const key = stop.en?.trim()?.toLowerCase();
+    return key && uploadingStopKey === key;
   }
 
   if (!route) {
@@ -303,8 +366,8 @@ export default function RouteEditor() {
     <div className="card">
       <h2>Route editor</h2>
       <p className="hint">
-        Changes save to the cloud catalog. Stop audio is stored on the server — re-selecting a route shows saved files.
-        Enable <strong>push</strong> in the toolbar, then use Push or Assign.
+        Pick an MP3/MPEG file per stop — it uploads and saves immediately. After refresh you will see{' '}
+        <strong>Saved: filename</strong> (the file picker always looks empty; that is normal).
       </p>
       <div className="editor-actions">
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRoute(null)}>
@@ -332,6 +395,8 @@ export default function RouteEditor() {
       <StopRow
         stop={route.startStop}
         savedAudioFile={savedAudioForStop(route.startStop)}
+        uploading={isStopUploading(route.startStop)}
+        onUploadFile={(file) => handleStopAudioUpload(route.startStop, file, (s) => setRoute({ ...route, startStop: s }))}
         onChange={(s) => setRoute({ ...route, startStop: s })}
       />
       <h3>Middle stops</h3>
@@ -340,7 +405,15 @@ export default function RouteEditor() {
           key={i}
           stop={s}
           savedAudioFile={savedAudioForStop(s)}
+          uploading={isStopUploading(s)}
           showRemove
+          onUploadFile={(file) =>
+            handleStopAudioUpload(s, file, (updated) => {
+              const stops = [...route.stops];
+              stops[i] = updated;
+              setRoute({ ...route, stops });
+            })
+          }
           onChange={(updated) => {
             const stops = [...route.stops];
             stops[i] = updated;
@@ -356,6 +429,8 @@ export default function RouteEditor() {
       <StopRow
         stop={route.endStop}
         savedAudioFile={savedAudioForStop(route.endStop)}
+        uploading={isStopUploading(route.endStop)}
+        onUploadFile={(file) => handleStopAudioUpload(route.endStop, file, (s) => setRoute({ ...route, endStop: s }))}
         onChange={(s) => setRoute({ ...route, endStop: s })}
       />
       <div className="editor-actions">
@@ -376,6 +451,22 @@ export default function RouteEditor() {
       {status && <p className="hint">{status}</p>}
     </div>
   );
+}
+
+function getStopAudioCatalogForRoute(route, catalog = {}) {
+  const stopAudio = {};
+  const mediaFiles = [];
+  for (const s of [route.startStop, ...route.stops, route.endStop]) {
+    const key = s?.en?.trim()?.toLowerCase();
+    if (!key) continue;
+    const entry = catalog[key];
+    if (entry) {
+      stopAudio[key] = entry;
+      const file = entry.en?.audioFile;
+      if (file) mediaFiles.push(file);
+    }
+  }
+  return { stopAudio, mediaFiles };
 }
 
 function normalizeStop(s) {

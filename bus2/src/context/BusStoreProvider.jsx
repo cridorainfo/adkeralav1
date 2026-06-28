@@ -18,6 +18,7 @@ import {
   mergeRemoteState,
   defaultState,
   isDbWriteInFlight,
+  syncLocalCacheFromServer,
 } from '../store/busStore';
 import {
   uploadDataUrl,
@@ -201,6 +202,8 @@ function useBusStoreLogic() {
           merged.adStartedAt = prev.adStartedAt;
         }
       }
+
+      syncLocalCacheFromServer(merged);
 
       return merged;
     });

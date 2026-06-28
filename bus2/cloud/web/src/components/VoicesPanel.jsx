@@ -66,7 +66,7 @@ export default function VoicesPanel() {
               <td>{phrase}</td>
               <td>{fragments[phrase]?.en?.audioFile ?? '—'}</td>
               <td>
-                <input type="file" accept="audio/*" onChange={(e) => uploadPhrase(phrase, e.target.files?.[0])} />
+                <input type="file" accept="audio/*,.mp3,.mpeg,.mpga,audio/mpeg" onChange={(e) => uploadPhrase(phrase, e.target.files?.[0])} />
               </td>
             </tr>
           ))}

@@ -508,6 +508,29 @@ async function enrichRouteFromCatalog(route) {
   };
 }
 
+function attachStopAudioToRoute(route, stopAudioCatalog = {}) {
+  if (!route) return route;
+  const attach = (stop) => {
+    if (!stop?.en) return stop;
+    const key = stop.en.trim().toLowerCase();
+    const audioFile = stop.audioEn ?? stopAudioCatalog[key]?.en?.audioFile ?? null;
+    if (!audioFile) return stop;
+    return { ...stop, audioEn: audioFile };
+  };
+  return {
+    ...route,
+    startStop: attach(route.startStop),
+    endStop: attach(route.endStop),
+    stops: (route.stops ?? []).map(attach),
+  };
+}
+
+async function enrichRouteForClient(route) {
+  const merged = await enrichRouteFromCatalog(route);
+  const catalog = await getStopAudioCatalog();
+  return attachStopAudioToRoute(merged, catalog.stopAudio ?? {});
+}
+
 /** Queue global phrase clips + stop audio from catalog for the bus route. */
 async function queueAudioBundleForBus(busId, { routeId = null } = {}) {
   const queued = [];
@@ -909,10 +932,10 @@ app.post('/api/routes', authCatalog, async (req, res) => {
   for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
     if (stop?.en) await upsertStopCatalog(stop);
   }
-  const enriched = await enrichRouteFromCatalog(route);
+  const enriched = await enrichRouteForClient(route);
   const targetBusIds = req.body?.targetBusIds ?? [];
   for (const busId of targetBusIds) {
-    await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
+    await enqueueCommand(busId, 'UPSERT_ROUTE', { route: await enrichRouteFromCatalog(route), savedAt: Date.now() });
     await queueAudioBundleForBus(busId, { routeId: enriched.id });
   }
   res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
@@ -925,10 +948,10 @@ app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
     for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
       if (stop?.en) await upsertStopCatalog(stop);
     }
-    const enriched = await enrichRouteFromCatalog(route);
+    const enriched = await enrichRouteForClient(route);
     const targetBusIds = req.body?.targetBusIds ?? [];
     for (const busId of targetBusIds) {
-      await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
+      await enqueueCommand(busId, 'UPSERT_ROUTE', { route: await enrichRouteFromCatalog(route), savedAt: Date.now() });
       await queueAudioBundleForBus(busId, { routeId: enriched.id });
     }
     res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
@@ -957,7 +980,8 @@ app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
 app.get('/api/routes', authCatalog, async (_req, res) => {
   try {
     const routes = await listAllRoutes();
-    res.json({ ok: true, routes });
+    const enriched = await Promise.all(routes.map((r) => enrichRouteForClient(r)));
+    res.json({ ok: true, routes: enriched });
   } catch (err) {
     console.error('GET /api/routes failed:', err);
     res.status(500).json({ ok: false, error: err.message ?? 'Could not list routes' });
@@ -988,7 +1012,7 @@ app.get('/api/routes/:routeId', authCatalog, async (req, res) => {
     res.status(404).json({ ok: false, error: 'Not found' });
     return;
   }
-  res.json({ ok: true, route });
+  res.json({ ok: true, route: await enrichRouteForClient(route) });
 });
 
 app.get('/api/stops/search', authCatalog, async (req, res) => {
@@ -1068,14 +1092,19 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     return;
   }
 
+  const contentType = req.body?.contentType ?? 'application/octet-stream';
   const base64 = data.includes(',') ? data.split(',')[1] : data;
   const buffer = Buffer.from(base64, 'base64');
+  if (!buffer.length) {
+    res.status(400).json({ ok: false, error: 'Empty file data' });
+    return;
+  }
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);
   const relPath = `${category}/${Date.now()}-${safeName}`;
   const fullPath = path.join(MEDIA_DIR, relPath);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, buffer);
-  await uploadMediaBuffer(relPath, buffer, req.body?.contentType ?? 'application/octet-stream');
+  await uploadMediaBuffer(relPath, buffer, contentType);
 
   res.json({
     ok: true,
@@ -1102,6 +1131,9 @@ app.get('/api/media/:category/:filename', authBus, async (req, res) => {
     res.status(404).end();
     return;
   }
+  const lower = relPath.toLowerCase();
+  if (lower.endsWith('.mp3') || lower.endsWith('.mpeg')) res.type('audio/mpeg');
+  else if (lower.endsWith('.wav')) res.type('audio/wav');
   res.sendFile(fullPath);
 });
 

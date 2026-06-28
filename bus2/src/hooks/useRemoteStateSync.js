@@ -3,13 +3,13 @@ import { useBusStore } from './useBusStore';
 import { fetchStateFromDb, isDbApiAvailable } from '../lib/fileStorage';
 import { isPersistenceReady } from '../store/busStore';
 
-const POLL_MS = 5000;
-const POLL_MS_LIVE = 15000;
+const POLL_MS = 3000;
+const POLL_MS_LIVE = 12000;
 
 /** Keep display/control in sync with db/info.txt — instant via SSE, fallback poll. */
 export function useRemoteStateSync(enabled = true) {
   const { applyRemoteState } = useBusStore();
-  const lastSeenRef = useRef({ savedAt: 0, lastCloudPushAt: 0 });
+  const lastSeenRef = useRef({ savedAt: 0, lastCloudPushAt: 0, mediaAt: 0 });
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -17,7 +17,7 @@ export function useRemoteStateSync(enabled = true) {
     let cancelled = false;
     let pollTimer = null;
 
-    const poll = async () => {
+    const poll = async (force = false) => {
       try {
         if (!isPersistenceReady()) return;
         if (!(await isDbApiAvailable())) return;
@@ -27,9 +27,9 @@ export function useRemoteStateSync(enabled = true) {
         const savedAt = remote?.savedAt ?? 0;
         const cloudPush = remote?.lastCloudPushAt ?? 0;
         const last = lastSeenRef.current;
-        if (savedAt === last.savedAt && cloudPush === last.lastCloudPushAt) return;
+        if (!force && savedAt === last.savedAt && cloudPush === last.lastCloudPushAt) return;
 
-        lastSeenRef.current = { savedAt, lastCloudPushAt: cloudPush };
+        lastSeenRef.current = { ...last, savedAt, lastCloudPushAt: cloudPush };
         applyRemoteState(remote);
       } catch {
         /* server not ready */
@@ -61,7 +61,7 @@ export function useRemoteStateSync(enabled = true) {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'state-changed') {
-            poll();
+            poll(msg.source === 'cloud-media');
           }
         } catch {
           /* ignore */

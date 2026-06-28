@@ -208,7 +208,19 @@ export async function ackCommand(commandId) {
   return cmd;
 }
 
+const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
+const PG_KEY_STOP_AUDIO = 'stop_audio_catalog';
+
 export async function getGlobalPhraseAudio() {
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(PG_KEY_GLOBAL_AUDIO, null);
+    const audioFragments = row?.audioFragments ?? {};
+    return {
+      audioFragments,
+      savedAt: row?.savedAt ?? 0,
+      mediaFiles: collectGlobalPhraseMediaPaths(audioFragments),
+    };
+  }
   const store = await loadStore();
   return {
     audioFragments: store.globalAudioFragments ?? {},
@@ -218,9 +230,19 @@ export async function getGlobalPhraseAudio() {
 }
 
 export async function setGlobalPhraseAudio(audioFragments, mediaFiles = []) {
+  const savedAt = Date.now();
+  if (usePostgres()) {
+    const payload = { audioFragments: audioFragments ?? {}, savedAt };
+    await pg.pgSetPlatformSetting(PG_KEY_GLOBAL_AUDIO, payload);
+    return {
+      audioFragments: payload.audioFragments,
+      savedAt,
+      mediaFiles: mediaFiles.length ? mediaFiles : collectGlobalPhraseMediaPaths(payload.audioFragments),
+    };
+  }
   const store = await loadStore();
   store.globalAudioFragments = audioFragments ?? {};
-  store.globalAudioSavedAt = Date.now();
+  store.globalAudioSavedAt = savedAt;
   await saveStore();
   return {
     audioFragments: store.globalAudioFragments,
@@ -245,6 +267,15 @@ function collectGlobalPhraseMediaPaths(map = {}) {
 }
 
 export async function getStopAudioCatalog() {
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(PG_KEY_STOP_AUDIO, null);
+    const stopAudio = row?.stopAudio ?? {};
+    return {
+      stopAudio,
+      savedAt: row?.savedAt ?? 0,
+      mediaFiles: collectAudioMediaPathsFromMap(stopAudio),
+    };
+  }
   const store = await loadStore();
   const stopAudio = store.stopAudioCatalog ?? {};
   return {
@@ -255,9 +286,20 @@ export async function getStopAudioCatalog() {
 }
 
 export async function mergeStopAudioCatalog(entries = {}, mediaFiles = []) {
+  const savedAt = Date.now();
+  if (usePostgres()) {
+    const current = await getStopAudioCatalog();
+    const stopAudio = { ...(current.stopAudio ?? {}), ...entries };
+    await pg.pgSetPlatformSetting(PG_KEY_STOP_AUDIO, { stopAudio, savedAt });
+    return {
+      stopAudio,
+      savedAt,
+      mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(stopAudio),
+    };
+  }
   const store = await loadStore();
   store.stopAudioCatalog = { ...(store.stopAudioCatalog ?? {}), ...entries };
-  store.stopAudioSavedAt = Date.now();
+  store.stopAudioSavedAt = savedAt;
   await saveStore();
   return {
     stopAudio: store.stopAudioCatalog,

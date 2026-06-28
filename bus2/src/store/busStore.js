@@ -504,6 +504,18 @@ export function isDbWriteInFlight() {
   return dbWriteInFlight;
 }
 
+/** Update browser cache + other tabs when db/info.txt changed on the server (no write-back). */
+export function syncLocalCacheFromServer(state) {
+  writeRouteCache(state);
+  const persisted = stateForPersistence(state);
+  try {
+    persistToLocalStorage(persisted);
+  } catch {
+    /* quota — still broadcast to open tabs */
+  }
+  getChannel()?.postMessage({ type: 'STATE_UPDATE', state: persisted });
+}
+
 export function saveState(state, { force = false } = {}) {
   writeRouteCache(state);
 

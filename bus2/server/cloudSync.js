@@ -1,4 +1,5 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
+import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads } from './cloudCommands.js';
 import { syncCloudMedia } from './cloudMediaSync.js';
 import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
@@ -124,6 +125,11 @@ async function syncGlobalPhraseAudio(root, creds) {
 
     if (Array.isArray(json.mediaFiles) && json.mediaFiles.length) {
       await syncCloudMedia(root, json.mediaFiles, creds);
+      notifyStateChanged(root, {
+        savedAt: merged.savedAt,
+        lastCloudPushAt: merged.lastCloudPushAt,
+        source: 'cloud-media',
+      });
     }
   } catch {
     /* cloud offline */
@@ -178,6 +184,13 @@ export async function runCloudSync(root) {
     merged.lastCloudPushAt = pushAt;
     await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
     await syncCloudMedia(root, mediaPaths, creds);
+    if (mediaPaths.length) {
+      notifyStateChanged(root, {
+        savedAt: merged.savedAt,
+        lastCloudPushAt: merged.lastCloudPushAt,
+        source: 'cloud-media',
+      });
+    }
 
     for (const cmd of pending.commands) {
       await cloudFetch(
