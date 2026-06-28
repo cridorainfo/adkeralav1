@@ -15,6 +15,7 @@ import { downloadAndInstallApk } from '../lib/driverUpdate';
 import { useBusStore } from '../hooks/useBusStore';
 import { useDriverGps } from '../hooks/useDriverGps';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
+import DriverBusInfo from '../components/DriverBusInfo';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -228,9 +229,7 @@ export default function DriverConnect() {
 
         {linked ? (
           <div className="driver-connect-section">
-            <p>
-              <strong>Bus:</strong> {session.plate ?? session.busId}
-            </p>
+            <DriverBusInfo session={session} />
             {session.lanIp && (
               <p>
                 <strong>LAN:</strong> {session.lanIp}:{session.controlPort ?? 5174}

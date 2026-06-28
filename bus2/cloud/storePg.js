@@ -349,6 +349,22 @@ export async function pgPruneCommands() {
   await query(`DELETE FROM bus_location_history WHERE recorded_at < $1`, [locCutoff]);
 }
 
+export async function pgGetLocationHistory(busId, { minutes = 120, limit = 500 } = {}) {
+  const since = Date.now() - minutes * 60 * 1000;
+  const { rows } = await query(
+    `SELECT lat, lng, recorded_at FROM bus_location_history
+     WHERE bus_id = $1 AND recorded_at >= $2
+     ORDER BY recorded_at ASC
+     LIMIT $3`,
+    [busId, since, limit]
+  );
+  return rows.map((row) => ({
+    lat: row.lat,
+    lng: row.lng,
+    at: Number(row.recorded_at),
+  }));
+}
+
 export async function pgGetPlatformSetting(key, fallback = null) {
   const { rows } = await query('SELECT value FROM platform_settings WHERE key = $1', [key]);
   return rows.length ? rows[0].value : fallback;

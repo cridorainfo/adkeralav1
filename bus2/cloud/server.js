@@ -44,6 +44,7 @@ import {
   getDriverSession,
   deleteBus,
   updateDriverLocation,
+  getLocationHistory,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -659,6 +660,14 @@ app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
     profile,
     updatedAt: row.updatedAt,
   });
+});
+
+app.get('/api/buses/:busId/locations', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const minutes = Math.min(Math.max(Number(req.query.minutes) || 120, 5), 24 * 60);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 500, 10), 2000);
+  const points = await getLocationHistory(req.params.busId, { minutes, limit });
+  res.json({ ok: true, busId: req.params.busId, points });
 });
 
 app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {

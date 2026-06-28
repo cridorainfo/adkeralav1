@@ -247,6 +247,11 @@ export async function getBus(busId) {
   return store.buses[busId] ?? null;
 }
 
+export async function getLocationHistory(busId, { minutes = 120, limit = 500 } = {}) {
+  if (usePostgres()) return pg.pgGetLocationHistory(busId, { minutes, limit });
+  return [];
+}
+
 export async function listBuses({ ownerId = null } = {}) {
   if (usePostgres()) return pg.pgListBuses({ ownerId });
   const store = await loadStore();
@@ -969,6 +974,8 @@ export async function pairDriver(driverId, plateOrCode) {
     ok: true,
     busId,
     plate: profile.plateDisplay || profile.plate,
+    plateNumber: profile.plateDisplay || profile.plate || '',
+    displayName: profile.displayName ?? '',
     pairingCode: profile.pairingCode,
     linkedAt,
   };
@@ -1070,6 +1077,8 @@ export async function getDriverSession(driverId) {
     driverId,
     busId,
     plate: profile.plateDisplay || profile.plate || busId,
+    plateNumber: profile.plateDisplay || profile.plate || '',
+    displayName: profile.displayName ?? '',
     pairingCode: profile.pairingCode ?? null,
     lanIp: telemetry.lanIp ?? null,
     controlPort: telemetry.controlPort ?? 5174,

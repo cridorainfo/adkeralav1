@@ -12,6 +12,7 @@ import {
 } from '../lib/driverPhone.js';
 import { useDriverGps } from '../hooks/useDriverGps.js';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation.js';
+import DriverBusInfo from '../components/DriverBusInfo.jsx';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,9 +149,7 @@ export default function DriverConnect() {
 
         {linked ? (
           <div className="driver-connect-section">
-            <p>
-              <strong>Bus:</strong> {session.plate ?? session.busId}
-            </p>
+            <DriverBusInfo session={session} />
             {session.lanIp && (
               <p>
                 <strong>LAN:</strong> {session.lanIp}:{session.controlPort ?? 5174}

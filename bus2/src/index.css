@@ -4079,3 +4079,45 @@ textarea {
 .driver-connect-foot code {
   font-size: 0.72rem;
 }
+
+.driver-bus-info {
+  background: #f0fdf4;
+  border: 1px solid rgba(11, 92, 74, 0.15);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.driver-bus-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+}
+
+.driver-bus-info-row + .driver-bus-info-row {
+  border-top: 1px solid rgba(11, 92, 74, 0.08);
+}
+
+.driver-bus-info-row.muted {
+  opacity: 0.85;
+}
+
+.driver-bus-info-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--kerala-muted, #5a7268);
+  flex-shrink: 0;
+}
+
+.driver-bus-info-value {
+  font-size: 0.95rem;
+  color: var(--kerala-green, #0b5c4a);
+  text-align: right;
+}
+
+.driver-bus-info-code {
+  font-size: 0.72rem;
+  color: #64748b;
+}
