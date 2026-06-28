@@ -2,7 +2,7 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { APP_NAME, ROLE_LABELS } from '../lib/brand.js';
 
-export default function DashboardLayout({ basePath, navItems, title }) {
+export default function DashboardLayout({ basePath, navItems, title, children }) {
   const { user, logout } = useAuth();
 
   return (
@@ -36,7 +36,7 @@ export default function DashboardLayout({ basePath, navItems, title }) {
         <div className="dashboard-header">
           <h1>{title}</h1>
         </div>
-        <Outlet />
+        {children ?? <Outlet />}
       </div>
     </div>
   );

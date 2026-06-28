@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout.jsx';
 import { RequireAuth } from '../../lib/auth.jsx';
 import { SelectedBusProvider, BusSelector, PushHint } from '../../components/BusContext.jsx';
@@ -13,6 +13,7 @@ import UsersPanel from '../../components/UsersPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import ReleasesPanel from '../../components/ReleasesPanel.jsx';
 import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
+import RouteCatalog from '../../components/RouteCatalog.jsx';
 import { useSelectedBus } from '../../components/BusContext.jsx';
 
 const NAV = [
