@@ -95,8 +95,8 @@ import {
 } from './fleet.js';
 import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit } from './logger.js';
-import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl } from './mediaStorage.js';
-import { collectAdMediaPathsFromLists } from './adsCatalog.js';
+import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
+import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
 import { usePostgres, getPool } from './db/pool.js';
 import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
 import {
@@ -824,12 +824,26 @@ app.put('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { ads, bannerAds, push = true } = req.body ?? {};
   const adsSavedAt = Date.now();
+  const prev = await getBusAdsCatalog(req.params.busId);
   const catalog = await setBusAdsCatalog(req.params.busId, {
     ads: ads ?? [],
     bannerAds: bannerAds ?? [],
     adsSavedAt,
     source: 'dashboard',
   });
+  const removedMedia = collectRemovedAdMediaPaths(
+    prev.ads,
+    prev.bannerAds,
+    catalog.ads,
+    catalog.bannerAds
+  );
+  for (const relPath of removedMedia) {
+    try {
+      await deleteMediaFile(relPath, MEDIA_DIR);
+    } catch (err) {
+      console.warn('Ad media delete failed:', relPath, err.message);
+    }
+  }
   let commandId = null;
   if (push) {
     const cmd = await enqueueCommand(
@@ -840,11 +854,12 @@ app.put('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
         bannerAds: catalog.bannerAds,
         adsSavedAt: catalog.adsSavedAt,
         savedAt: adsSavedAt,
+        ...(removedMedia.length ? { removedMediaFiles: removedMedia } : {}),
       })
     );
     commandId = cmd.id;
   }
-  res.json({ ok: true, catalog, queued: Boolean(commandId), commandId });
+  res.json({ ok: true, catalog, queued: Boolean(commandId), commandId, removedMedia });
 });
 
 app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
@@ -1178,6 +1193,21 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     audioFile: relPath,
     publicUrl: getPublicMediaUrl(relPath),
   });
+});
+
+/** Admin removes ad/banner media no longer referenced in catalogs. */
+app.delete('/api/media/:category/:filename', authSession, requireAuth, async (req, res) => {
+  if (!['admin', 'bus_owner'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const relPath = `${req.params.category}/${req.params.filename}`;
+  const result = await deleteMediaFile(relPath, MEDIA_DIR);
+  if (!result.ok) {
+    res.status(400).json({ ok: false, error: result.error ?? 'Delete failed' });
+    return;
+  }
+  res.json({ ok: true, deleted: relPath, ...result });
 });
 
 /** Bus pulls missing media from cloud when internet is available. */

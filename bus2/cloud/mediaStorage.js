@@ -1,3 +1,6 @@
+import fs from 'fs/promises';
+import path from 'path';
+import { existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? '';
@@ -55,4 +58,43 @@ export async function getUploadTarget(category, filename) {
 
 export function verifyR2Config() {
   return { enabled: isR2Enabled(), bucket: R2_BUCKET || null, publicUrl: R2_PUBLIC_URL || null };
+}
+
+const AD_MEDIA_CATEGORIES = new Set(['ads', 'banners']);
+
+export function isDeletableAdMediaPath(relativePath) {
+  if (!relativePath || typeof relativePath !== 'string') return false;
+  if (relativePath.includes('..')) return false;
+  const category = relativePath.split('/')[0];
+  return AD_MEDIA_CATEGORIES.has(category);
+}
+
+/** Remove a relative media file from local disk and R2 (best-effort). */
+export async function deleteMediaFile(relativePath, mediaDir) {
+  if (!isDeletableAdMediaPath(relativePath)) {
+    return { ok: false, error: 'Path not allowed for deletion' };
+  }
+
+  let localDeleted = false;
+  if (mediaDir) {
+    const fullPath = path.join(mediaDir, relativePath);
+    if (existsSync(fullPath)) {
+      await fs.unlink(fullPath);
+      localDeleted = true;
+    }
+  }
+
+  let r2Deleted = false;
+  if (isR2Enabled()) {
+    const endpoint = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${relativePath}`;
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${R2_ACCESS_KEY}:${R2_SECRET_KEY}`,
+      },
+    });
+    r2Deleted = res.ok || res.status === 404;
+  }
+
+  return { ok: localDeleted || r2Deleted || !mediaDir, localDeleted, r2Deleted };
 }

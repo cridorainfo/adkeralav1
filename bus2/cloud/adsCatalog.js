@@ -14,12 +14,13 @@ export function normalizeAdForCatalog(ad) {
   if (!ad?.id) return null;
   const mediaFile = ad.mediaFile ?? mediaUrlToRelPath(ad.mediaUrl) ?? null;
   const audioFile = ad.audioFile ?? mediaUrlToRelPath(ad.audioUrl) ?? null;
-  if (!mediaFile && !audioFile) return null;
+  const name = String(ad.name ?? '').trim();
+  if (!mediaFile && !audioFile && !name) return null;
   return {
     id: ad.id,
-    name: String(ad.name ?? '').trim(),
+    name,
     type: ad.type === 'video' ? 'video' : 'image',
-    mediaFile,
+    ...(mediaFile ? { mediaFile } : {}),
     ...(audioFile ? { audioFile } : {}),
     durationSec: Number.isFinite(Number(ad.durationSec)) ? Number(ad.durationSec) : 12,
     ...(ad.adFormat ? { adFormat: ad.adFormat } : {}),
@@ -39,4 +40,11 @@ export function collectAdMediaPathsFromLists(ads = [], bannerAds = []) {
     if (ad?.audioFile) paths.add(ad.audioFile);
   }
   return [...paths];
+}
+
+/** Media paths removed from a catalog update (safe to delete when unreferenced). */
+export function collectRemovedAdMediaPaths(prevAds = [], prevBanners = [], nextAds = [], nextBanners = []) {
+  const prev = new Set(collectAdMediaPathsFromLists(prevAds, prevBanners));
+  const next = new Set(collectAdMediaPathsFromLists(nextAds, nextBanners));
+  return [...prev].filter((p) => !next.has(p));
 }

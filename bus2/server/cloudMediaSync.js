@@ -50,3 +50,30 @@ export async function syncCloudMedia(root, relativePaths, creds = {}) {
 
   return downloaded;
 }
+
+/** Remove ad/banner files no longer referenced in bus state. */
+export async function deleteLocalMediaFiles(root, relativePaths = []) {
+  if (!relativePaths?.length) return 0;
+
+  const { mediaDir } = getDbPaths(root);
+  let removed = 0;
+
+  for (const relPath of relativePaths) {
+    if (!relPath || relPath.includes('..')) continue;
+    const category = relPath.split('/')[0];
+    if (!MEDIA_CATEGORIES.has(category)) continue;
+
+    const localFile = path.join(mediaDir, relPath);
+    if (!existsSync(localFile)) continue;
+
+    try {
+      await fs.unlink(localFile);
+      removed += 1;
+      console.log('AdKerala media sync: removed', relPath);
+    } catch (err) {
+      console.warn('AdKerala media sync: delete failed', relPath, err.message);
+    }
+  }
+
+  return removed;
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, uploadMedia } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 
@@ -28,8 +28,20 @@ export default function AdsPanel() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
 
-  const loadCatalog = useCallback(async () => {
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+    setDirty(true);
+  }, []);
+
+  const clearDirty = useCallback(() => {
+    dirtyRef.current = false;
+    setDirty(false);
+  }, []);
+
+  const loadCatalog = useCallback(async (force = false) => {
     if (!selectedBusId || selectedBusId === 'bus-1') {
       setAds([]);
       setBannerAds([]);
@@ -39,8 +51,11 @@ export default function AdsPanel() {
     setError('');
     try {
       const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/ads/catalog`);
-      setAds(json.ads?.length ? json.ads : []);
-      setBannerAds(json.bannerAds?.length ? json.bannerAds : []);
+      if (!dirtyRef.current || force) {
+        setAds(json.ads?.length ? json.ads : []);
+        setBannerAds(json.bannerAds?.length ? json.bannerAds : []);
+        if (force) clearDirty();
+      }
       setCatalogAt(json.adsSavedAt ?? json.savedAt ?? 0);
       setSource(json.source ?? null);
     } catch (err) {
@@ -48,13 +63,14 @@ export default function AdsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [selectedBusId]);
+  }, [selectedBusId, clearDirty]);
 
   useEffect(() => {
-    loadCatalog();
-    const t = setInterval(loadCatalog, 5000);
+    clearDirty();
+    loadCatalog(true);
+    const t = setInterval(() => loadCatalog(false), 5000);
     return () => clearInterval(t);
-  }, [loadCatalog]);
+  }, [selectedBusId, loadCatalog, clearDirty]);
 
   async function persistCatalog({ push = false, nextAds = ads, nextBanners = bannerAds } = {}) {
     if (!selectedBusId || selectedBusId === 'bus-1') {
@@ -70,19 +86,32 @@ export default function AdsPanel() {
     });
     setCatalogAt(json.catalog?.adsSavedAt ?? Date.now());
     setSource(json.catalog?.source ?? 'dashboard');
+    clearDirty();
     return json;
   }
 
   function updateAd(i, patch) {
+    markDirty();
     const next = [...ads];
     next[i] = { ...next[i], ...patch };
     setAds(next);
   }
 
   function updateBanner(i, patch) {
+    markDirty();
     const next = [...bannerAds];
     next[i] = { ...next[i], ...patch };
     setBannerAds(next);
+  }
+
+  function addAdRow(isBanner) {
+    markDirty();
+    if (isBanner) {
+      setBannerAds((prev) => [...prev, emptyBanner()]);
+    } else {
+      setAds((prev) => [...prev, emptyAd()]);
+    }
+    setMessage('New ad slot added — upload media or save name, then push to bus.');
   }
 
   async function handleMediaUpload(i, file, isBanner) {
@@ -91,23 +120,30 @@ export default function AdsPanel() {
     setError('');
     try {
       const category = isBanner ? 'banners' : 'ads';
+      const list = isBanner ? bannerAds : ads;
+      const oldMediaFile = list[i]?.mediaFile ?? '';
       const up = await uploadMedia(file, category);
       const patch = {
         mediaFile: up.path ?? up.audioFile,
         type: file.type.startsWith('video') ? 'video' : 'image',
       };
+      let nextAds = ads;
+      let nextBanners = bannerAds;
       if (isBanner) {
-        const next = [...bannerAds];
-        next[i] = { ...next[i], ...patch };
-        setBannerAds(next);
-        await persistCatalog({ push: true, nextAds: ads, nextBanners: next });
+        nextBanners = [...bannerAds];
+        nextBanners[i] = { ...nextBanners[i], ...patch };
+        setBannerAds(nextBanners);
       } else {
-        const next = [...ads];
-        next[i] = { ...next[i], ...patch };
-        setAds(next);
-        await persistCatalog({ push: true, nextAds: next, nextBanners: bannerAds });
+        nextAds = [...ads];
+        nextAds[i] = { ...nextAds[i], ...patch };
+        setAds(nextAds);
       }
-      setMessage('Saved & queued for bus');
+      await persistCatalog({ push: true, nextAds, nextBanners });
+      if (oldMediaFile && oldMediaFile !== patch.mediaFile) {
+        setMessage('Replaced media — old file removed from server');
+      } else {
+        setMessage('Saved & queued for bus');
+      }
     } catch (err) {
       setError(err.message ?? 'Upload failed');
     } finally {
@@ -127,7 +163,7 @@ export default function AdsPanel() {
       setMessage('Deleted & synced to bus');
     } catch (err) {
       setError(err.message ?? 'Delete failed');
-      await loadCatalog();
+      await loadCatalog(true);
     } finally {
       setBusy(false);
     }
@@ -161,7 +197,7 @@ export default function AdsPanel() {
         });
       }
       setMessage(`Synced to ${targetBusIds.join(', ')}`);
-      await loadCatalog();
+      await loadCatalog(true);
     } catch (err) {
       setError(err.message ?? 'Push failed');
     } finally {
@@ -183,8 +219,14 @@ export default function AdsPanel() {
       <h2>Ads — {selectedBusId}</h2>
       <p className="hint">
         Ads are saved on the server per bus and sync with the PC <code>db/info.txt</code>.
-        Changes from the bus control panel appear here within ~5s. Deletes sync both ways.
+        Add as many ads as you need, upload media for each, then save &amp; push. Replacing a file
+        removes the old one automatically.
       </p>
+      {dirty && (
+        <p className="hint" style={{ color: '#b45309' }}>
+          Unsaved edits — use Save or Save &amp; push before leaving this page.
+        </p>
+      )}
       {catalogAt > 0 && (
         <p className="hint">
           Catalog updated {new Date(catalogAt).toLocaleString()}
@@ -193,13 +235,18 @@ export default function AdsPanel() {
       )}
 
       <div className="editor-actions">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={loadCatalog} disabled={loading}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => loadCatalog(true)}
+          disabled={loading}
+        >
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
 
-      <h3>Fullscreen ads</h3>
-      {ads.length === 0 && <p className="hint">No fullscreen ads yet.</p>}
+      <h3>Fullscreen ads ({ads.length})</h3>
+      {ads.length === 0 && <p className="hint">No fullscreen ads yet — click Add below.</p>}
       {ads.map((ad, i) => (
         <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
           <div className="form-group">
@@ -208,24 +255,50 @@ export default function AdsPanel() {
           </div>
           <div className="form-group">
             <label>Duration (sec)</label>
-            <input type="number" value={ad.durationSec} onChange={(e) => updateAd(i, { durationSec: Number(e.target.value) })} />
+            <input
+              type="number"
+              value={ad.durationSec}
+              onChange={(e) => updateAd(i, { durationSec: Number(e.target.value) })}
+            />
           </div>
           <div className="form-group">
             <label>Media</label>
-            <input type="file" accept="image/*,video/*" disabled={busy} onChange={(e) => handleMediaUpload(i, e.target.files?.[0], false)} />
-            {ad.mediaFile && <small>{ad.mediaFile}</small>}
+            <input
+              type="file"
+              accept="image/*,video/*"
+              disabled={busy}
+              onChange={(e) => {
+                handleMediaUpload(i, e.target.files?.[0], false);
+                e.target.value = '';
+              }}
+            />
+            {ad.mediaFile ? (
+              <small>Saved: {ad.mediaFile.split('/').pop()}</small>
+            ) : (
+              <small className="hint">No file yet</small>
+            )}
           </div>
-          <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={() => removeAd(i, false)}>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            disabled={busy}
+            onClick={() => removeAd(i, false)}
+          >
             Delete
           </button>
         </div>
       ))}
-      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setAds([...ads, emptyAd()])}>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={busy}
+        onClick={() => addAdRow(false)}
+      >
         + Add fullscreen ad
       </button>
 
-      <h3>Banner ads (728×90)</h3>
-      {bannerAds.length === 0 && <p className="hint">No banner ads yet.</p>}
+      <h3>Banner ads ({bannerAds.length})</h3>
+      {bannerAds.length === 0 && <p className="hint">No banner ads yet — click Add below.</p>}
       {bannerAds.map((ad, i) => (
         <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
           <div className="form-group">
@@ -234,19 +307,45 @@ export default function AdsPanel() {
           </div>
           <div className="form-group">
             <label>Duration (sec)</label>
-            <input type="number" value={ad.durationSec} onChange={(e) => updateBanner(i, { durationSec: Number(e.target.value) })} />
+            <input
+              type="number"
+              value={ad.durationSec}
+              onChange={(e) => updateBanner(i, { durationSec: Number(e.target.value) })}
+            />
           </div>
           <div className="form-group">
             <label>Media</label>
-            <input type="file" accept="image/*" disabled={busy} onChange={(e) => handleMediaUpload(i, e.target.files?.[0], true)} />
-            {ad.mediaFile && <small>{ad.mediaFile}</small>}
+            <input
+              type="file"
+              accept="image/*"
+              disabled={busy}
+              onChange={(e) => {
+                handleMediaUpload(i, e.target.files?.[0], true);
+                e.target.value = '';
+              }}
+            />
+            {ad.mediaFile ? (
+              <small>Saved: {ad.mediaFile.split('/').pop()}</small>
+            ) : (
+              <small className="hint">No file yet</small>
+            )}
           </div>
-          <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={() => removeAd(i, true)}>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            disabled={busy}
+            onClick={() => removeAd(i, true)}
+          >
             Delete
           </button>
         </div>
       ))}
-      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setBannerAds([...bannerAds, emptyBanner()])}>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={busy}
+        onClick={() => addAdRow(true)}
+      >
         + Add banner ad
       </button>
 

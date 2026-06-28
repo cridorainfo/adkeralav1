@@ -1,7 +1,7 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState } from './cloudCommands.js';
-import { syncCloudMedia } from './cloudMediaSync.js';
+import { syncCloudMedia, deleteLocalMediaFiles } from './cloudMediaSync.js';
 import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
 import { getLanAddresses } from './networkInfo.js';
 import {
@@ -177,7 +177,10 @@ export async function runCloudSync(root) {
   const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
   if (pending?.ok && Array.isArray(pending.commands) && pending.commands.length) {
     const current = (await readInfoFile(root)) ?? {};
+    const oldAdPaths = new Set(collectAdMediaFromState(current));
     const merged = applyCloudCommands(current, pending.commands);
+    const newAdPaths = new Set(collectAdMediaFromState(merged));
+    const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
     const mediaPaths = [
       ...new Set([
         ...collectMediaDownloads(pending.commands),
@@ -189,6 +192,7 @@ export async function runCloudSync(root) {
     merged.lastCloudPushAt = pushAt;
     await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
     await syncCloudMedia(root, mediaPaths, creds);
+    await deleteLocalMediaFiles(root, removedAdPaths);
     if (mediaPaths.length) {
       notifyStateChanged(root, {
         savedAt: merged.savedAt,
