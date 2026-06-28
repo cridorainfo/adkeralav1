@@ -788,6 +788,8 @@ export async function setBusProfilePlate(busId, plateInput) {
   return profile;
 }
 
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+
 function findBusIdByPlateOrCode(store, plateOrCode) {
   const raw = String(plateOrCode ?? '').trim();
   if (!raw) return null;
@@ -808,6 +810,39 @@ function findBusIdByPlateOrCode(store, plateOrCode) {
     if (stateProfile.pairingCode && stateProfile.pairingCode === asCode) return busId;
   }
 
+  return null;
+}
+
+async function findBusIdByPlateOrCodeAnywhere(plateOrCode) {
+  if (usePostgres()) {
+    const fromPg = await pg.pgFindBusIdByPlateOrCode(plateOrCode, { normalizePlate });
+    if (fromPg) return fromPg;
+  }
+  const store = await loadStore();
+  return findBusIdByPlateOrCode(store, plateOrCode);
+}
+
+async function isBusOnline(busId) {
+  const row = await getBus(busId);
+  return Boolean(row?.updatedAt && Date.now() - row.updatedAt < ONLINE_MS);
+}
+
+async function getDriverLinkRecord(driverId) {
+  const store = await loadStore();
+  if (!store.drivers) store.drivers = {};
+  const fromJson = store.drivers[driverId];
+  if (fromJson?.linkedBusId) {
+    return { linkedBusId: fromJson.linkedBusId, linkedAt: fromJson.linkedAt ?? null };
+  }
+  if (usePostgres()) {
+    const fromPg = await pg.pgGetDriverLink(driverId);
+    if (fromPg?.linked_bus_id) {
+      return {
+        linkedBusId: fromPg.linked_bus_id,
+        linkedAt: fromPg.linked_at ? Number(fromPg.linked_at) : null,
+      };
+    }
+  }
   return null;
 }
 
@@ -868,25 +903,29 @@ export async function pairDriver(driverId, plateOrCode) {
   const store = await loadStore();
   if (!driverId) return { ok: false, error: 'Missing driverId' };
 
-  if (!store.drivers) store.drivers = {};
-  const driver = store.drivers[driverId] ?? { linkedBusId: null, linkedAt: null, label: 'Driver' };
-
-  if (driver.linkedBusId) {
+  const existingLink = await getDriverLinkRecord(driverId);
+  if (existingLink?.linkedBusId) {
     return { ok: false, error: 'Driver already linked to a bus. Unlink first.' };
   }
 
-  const busId = findBusIdByPlateOrCode(store, plateOrCode);
+  const busId = await findBusIdByPlateOrCodeAnywhere(plateOrCode);
   if (!busId) {
-    return { ok: false, error: 'Bus not found. Check plate or code.' };
+    return {
+      ok: false,
+      error:
+        'Bus not found. Use the 4-digit pairing code shown on the bus display (not the 6-digit fleet claim code).',
+    };
   }
 
-  const busRow = store.buses[busId];
-  const online = busRow && Date.now() - busRow.updatedAt < 20000;
-  if (!online) {
-    return { ok: false, error: 'Bus is offline. Start the bus server first.' };
+  if (!(await isBusOnline(busId))) {
+    return {
+      ok: false,
+      error: 'Bus is offline. Start the bus PC app and wait until it shows online (green dot) in Fleet.',
+    };
   }
 
-  const profile = ensureBusProfile(store, busId);
+  const profileFromDb = await getBusProfile(busId);
+  const profile = profileFromDb ?? ensureBusProfile(store, busId);
   if (profile.linkedDriverId && profile.linkedDriverId !== driverId) {
     return { ok: false, error: 'Bus already linked to another driver.' };
   }
@@ -894,11 +933,27 @@ export async function pairDriver(driverId, plateOrCode) {
   const linkedAt = Date.now();
   profile.linkedDriverId = driverId;
   profile.linkedAt = linkedAt;
+
+  if (!store.drivers) store.drivers = {};
   store.drivers[driverId] = {
-    ...driver,
+    ...(store.drivers[driverId] ?? { label: 'Driver' }),
     linkedBusId: busId,
     linkedAt,
   };
+
+  if (!store.busProfiles) store.busProfiles = {};
+  store.busProfiles[busId] = { ...(store.busProfiles[busId] ?? {}), ...profile };
+
+  if (usePostgres()) {
+    await pg.pgUpsertBusProfile(busId, {
+      linkedDriverId: driverId,
+      linkedAt,
+      pairingCode: profile.pairingCode,
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+    });
+    await pg.pgUpsertDriverLink(driverId, busId, linkedAt);
+  }
 
   await saveStore();
   await queueDriverLinkMerge(busId, {
@@ -923,20 +978,38 @@ export async function unlinkDriver(driverId) {
   const store = await loadStore();
   if (!driverId) return { ok: false, error: 'Missing driverId' };
 
-  const driver = store.drivers?.[driverId];
-  if (!driver?.linkedBusId) {
+  const link = await getDriverLinkRecord(driverId);
+  if (!link?.linkedBusId) {
     return { ok: false, error: 'Driver is not linked.' };
   }
 
-  const busId = driver.linkedBusId;
-  const profile = ensureBusProfile(store, busId);
+  const busId = link.linkedBusId;
+  const profileFromDb = (await getBusProfile(busId)) ?? ensureBusProfile(store, busId);
+  const profile = { ...profileFromDb };
   const newCode = generatePairingCode();
 
   profile.linkedDriverId = null;
   profile.linkedAt = null;
   profile.pairingCode = newCode;
-  driver.linkedBusId = null;
-  driver.linkedAt = null;
+
+  if (!store.drivers) store.drivers = {};
+  if (store.drivers[driverId]) {
+    store.drivers[driverId].linkedBusId = null;
+    store.drivers[driverId].linkedAt = null;
+  }
+  if (!store.busProfiles) store.busProfiles = {};
+  store.busProfiles[busId] = { ...(store.busProfiles[busId] ?? {}), ...profile };
+
+  if (usePostgres()) {
+    await pg.pgUpsertBusProfile(busId, {
+      linkedDriverId: null,
+      linkedAt: null,
+      pairingCode: newCode,
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+    });
+    await pg.pgClearDriverLink(driverId);
+  }
 
   await saveStore();
   await queueDriverLinkMerge(busId, {
@@ -952,8 +1025,7 @@ export async function unlinkDriver(driverId) {
 }
 
 export async function unlinkDriverByBusId(busId) {
-  const store = await loadStore();
-  const profile = store.busProfiles?.[busId];
+  const profile = await getBusProfile(busId);
   if (!profile?.linkedDriverId) {
     return { ok: false, error: 'No driver linked to this bus.' };
   }
@@ -979,18 +1051,17 @@ export async function deleteBus(busId) {
 }
 
 export async function getDriverSession(driverId) {
-  const store = await loadStore();
   if (!driverId) return { ok: false, error: 'Missing driverId' };
 
-  const driver = store.drivers?.[driverId];
-  if (!driver?.linkedBusId) {
+  const link = await getDriverLinkRecord(driverId);
+  if (!link?.linkedBusId) {
     return { ok: true, linked: false, driverId };
   }
 
-  const busId = driver.linkedBusId;
-  const profile = store.busProfiles?.[busId] ?? {};
-  const busRow = store.buses[busId];
-  const online = busRow && Date.now() - busRow.updatedAt < 20000;
+  const busId = link.linkedBusId;
+  const profile = (await getBusProfile(busId)) ?? {};
+  const busRow = await getBus(busId);
+  const online = Boolean(busRow?.updatedAt && Date.now() - busRow.updatedAt < ONLINE_MS);
   const telemetry = busRow?.telemetry ?? {};
 
   return {
@@ -1002,7 +1073,7 @@ export async function getDriverSession(driverId) {
     pairingCode: profile.pairingCode ?? null,
     lanIp: telemetry.lanIp ?? null,
     controlPort: telemetry.controlPort ?? 5174,
-    online: Boolean(online),
-    linkedAt: driver.linkedAt ?? profile.linkedAt ?? null,
+    online,
+    linkedAt: link.linkedAt ?? profile.linkedAt ?? null,
   };
 }

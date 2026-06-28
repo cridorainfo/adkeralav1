@@ -24,6 +24,7 @@ export default function DriverConnect() {
   const [session, setSession] = useState(null);
   const [plateOrCode, setPlateOrCode] = useState('');
   const [status, setStatus] = useState('Loading…');
+  const [statusError, setStatusError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const linked = Boolean(session?.linked);
@@ -46,10 +47,12 @@ export default function DriverConnect() {
       const json = await fetchDriverSession(driverId, url);
       if (!json.ok && !json.linked) {
         setStatus(json.error ?? 'Could not reach cloud');
+        setStatusError(true);
         setSession(null);
         return null;
       }
       setSession(json);
+      setStatusError(false);
       if (json.linked) {
         setStatus(json.online ? 'Linked — bus online' : 'Linked — waiting for bus Wi‑Fi');
       } else {
@@ -79,12 +82,16 @@ export default function DriverConnect() {
     if (!plateOrCode.trim() || !driverId) return;
     setBusy(true);
     setStatus('Pairing…');
+    setStatusError(false);
     try {
       const json = await pairDriver(driverId, plateOrCode, cloudUrl);
       if (!json.ok) {
         setStatus(json.error ?? 'Pair failed');
+        setStatusError(true);
         return;
       }
+      setStatusError(false);
+      setSession({ linked: true, ...json });
       setStatus('Linked — finding bus on Wi‑Fi…');
       for (let i = 0; i < 12; i += 1) {
         const next = await fetchDriverSession(driverId, cloudUrl);
@@ -135,7 +142,7 @@ export default function DriverConnect() {
           <p>Pair with your bus — no account login needed.</p>
         </div>
 
-        <p className="driver-connect-status" role="status">
+        <p className={`driver-connect-status${statusError ? ' driver-connect-status-error' : ''}`} role="status">
           {status}
         </p>
 
@@ -180,17 +187,21 @@ export default function DriverConnect() {
           </div>
         ) : (
           <form className="driver-connect-section" onSubmit={handlePair}>
-            <label htmlFor="plateOrCode">Number plate or 4-digit code</label>
+            <label htmlFor="plateOrCode">4-digit pairing code (on bus display)</label>
             <input
               id="plateOrCode"
               type="text"
               autoComplete="off"
-              inputMode="text"
-              placeholder="KL07AB1234 or 7291"
+              inputMode="numeric"
+              maxLength={12}
+              placeholder="e.g. 7291 — not the 6-digit fleet code"
               value={plateOrCode}
               onChange={(e) => setPlateOrCode(e.target.value)}
               disabled={busy || !ready}
             />
+            <p className="hint" style={{ margin: 0 }}>
+              Or enter the full number plate (e.g. KL07AB1234). Bus must be online in Fleet first.
+            </p>
             <button type="submit" className="btn btn-primary" disabled={busy || !ready}>
               Connect to bus
             </button>

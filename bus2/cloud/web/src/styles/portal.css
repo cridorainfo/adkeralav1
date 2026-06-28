@@ -1097,6 +1097,11 @@ button, input, select, textarea { font-family: inherit; }
   text-align: center;
 }
 
+.driver-connect-status-error {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
 .driver-connect-actions {
   display: flex;
   flex-wrap: wrap;

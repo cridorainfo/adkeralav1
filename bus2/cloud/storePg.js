@@ -168,6 +168,61 @@ export async function pgListBuses({ ownerId = null } = {}) {
   }));
 }
 
+export async function pgFindBusIdByPlateOrCode(plateOrCode, { normalizePlate } = {}) {
+  const raw = String(plateOrCode ?? '').trim();
+  if (!raw) return null;
+
+  const asPlate = normalizePlate ? normalizePlate(raw) : raw.toUpperCase().replace(/\s+/g, '');
+  const asCode = raw.replace(/\D/g, '');
+
+  if (asPlate) {
+    const { rows } = await query('SELECT bus_id FROM bus_profiles WHERE plate = $1 LIMIT 1', [asPlate]);
+    if (rows[0]?.bus_id) return rows[0].bus_id;
+  }
+
+  if (asCode) {
+    const { rows } = await query('SELECT bus_id FROM bus_profiles WHERE pairing_code = $1 LIMIT 1', [
+      asCode,
+    ]);
+    if (rows[0]?.bus_id) return rows[0].bus_id;
+
+    const { rows: telRows } = await query(
+      `SELECT bus_id FROM bus_telemetry WHERE telemetry->>'pairingCode' = $1 LIMIT 1`,
+      [asCode]
+    );
+    if (telRows[0]?.bus_id) return telRows[0].bus_id;
+  }
+
+  return null;
+}
+
+export async function pgGetDriverLink(driverId) {
+  const { rows } = await query(
+    'SELECT linked_bus_id, linked_at FROM drivers WHERE driver_id = $1 LIMIT 1',
+    [driverId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function pgUpsertDriverLink(driverId, busId, linkedAt) {
+  await query(
+    `INSERT INTO drivers (driver_id, linked_bus_id, linked_at, last_seen_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (driver_id) DO UPDATE SET
+       linked_bus_id = EXCLUDED.linked_bus_id,
+       linked_at = EXCLUDED.linked_at,
+       last_seen_at = EXCLUDED.last_seen_at`,
+    [driverId, busId, linkedAt, Date.now()]
+  );
+}
+
+export async function pgClearDriverLink(driverId) {
+  await query(
+    `UPDATE drivers SET linked_bus_id = NULL, linked_at = NULL, last_seen_at = $2 WHERE driver_id = $1`,
+    [driverId, Date.now()]
+  );
+}
+
 export async function pgGetBusProfile(busId) {
   const { rows } = await query('SELECT * FROM bus_profiles WHERE bus_id = $1', [busId]);
   if (!rows.length) return null;
