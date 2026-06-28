@@ -127,6 +127,9 @@ export function mergeDriverLocationTelemetry(incomingTelemetry = {}, existingTel
   if (!incomingTelemetry || typeof incomingTelemetry !== 'object') return incomingTelemetry ?? {};
   const incoming = incomingTelemetry.driverLocation;
   const existing = existingTelemetry?.driverLocation;
+  if (incoming?.lat == null && existing?.lat != null) {
+    return { ...incomingTelemetry, driverLocation: existing };
+  }
   if (!existing?.lat || incoming?.lat == null) return incomingTelemetry;
   const incomingAt = incoming?.at ?? 0;
   const existingAt = existing?.at ?? 0;
@@ -1084,5 +1087,44 @@ export async function getDriverSession(driverId) {
     controlPort: telemetry.controlPort ?? 5174,
     online,
     linkedAt: link.linkedAt ?? profile.linkedAt ?? null,
+    trip: {
+      routeName: telemetry.routeName ?? busRow?.displaySnapshot?.routeName ?? null,
+      currentStopEn: telemetry.currentStopEn ?? null,
+      nextStopEn: telemetry.nextStopEn ?? null,
+      tripStarted: Boolean(busRow?.state?.tripStarted),
+      tripEnded: Boolean(busRow?.state?.tripEnded),
+      displayView: busRow?.displaySnapshot?.displayView ?? telemetry.displayView ?? 'route',
+    },
   };
+}
+
+const DRIVER_DRIVE_ACTIONS = new Set(['startTrip', 'endTrip', 'forward', 'announce']);
+
+/** Queue a drive command from a cloud-paired driver phone. */
+export async function queueDriverDriveAction(driverId, action, extra = {}) {
+  const id = String(driverId ?? '').trim();
+  const act = String(action ?? '').trim();
+  if (!id) return { ok: false, error: 'Missing driverId' };
+  if (!DRIVER_DRIVE_ACTIONS.has(act)) {
+    return { ok: false, error: 'Invalid action' };
+  }
+
+  const link = await getDriverLinkRecord(id);
+  if (!link?.linkedBusId) {
+    return { ok: false, error: 'Driver not linked to a bus' };
+  }
+
+  const busId = link.linkedBusId;
+  if (!(await isBusOnline(busId))) {
+    return { ok: false, error: 'Bus is offline. Start the bus PC app first.' };
+  }
+
+  const cmd = await enqueueCommand(busId, 'DRIVE_ACTION', {
+    action: act,
+    ...extra,
+    source: 'driver-cloud',
+    savedAt: Date.now(),
+  });
+
+  return { ok: true, busId, queued: true, commandId: cmd?.id ?? null };
 }

@@ -45,6 +45,7 @@ import {
   deleteBus,
   updateDriverLocation,
   getLocationHistory,
+  queueDriverDriveAction,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -95,7 +96,7 @@ import {
   findBusIdByDeviceToken,
   withMediaFiles,
 } from './fleet.js';
-import { enrollLimiter, pairLimiter, authLimiter, locationLimiter } from './middleware/rateLimit.js';
+import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
@@ -753,6 +754,22 @@ app.post('/api/driver/location', locationLimiter, async (req, res) => {
   const result = await updateDriverLocation(String(driverId ?? '').trim(), location ?? {});
   if (!result.ok) {
     res.status(result.error === 'Driver not linked to a bus' ? 403 : 400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/driver/drive', driveLimiter, async (req, res) => {
+  const { driverId, action, ...extra } = req.body ?? {};
+  const result = await queueDriverDriveAction(String(driverId ?? '').trim(), action, extra);
+  if (!result.ok) {
+    const status =
+      result.error === 'Driver not linked to a bus'
+        ? 403
+        : result.error === 'Bus is offline. Start the bus PC app first.'
+          ? 503
+          : 400;
+    res.status(status).json(result);
     return;
   }
   res.json(result);

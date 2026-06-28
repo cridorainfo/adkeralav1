@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBusStore } from './useBusStore';
 import { distanceMetres } from '../lib/geoUtils';
+import { createPersistentGpsWatcher } from '../lib/persistentGps';
 
 const SAVE_INTERVAL_MS = 2000;
 const MOVE_THRESHOLD_M = 12;
@@ -10,12 +11,12 @@ export function useDriverGps(enabled = true) {
   const { updateDriverLocation } = useBusStore();
   const lastSaveRef = useRef(0);
   const lastSavedPosRef = useRef(null);
-  const watchIdRef = useRef(null);
+  const watcherRef = useRef(null);
   const [permission, setPermission] = useState('unknown');
 
   const persistIfNeeded = useCallback(
-    (location, force = false) => {
-      const at = location.at ?? Date.now();
+    (loc, force = false) => {
+      const at = loc.at ?? Date.now();
       let shouldPersist = force;
 
       if (!shouldPersist && at - lastSaveRef.current >= SAVE_INTERVAL_MS) {
@@ -25,68 +26,40 @@ export function useDriverGps(enabled = true) {
       if (
         !shouldPersist &&
         lastSavedPosRef.current &&
-        location.lat != null &&
-        location.lng != null
+        loc.lat != null &&
+        loc.lng != null
       ) {
         const moved = distanceMetres(
           lastSavedPosRef.current.lat,
           lastSavedPosRef.current.lng,
-          location.lat,
-          location.lng
+          loc.lat,
+          loc.lng
         );
         if (moved >= MOVE_THRESHOLD_M) shouldPersist = true;
       }
 
       if (shouldPersist) {
         lastSaveRef.current = at;
-        if (location.lat != null && location.lng != null) {
-          lastSavedPosRef.current = { lat: location.lat, lng: location.lng };
+        if (loc.lat != null && loc.lng != null) {
+          lastSavedPosRef.current = { lat: loc.lat, lng: loc.lng };
         }
       }
 
-      updateDriverLocation(location, shouldPersist);
+      updateDriverLocation(loc, shouldPersist);
     },
     [updateDriverLocation]
   );
 
   const requestGps = useCallback(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setPermission('granted');
-        const { latitude: lat, longitude: lng, accuracy, heading, speed } = pos.coords;
-        persistIfNeeded(
-          {
-            lat,
-            lng,
-            accuracy: accuracy ?? null,
-            heading: heading ?? null,
-            speed: speed ?? null,
-            at: pos.timestamp,
-          },
-          true
-        );
-      },
-      (err) => {
-        setPermission(err.code === 1 ? 'denied' : 'error');
-        persistIfNeeded(
-          {
-            lat: null,
-            lng: null,
-            accuracy: null,
-            error: err.message || 'GPS unavailable',
-            at: Date.now(),
-          },
-          true
-        );
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-    );
-  }, [persistIfNeeded]);
+    watcherRef.current?.requestFix?.();
+  }, []);
 
   useEffect(() => {
-    if (!enabled) return undefined;
-    if (!navigator.geolocation) return undefined;
+    if (!enabled) {
+      watcherRef.current?.stop?.();
+      watcherRef.current = null;
+      return undefined;
+    }
 
     if (navigator.permissions?.query) {
       navigator.permissions
@@ -98,47 +71,19 @@ export function useDriverGps(enabled = true) {
         .catch(() => {});
     }
 
-    requestGps();
-
-    const onPosition = (pos) => {
-      setPermission('granted');
-      const { latitude: lat, longitude: lng, accuracy, heading, speed } = pos.coords;
-      persistIfNeeded({
-        lat,
-        lng,
-        accuracy: accuracy ?? null,
-        heading: heading ?? null,
-        speed: speed ?? null,
-        at: pos.timestamp,
-      });
-    };
-
-    const onError = (err) => {
-      setPermission(err.code === 1 ? 'denied' : 'error');
-      persistIfNeeded(
-        {
-          lat: null,
-          lng: null,
-          accuracy: null,
-          error: err.message || 'GPS unavailable',
-          at: Date.now(),
-        },
-        true
-      );
-    };
-
-    watchIdRef.current = navigator.geolocation.watchPosition(onPosition, onError, {
-      enableHighAccuracy: true,
-      maximumAge: 2000,
-      timeout: 20000,
+    const watcher = createPersistentGpsWatcher({
+      onFix: (fix) => persistIfNeeded(fix),
+      onError: (err) => persistIfNeeded(err, true),
+      onPermission: setPermission,
     });
+    watcherRef.current = watcher;
+    watcher.start();
 
     return () => {
-      if (watchIdRef.current != null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
+      watcher.stop();
+      watcherRef.current = null;
     };
-  }, [enabled, persistIfNeeded, requestGps]);
+  }, [enabled, persistIfNeeded]);
 
   return { permission, requestGps };
 }

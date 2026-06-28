@@ -27,3 +27,8 @@ export const locationLimiter = rateLimit({
   max: 120,
   keyFn: (req) => String(req.body?.driverId ?? req.ip),
 });
+export const driveLimiter = rateLimit({
+  windowMs: 60000,
+  max: 40,
+  keyFn: (req) => String(req.body?.driverId ?? req.ip),
+});

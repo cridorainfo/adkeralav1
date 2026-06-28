@@ -47,7 +47,21 @@ export async function sendDriverHeartbeat(driverId, cloudUrl) {
   return res.json().catch(() => ({ ok: false }));
 }
 
-export async function sendDriverLocation(driverId, location, cloudUrl) {
+function locationPayload(driverId, location) {
+  return {
+    driverId,
+    location: {
+      lat: location.lat,
+      lng: location.lng,
+      accuracy: location.accuracy ?? null,
+      heading: location.heading ?? null,
+      speed: location.speed ?? null,
+      at: location.at ?? Date.now(),
+    },
+  };
+}
+
+export async function sendDriverLocation(driverId, location, cloudUrl, { keepalive = false } = {}) {
   const url = cloudUrl ?? loadCloudUrl();
   if (!url || !driverId || location?.lat == null || location?.lng == null) {
     return { ok: false };
@@ -55,19 +69,21 @@ export async function sendDriverLocation(driverId, location, cloudUrl) {
   const res = await fetch(`${url}/api/driver/location`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      driverId,
-      location: {
-        lat: location.lat,
-        lng: location.lng,
-        accuracy: location.accuracy ?? null,
-        heading: location.heading ?? null,
-        speed: location.speed ?? null,
-        at: location.at ?? Date.now(),
-      },
-    }),
+    body: JSON.stringify(locationPayload(driverId, location)),
+    keepalive,
   });
   return res.json().catch(() => ({ ok: false }));
+}
+
+/** Last-resort push when tab closes or goes to background (works during page unload). */
+export function sendDriverLocationBeacon(driverId, location, cloudUrl) {
+  const url = cloudUrl ?? loadCloudUrl();
+  if (!url || !driverId || location?.lat == null || location?.lng == null) return false;
+  if (typeof navigator.sendBeacon !== 'function') return false;
+  const blob = new Blob([JSON.stringify(locationPayload(driverId, location))], {
+    type: 'application/json',
+  });
+  return navigator.sendBeacon(`${url}/api/driver/location`, blob);
 }
 
 export async function pairDriver(driverId, plateOrCode, cloudUrl) {
@@ -90,6 +106,17 @@ export async function unlinkDriver(driverId, cloudUrl) {
     body: JSON.stringify({ driverId }),
   });
   return res.json();
+}
+
+export async function sendDriverDrive(driverId, action, cloudUrl) {
+  const url = cloudUrl ?? loadCloudUrl();
+  if (!url || !driverId || !action) return { ok: false, error: 'Missing parameters' };
+  const res = await fetch(`${url}/api/driver/drive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ driverId, action }),
+  });
+  return res.json().catch(() => ({ ok: false, error: 'Network error' }));
 }
 
 export function controlUrlForSession(session) {

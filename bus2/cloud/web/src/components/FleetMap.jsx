@@ -6,6 +6,7 @@ import { busDisplayLabel } from './BusContext.jsx';
 
 const TRAIL_COLORS = ['#0b5c4a', '#2563eb', '#c2410c', '#7c3aed', '#b45309', '#be123c'];
 const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_API_KEY ?? '';
+const GPS_LIVE_MS = 45000;
 
 const MAP_STYLES = {
   standard: {
@@ -86,15 +87,36 @@ function busTrailColor(busId, index) {
   return TRAIL_COLORS[Math.abs(hash + index) % TRAIL_COLORS.length];
 }
 
-function createBusIcon(label, { selected, online }) {
+function createBusIcon(label, { selected, gpsLive }) {
   const short =
     String(label).length > 22 ? `${String(label).slice(0, 20)}…` : String(label);
+  const gpsClass = gpsLive ? 'gps-live' : 'gps-stale';
   return L.divIcon({
     className: 'fleet-bus-marker-wrap',
-    html: `<div class="fleet-bus-marker ${selected ? 'selected' : ''} ${online ? 'online' : 'offline'}"><span class="fleet-bus-marker-pin"></span><span class="fleet-bus-marker-label">${escapeHtml(short)}</span></div>`,
+    html: `<div class="fleet-bus-marker ${selected ? 'selected' : ''} ${gpsClass}"><span class="fleet-bus-marker-pin"></span><span class="fleet-bus-marker-label">${escapeHtml(short)}</span></div>`,
     iconSize: [1, 1],
     iconAnchor: [14, 14],
   });
+}
+
+export function isGpsLive(loc) {
+  if (!loc || loc.lat == null || loc.lng == null || loc.error) return false;
+  const at = loc.at ?? 0;
+  return Date.now() - at < GPS_LIVE_MS;
+}
+
+/** Current GPS fix, or last trail point when GPS dropped. */
+export function resolveBusMapPosition(bus, trails = {}) {
+  const loc = bus.telemetry?.driverLocation;
+  if (loc?.lat != null && loc?.lng != null) {
+    return { lat: loc.lat, lng: loc.lng, loc, gpsLive: isGpsLive(loc) };
+  }
+  const trail = trails[bus.busId] ?? [];
+  const last = trail[trail.length - 1];
+  if (last?.lat != null && last?.lng != null) {
+    return { lat: last.lat, lng: last.lng, loc: last, gpsLive: false };
+  }
+  return null;
 }
 
 function mergeTrailPoints(...lists) {
@@ -117,8 +139,8 @@ function FitBounds({ buses, trails }) {
   useEffect(() => {
     const points = [];
     for (const bus of buses ?? []) {
-      const loc = bus.telemetry?.driverLocation;
-      if (loc?.lat != null) points.push([loc.lat, loc.lng]);
+      const pos = resolveBusMapPosition(bus, trails);
+      if (pos) points.push([pos.lat, pos.lng]);
     }
     for (const trail of Object.values(trails ?? {})) {
       for (const p of trail ?? []) {
@@ -157,12 +179,7 @@ function useBusTrails(buses, selectedBusId) {
   const [tick, setTick] = useState(0);
 
   const busIds = useMemo(
-    () =>
-      (buses ?? [])
-        .filter((b) => b.telemetry?.driverLocation?.lat != null)
-        .map((b) => b.busId)
-        .sort()
-        .join(','),
+    () => (buses ?? []).map((b) => b.busId).sort().join(','),
     [buses]
   );
 
@@ -233,7 +250,16 @@ function useBusTrails(buses, selectedBusId) {
 export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
   const [mapStyle, setMapStyle] = useState('standard');
   const trails = useBusTrails(buses, selectedBusId);
-  const markers = (buses ?? []).filter((b) => b.telemetry?.driverLocation?.lat != null);
+  const mapMarkers = useMemo(
+    () =>
+      (buses ?? [])
+        .map((bus) => {
+          const pos = resolveBusMapPosition(bus, trails);
+          return pos ? { bus, ...pos } : null;
+        })
+        .filter(Boolean),
+    [buses, trails]
+  );
   const style = MAP_STYLES[mapStyle] ?? MAP_STYLES.standard;
 
   return (
@@ -250,7 +276,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
           />
         ))}
         <FitBounds buses={buses} trails={trails} />
-        {markers.map((bus, index) => {
+        {mapMarkers.map(({ bus, gpsLive }, index) => {
           const trail = trails[bus.busId] ?? [];
           const positions = trail.map((p) => [p.lat, p.lng]);
           const selected = bus.busId === selectedBusId;
@@ -261,26 +287,24 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
               key={`trail-${bus.busId}`}
               positions={positions}
               pathOptions={{
-                color,
+                color: gpsLive ? color : '#94a3b8',
                 weight: selected ? 5 : 3,
-                opacity: selected ? 0.9 : 0.55,
+                opacity: gpsLive ? (selected ? 0.9 : 0.55) : 0.35,
                 lineCap: 'round',
                 lineJoin: 'round',
               }}
             />
           );
         })}
-        {markers.map((bus) => {
-          const loc = bus.telemetry.driverLocation;
+        {mapMarkers.map(({ bus, lat, lng, loc, gpsLive }) => {
           const label = busDisplayLabel(bus);
           const selected = bus.busId === selectedBusId;
-          const online = isBusOnline(bus.updatedAt);
           return (
             <Marker
               key={bus.busId}
-              position={[loc.lat, loc.lng]}
-              icon={createBusIcon(label, { selected, online })}
-              zIndexOffset={selected ? 1000 : 0}
+              position={[lat, lng]}
+              icon={createBusIcon(label, { selected, gpsLive })}
+              zIndexOffset={selected ? 1000 : gpsLive ? 100 : 0}
               eventHandlers={{ click: () => onSelectBus?.(bus.busId) }}
             >
               <Popup>
@@ -288,10 +312,18 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
                 {selected ? ' (selected)' : ''}
                 <br />
                 <small>{bus.busId}</small>
-                {loc.at ? (
+                {!gpsLive && (
                   <>
                     <br />
-                    <small>GPS {new Date(loc.at).toLocaleString()}</small>
+                    <small>GPS unavailable — last known position</small>
+                  </>
+                )}
+                {loc?.at ? (
+                  <>
+                    <br />
+                    <small>
+                      {gpsLive ? 'GPS' : 'Last GPS'} {new Date(loc.at).toLocaleString()}
+                    </small>
                   </>
                 ) : null}
                 {(trails[bus.busId]?.length ?? 0) > 1 && (

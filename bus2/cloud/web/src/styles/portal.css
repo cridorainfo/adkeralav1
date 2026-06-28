@@ -995,20 +995,32 @@ button, input, select, textarea { font-family: inherit; }
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #64748b;
+  background: #94a3b8;
   border: 2px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
-.fleet-bus-marker.online .fleet-bus-marker-pin {
+.fleet-bus-marker.gps-live .fleet-bus-marker-pin {
   background: #16a34a;
+}
+
+.fleet-bus-marker.gps-stale .fleet-bus-marker-pin {
+  background: #94a3b8;
+  opacity: 0.9;
 }
 
 .fleet-bus-marker.selected .fleet-bus-marker-pin {
   width: 16px;
   height: 16px;
-  background: var(--kerala-gold);
   border-color: var(--kerala-green-dark);
+}
+
+.fleet-bus-marker.selected.gps-live .fleet-bus-marker-pin {
+  background: var(--kerala-gold);
+}
+
+.fleet-bus-marker.selected.gps-stale .fleet-bus-marker-pin {
+  background: #94a3b8;
 }
 
 .fleet-bus-marker-label {
@@ -1030,10 +1042,21 @@ button, input, select, textarea { font-family: inherit; }
   pointer-events: none;
 }
 
+.fleet-bus-marker.gps-stale .fleet-bus-marker-label {
+  color: #64748b;
+  border-color: rgba(100, 116, 139, 0.35);
+}
+
 .fleet-bus-marker.selected .fleet-bus-marker-label {
   background: var(--kerala-green);
   color: #fff;
   border-color: var(--kerala-green-dark);
+}
+
+.fleet-bus-marker.selected.gps-stale .fleet-bus-marker-label {
+  background: #64748b;
+  color: #fff;
+  border-color: #475569;
 }
 
 .display-mirror {
@@ -1136,6 +1159,10 @@ button, input, select, textarea { font-family: inherit; }
   padding: 1.75rem;
   box-shadow: 0 12px 40px rgba(11, 92, 74, 0.12);
   border: 1px solid rgba(11, 92, 74, 0.08);
+}
+
+.driver-connect-card-wide {
+  max-width: 480px;
 }
 
 .driver-connect-header {
@@ -1252,3 +1279,100 @@ button, input, select, textarea { font-family: inherit; }
   font-size: 0.72rem;
   color: #64748b;
 }
+
+.driver-remote-control {
+  background: #fff;
+  border: 1px solid rgba(11, 92, 74, 0.12);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.driver-remote-control-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  color: var(--kerala-green);
+}
+
+.driver-remote-control-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.78rem;
+}
+
+.driver-trip-status {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.driver-trip-status > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.driver-trip-label {
+  color: var(--kerala-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.driver-drive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.driver-remote-offline {
+  margin: 0.65rem 0 0;
+  color: #b45309;
+}
+
+.driver-drive-feedback {
+  margin: 0.5rem 0 0;
+}
+
+.driver-section-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--kerala-green);
+}
+
+.driver-connect-extras {
+  margin-bottom: 0;
+}
+
+.driver-pwa-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 127, 75, 0.35);
+  background: rgba(26, 127, 75, 0.08);
+}
+
+.driver-pwa-banner-text strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--kerala-green);
+}
+
+.driver-pwa-banner-text p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-muted, #64748b);
+}
+
+.driver-pwa-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+

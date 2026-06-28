@@ -22,7 +22,9 @@
   "dependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/geolocation": "^8.0.0",
     "@capacitor/preferences": "^8.0.1",
+    "@capawesome-team/capacitor-android-foreground-service": "^8.1.0",
     "electron-updater": "^6.8.9",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",

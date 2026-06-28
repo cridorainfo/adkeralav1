@@ -4,17 +4,21 @@ import {
   fetchDriverSession,
   loadCloudUrl,
   sendDriverLocation,
+  sendDriverLocationBeacon,
 } from '../lib/driverCloud';
 import { distanceMetres } from '../lib/geoUtils';
 
 const PUSH_INTERVAL_MS = 3000;
 const MOVE_THRESHOLD_M = 12;
 const LINK_CHECK_MS = 15000;
+const BACKGROUND_HEARTBEAT_MS = 8000;
 
 /** Push live GPS from driver phone to cloud fleet map (paired drivers only). */
 export function useDriverCloudLocation({ enabled = true, location, linked: linkedProp }) {
   const lastPushRef = useRef(0);
   const lastPosRef = useRef(null);
+  const lastLocRef = useRef(null);
+  const cloudUrlRef = useRef('');
   const driverIdRef = useRef('');
   const [linkedAuto, setLinkedAuto] = useState(false);
 
@@ -28,6 +32,7 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
       const driverId = await ensureDriverId();
       driverIdRef.current = driverId;
       const cloudUrl = await loadCloudUrl();
+      cloudUrlRef.current = cloudUrl ?? '';
       if (!cloudUrl || cancelled) return;
       try {
         const session = await fetchDriverSession(driverId, cloudUrl);
@@ -51,10 +56,17 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
     ensureDriverId().then((id) => {
       if (!cancelled) driverIdRef.current = id;
     });
+    loadCloudUrl().then((url) => {
+      if (!cancelled) cloudUrlRef.current = url ?? '';
+    });
     return () => {
       cancelled = true;
     };
   }, [enabled]);
+
+  useEffect(() => {
+    if (location?.lat != null) lastLocRef.current = location;
+  }, [location]);
 
   const pushIfNeeded = useCallback(
     async (loc, force = false) => {
@@ -76,12 +88,14 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
 
       const driverId = driverIdRef.current || (await ensureDriverId());
       driverIdRef.current = driverId;
-      const cloudUrl = await loadCloudUrl();
+      const cloudUrl = cloudUrlRef.current || (await loadCloudUrl());
+      cloudUrlRef.current = cloudUrl ?? '';
       if (!cloudUrl) return;
 
       lastPushRef.current = at;
       lastPosRef.current = { lat: loc.lat, lng: loc.lng };
-      await sendDriverLocation(driverId, loc, cloudUrl);
+      const keepalive = document.visibilityState === 'hidden';
+      await sendDriverLocation(driverId, loc, cloudUrl, { keepalive });
     },
     [enabled, linked]
   );
@@ -91,4 +105,40 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
     pushIfNeeded(location);
     return undefined;
   }, [enabled, linked, location, pushIfNeeded]);
+
+  useEffect(() => {
+    if (!enabled || !linked) return undefined;
+
+    const flushBackground = () => {
+      const loc = lastLocRef.current;
+      if (!loc?.lat) return;
+      pushIfNeeded({ ...loc, at: Date.now() }, true);
+    };
+
+    const onHide = () => {
+      const loc = lastLocRef.current;
+      if (!loc?.lat) return;
+      const id = driverIdRef.current;
+      const url = cloudUrlRef.current;
+      if (id && url) {
+        sendDriverLocationBeacon(id, loc, url);
+        sendDriverLocation(id, loc, url, { keepalive: true }).catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') onHide();
+      else flushBackground();
+    });
+    window.addEventListener('pagehide', onHide);
+
+    const heartbeat = setInterval(() => {
+      if (document.visibilityState === 'hidden') flushBackground();
+    }, BACKGROUND_HEARTBEAT_MS);
+
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      clearInterval(heartbeat);
+    };
+  }, [enabled, linked, pushIfNeeded]);
 }

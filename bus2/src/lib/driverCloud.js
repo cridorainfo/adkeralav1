@@ -95,7 +95,21 @@ export async function sendDriverHeartbeat(driverId, appVersion, cloudUrl) {
   return res.json().catch(() => ({ ok: false }));
 }
 
-export async function sendDriverLocation(driverId, location, cloudUrl) {
+function locationPayload(driverId, location) {
+  return {
+    driverId,
+    location: {
+      lat: location.lat,
+      lng: location.lng,
+      accuracy: location.accuracy ?? null,
+      heading: location.heading ?? null,
+      speed: location.speed ?? null,
+      at: location.at ?? Date.now(),
+    },
+  };
+}
+
+export async function sendDriverLocation(driverId, location, cloudUrl, { keepalive = false } = {}) {
   const url = cloudUrl ?? (await loadCloudUrl());
   if (!url || !driverId || location?.lat == null || location?.lng == null) {
     return { ok: false };
@@ -103,19 +117,20 @@ export async function sendDriverLocation(driverId, location, cloudUrl) {
   const res = await fetch(`${url}/api/driver/location`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      driverId,
-      location: {
-        lat: location.lat,
-        lng: location.lng,
-        accuracy: location.accuracy ?? null,
-        heading: location.heading ?? null,
-        speed: location.speed ?? null,
-        at: location.at ?? Date.now(),
-      },
-    }),
+    body: JSON.stringify(locationPayload(driverId, location)),
+    keepalive,
   });
   return res.json().catch(() => ({ ok: false }));
+}
+
+export function sendDriverLocationBeacon(driverId, location, cloudUrl) {
+  if (typeof navigator === 'undefined' || typeof navigator.sendBeacon !== 'function') return false;
+  const url = cloudUrl;
+  if (!url || !driverId || location?.lat == null || location?.lng == null) return false;
+  const blob = new Blob([JSON.stringify(locationPayload(driverId, location))], {
+    type: 'application/json',
+  });
+  return navigator.sendBeacon(`${url.replace(/\/$/, '')}/api/driver/location`, blob);
 }
 
 export async function pairDriver(driverId, plateOrCode, cloudUrl) {
