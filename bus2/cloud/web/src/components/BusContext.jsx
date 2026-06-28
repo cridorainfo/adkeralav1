@@ -29,7 +29,12 @@ export function SelectedBusProvider({ children, defaultBusId = 'bus-1' }) {
   useEffect(() => {
     refreshBuses();
     const t = setInterval(refreshBuses, 4000);
-    return () => clearInterval(t);
+    const onRefresh = () => refreshBuses();
+    window.addEventListener('adkerala-fleet-refresh', onRefresh);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('adkerala-fleet-refresh', onRefresh);
+    };
   }, [refreshBuses]);
 
   const targetBusIds = useMemo(() => {

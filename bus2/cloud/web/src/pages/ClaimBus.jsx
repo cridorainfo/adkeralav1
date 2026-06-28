@@ -32,6 +32,9 @@ export default function ClaimBus() {
       setMessage(`Linked bus ${json.busId}${json.profile?.plateDisplay ? ` (${json.profile.plateDisplay})` : ''}`);
       setCode('');
       setPlate('');
+      if (json.busId) {
+        window.dispatchEvent(new CustomEvent('adkerala-fleet-refresh'));
+      }
     } catch (err) {
       setMessage(err.message ?? 'Claim failed');
     } finally {

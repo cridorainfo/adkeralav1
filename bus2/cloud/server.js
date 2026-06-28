@@ -291,7 +291,7 @@ app.post('/api/buses/register', authFleet, async (req, res) => {
     res.status(400).json(result);
     return;
   }
-  res.json(result);
+  res.json({ ok: true, busId: result.busId ?? busId, profile: result.profile });
 });
 
 app.post('/api/fleet/enroll', enrollLimiter, async (req, res) => {

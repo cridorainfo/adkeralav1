@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
-import { loadStore, saveStore } from './store.js';
+import { loadStore, saveStore, upsertBusProfile } from './store.js';
 import { hashPassword, verifyPassword, sanitizeUser, SIGNUP_ROLES } from './auth.js';
-import { generatePairingCode } from './store.js';
 
 export async function bootstrapAdminIfNeeded() {
   const email = process.env.ADKERALA_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
@@ -110,29 +109,16 @@ export async function registerBus({ busId, plate, ownerId }) {
   const id = String(busId ?? '').trim();
   if (!id) return { ok: false, error: 'Bus ID required' };
 
-  const store = await loadStore();
-  if (!store.busProfiles) store.busProfiles = {};
-
-  const profile = store.busProfiles[id] ?? {
-    plate: '',
-    plateDisplay: '',
-    pairingCode: generatePairingCode(),
-    linkedDriverId: null,
-    linkedAt: null,
-    ownerId: null,
-  };
-
-  if (ownerId) profile.ownerId = ownerId;
+  const patch = {};
+  if (ownerId) patch.ownerId = ownerId;
   if (plate) {
     const normalized = String(plate).replace(/\s+/g, '').toUpperCase();
-    profile.plate = normalized;
-    profile.plateDisplay = String(plate).trim();
+    patch.plate = normalized;
+    patch.plateDisplay = String(plate).trim();
   }
-  if (!profile.pairingCode) profile.pairingCode = generatePairingCode();
 
-  store.busProfiles[id] = profile;
-  await saveStore();
-  return { ok: true, profile };
+  const profile = await upsertBusProfile(id, patch);
+  return { ok: true, busId: id, profile };
 }
 
 export async function listOwnedBusIds(userId) {

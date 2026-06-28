@@ -68,7 +68,7 @@ function OnboardingWizard({ allowRegister, claimHref }) {
 }
 
 export default function FleetPanel({ allowRegister = false, claimHref = null }) {
-  const { selectedBusId, setSelectedBusId } = useSelectedBus();
+  const { selectedBusId, setSelectedBusId, refreshBuses } = useSelectedBus();
   const [buses, setBuses] = useState([]);
   const [profile, setProfile] = useState(null);
   const [plate, setPlate] = useState('');
@@ -111,15 +111,25 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   }
 
   async function registerBus() {
+    if (!newBusId.trim()) {
+      setMessage('Enter a bus ID');
+      return;
+    }
     setMessage('');
-    await api('/api/buses/register', {
-      method: 'POST',
-      body: JSON.stringify({ busId: newBusId, plate: newPlate }),
-    });
-    setMessage(`Registered ${newBusId}`);
-    setNewBusId('');
-    setNewPlate('');
-    refresh();
+    try {
+      const json = await api('/api/buses/register', {
+        method: 'POST',
+        body: JSON.stringify({ busId: newBusId.trim(), plate: newPlate }),
+      });
+      setMessage(`Registered ${json.busId ?? newBusId}`);
+      setNewBusId('');
+      setNewPlate('');
+      setSelectedBusId(json.busId ?? newBusId.trim());
+      await refresh();
+      refreshBuses();
+    } catch (err) {
+      setMessage(err.message ?? 'Register failed');
+    }
   }
 
   async function unlinkDriver() {
@@ -165,7 +175,10 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
 
           {allowRegister && (
             <>
-              <h3>Register bus</h3>
+              <h3>Register bus (optional)</h3>
+              <p className="hint">
+                Pre-create a bus profile by ID. To link a real bus PC, use <strong>Claim bus</strong> with the 6-digit code from the display.
+              </p>
               <div className="inline-form">
                 <div className="form-group">
                   <label>Bus ID</label>

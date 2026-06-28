@@ -12,12 +12,14 @@ import ContentGaps from '../../components/ContentGaps.jsx';
 import UsersPanel from '../../components/UsersPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import ReleasesPanel from '../../components/ReleasesPanel.jsx';
+import ClaimBus from '../../pages/ClaimBus.jsx';
 import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
 import RouteCatalog from '../../components/RouteCatalog.jsx';
 import { useSelectedBus } from '../../components/BusContext.jsx';
 
 const NAV = [
   { to: '', label: 'Fleet', end: true },
+  { to: '/claim', label: 'Claim bus' },
   { to: '/live', label: 'Live bus' },
   { to: '/routes', label: 'Routes' },
   { to: '/stops', label: 'Stops' },
@@ -51,7 +53,8 @@ function AdminRoutes() {
     <>
       <AdminToolbar />
       <Routes>
-        <Route index element={<FleetPanel allowRegister />} />
+        <Route index element={<FleetPanel allowRegister claimHref="/admin/claim" />} />
+        <Route path="claim" element={<ClaimBus />} />
         <Route path="live" element={<LiveBusPanel />} />
         <Route path="routes" element={<RouteEditor />} />
         <Route path="stops" element={<StopsCatalog />} />
