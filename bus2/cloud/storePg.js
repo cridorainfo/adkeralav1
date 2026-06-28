@@ -96,10 +96,11 @@ export async function pgGetBus(busId) {
   const { rows } = await query('SELECT * FROM bus_telemetry WHERE bus_id = $1', [busId]);
   if (!rows.length) return null;
   const row = rows[0];
+  const parseJson = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
   return {
-    telemetry: row.telemetry,
-    state: row.state,
-    displaySnapshot: row.display_snapshot,
+    telemetry: parseJson(row.telemetry),
+    state: parseJson(row.state),
+    displaySnapshot: row.display_snapshot ? parseJson(row.display_snapshot) : null,
     updatedAt: Number(row.updated_at),
   };
 }

@@ -3,7 +3,7 @@ const path = require('path');
 const http = require('http');
 const { execSync } = require('child_process');
 const { pathToFileURL } = require('url');
-const { ensureFirewallOnce } = require('./firewall.cjs');
+const { ensureFirewallOnce, runElevatedFirewallBat } = require('./firewall.cjs');
 const { setupAutoUpdater } = require('./updater.cjs');
 const { applyPackagedDefaults } = require('./installEnv.cjs');
 
@@ -124,6 +124,31 @@ app.whenReady().then(async () => {
     await ensureFirewallOnce(PORT);
     await startServer();
     await waitForServer(`http://127.0.0.1:${PORT}/`);
+    if (busServer?.refreshLanProbe) {
+      await busServer.refreshLanProbe();
+    }
+    if (busServer?.urls && process.platform === 'win32') {
+      const lanOk = busServer.lanProbe?.ok;
+      if (!lanOk) {
+        const ip = busServer.urls.primaryIp;
+        const { response } = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Fix firewall (Administrator)', 'Continue'],
+          defaultId: 0,
+          cancelId: 1,
+          title: 'Driver phone cannot connect',
+          message: 'This PC blocks Wi‑Fi phones (localhost works, LAN IP does not).',
+          detail:
+            `Windows Firewall must allow port ${PORT}.\n\n` +
+            'Click "Fix firewall" and approve Administrator once.\n\n' +
+            `Then on the phone open:\nhttp://${ip}:${PORT}/control`,
+        });
+        if (response === 0) {
+          runElevatedFirewallBat();
+          if (busServer.refreshLanProbe) await busServer.refreshLanProbe();
+        }
+      }
+    }
     createWindow();
     if (app.isPackaged) {
       setupAutoUpdater();

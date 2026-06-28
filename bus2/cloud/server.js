@@ -317,7 +317,13 @@ app.post('/api/fleet/claim', authSession, requireAuth, requireRole('admin', 'bus
   try {
     const { fleetClaimCode, plate, installId } = req.body ?? {};
     const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? req.user.id;
-    const result = await claimBusByCode({ fleetClaimCode, plate, ownerId, installId });
+    const result = await claimBusByCode({
+      fleetClaimCode,
+      plate,
+      ownerId,
+      installId,
+      admin: req.user.role === 'admin',
+    });
     if (!result.ok) {
       res.status(400).json(result);
       return;

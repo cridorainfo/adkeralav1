@@ -101,7 +101,18 @@ async function ensureFirewallOnce(httpPort) {
   }
 
   const markerPath = path.join(getDataRoot(), MARKER);
-  if (fs.existsSync(markerPath)) return;
+  const skipped = fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf8').trim() === 'skipped';
+
+  if (skipped) {
+    console.warn(
+      'AdKerala: firewall ports blocked — driver phones cannot connect. Run allow-firewall.bat as Administrator.'
+    );
+    try {
+      fs.unlinkSync(markerPath);
+    } catch {
+      /* re-prompt so phones can connect after user allows firewall */
+    }
+  }
 
   const { response } = await dialog.showMessageBox({
     type: 'question',
@@ -133,4 +144,4 @@ async function ensureFirewallOnce(httpPort) {
   }
 }
 
-module.exports = { ensureFirewallOnce, hasPortRule };
+module.exports = { ensureFirewallOnce, hasPortRule, runElevatedFirewallBat };

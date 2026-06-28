@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes, createHash } from 'crypto';
-import { loadStore, saveStore, generatePairingCode, normalizePlate } from './store.js';
+import { loadStore, saveStore, generatePairingCode, normalizePlate, getBusProfile, getBus, enqueueCommand, findBusIdByPlate } from './store.js';
 import { usePostgres, query } from './db/pool.js';
 import { pgUpsertBusProfile } from './storePg.js';
 import { pgEnsureUser, pgOwnerId, isValidUuid } from './usersPg.js';
@@ -10,6 +10,7 @@ import {
   pgListPendingEnrollments,
   pgClaimEnrollment,
   pgGetDeviceForInstall,
+  pgRevokeDevicesForBus,
 } from './fleetPg.js';
 
 const ENROLL_TTL_MS = 30 * 60 * 1000;
@@ -25,6 +26,73 @@ function generateDeviceToken() {
 
 function generateBusId() {
   return `bus-${randomUUID().slice(0, 8)}`;
+}
+
+function collectMediaFromState(state = {}) {
+  const paths = new Set();
+  for (const map of [state.stopAudio, state.audioFragments]) {
+    if (!map) continue;
+    for (const entry of Object.values(map)) {
+      for (const lang of Object.values(entry ?? {})) {
+        const file = lang?.audioFile;
+        if (file && typeof file === 'string') paths.add(file);
+      }
+    }
+  }
+  for (const route of state.routes ?? []) {
+    for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
+      for (const lang of Object.values(stop?.audio ?? {})) {
+        const file = lang?.audioFile;
+        if (file && typeof file === 'string') paths.add(file);
+      }
+    }
+  }
+  for (const ad of [...(state.ads ?? []), ...(state.bannerAds ?? [])]) {
+    if (ad?.mediaFile) paths.add(ad.mediaFile);
+  }
+  return [...paths];
+}
+
+/** Build MERGE_STATE payload from last cloud snapshot (reinstall with same plate). */
+function buildRestorePayload(state) {
+  if (!state || typeof state !== 'object') return null;
+  const routes = Array.isArray(state.routes) ? state.routes : [];
+  if (!routes.length) return null;
+
+  return {
+    routes,
+    activeRouteId: state.activeRouteId ?? routes[0]?.id ?? null,
+    ads: state.ads ?? [],
+    bannerAds: state.bannerAds ?? [],
+    adSettings: state.adSettings,
+    bannerAdSettings: state.bannerAdSettings,
+    displaySettings: state.displaySettings,
+    announcementSettings: state.announcementSettings,
+    driveSettings: state.driveSettings,
+    stopAudio: state.stopAudio ?? {},
+    audioFragments: state.audioFragments ?? {},
+    busProfile: state.busProfile,
+    currentStopIndex: 0,
+    tripStarted: false,
+    tripEnded: false,
+    tripDeparted: false,
+    routeDirection: 'forward',
+    displayView: 'route',
+    savedAt: Date.now(),
+  };
+}
+
+async function queueBusStateRestore(busId) {
+  const row = await getBus(busId);
+  const payload = buildRestorePayload(row?.state);
+  if (!payload) return false;
+
+  const mediaFiles = collectMediaFromState(payload);
+  await enqueueCommand(busId, 'MERGE_STATE', {
+    ...payload,
+    ...(mediaFiles.length ? { mediaFiles } : {}),
+  });
+  return true;
 }
 
 function ensureFleetStore(store) {
@@ -155,7 +223,7 @@ export async function getEnrollmentStatus(installId) {
   };
 }
 
-export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId = null }) {
+export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId = null, admin = false }) {
   const code = String(fleetClaimCode ?? '').replace(/\D/g, '');
   if (code.length !== 6) return { ok: false, error: 'Enter the 6-digit fleet code from the bus display' };
   if (!ownerId) return { ok: false, error: 'Owner required' };
@@ -205,17 +273,46 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
     return { ok: false, error: 'Fleet code expired. Restart the bus PC to get a new code.' };
   }
 
-  const busId = generateBusId();
-  const deviceToken = generateDeviceToken();
   const pgOwner = pgOwnerId(ownerId);
+  const plateNorm = plate ? normalizePlate(plate) : '';
+  const plateDisplay = plate ? String(plate).trim() : '';
+  let busId = null;
+  let reconnected = false;
+  let existingProfile = null;
+
+  if (plateNorm) {
+    const existingBusId = await findBusIdByPlate(plateNorm);
+    if (existingBusId) {
+      existingProfile = await getBusProfile(existingBusId);
+      const existingOwner = existingProfile?.ownerId;
+      if (
+        !admin &&
+        existingOwner &&
+        pgOwner &&
+        existingOwner !== pgOwner &&
+        ownerId !== 'legacy-admin'
+      ) {
+        return { ok: false, error: 'This plate is already registered to another owner.' };
+      }
+      busId = existingBusId;
+      reconnected = true;
+      await revokeBusDevice(busId, { ownerId: pgOwner ?? ownerId, admin: true });
+    }
+  }
+
+  if (!busId) {
+    busId = generateBusId();
+  }
+
+  const deviceToken = generateDeviceToken();
   if (!store.busProfiles) store.busProfiles = {};
   store.busProfiles[busId] = {
-    plate: plate ? normalizePlate(plate) : '',
-    plateDisplay: plate ? String(plate).trim() : '',
-    pairingCode: generatePairingCode(),
-    linkedDriverId: null,
-    linkedAt: null,
-    ownerId: pgOwner ?? ownerId,
+    plate: plateNorm || existingProfile?.plate || '',
+    plateDisplay: plateDisplay || existingProfile?.plateDisplay || existingProfile?.plate || '',
+    pairingCode: existingProfile?.pairingCode || generatePairingCode(),
+    linkedDriverId: existingProfile?.linkedDriverId ?? null,
+    linkedAt: existingProfile?.linkedAt ?? null,
+    ownerId: existingProfile?.ownerId ?? pgOwner ?? ownerId,
   };
   const profile = store.busProfiles[busId];
 
@@ -235,8 +332,9 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
 
   if (usePostgres()) {
     await pgEnsureUser(ownerId);
-    await pgUpsertBusProfile(busId, { ...profile, ownerId: pgOwner });
+    await pgUpsertBusProfile(busId, { ...profile, ownerId: profile.ownerId });
     if (isValidUuid(targetInstallId)) {
+      await pgRevokeDevicesForBus(busId, { exceptInstallId: targetInstallId });
       await pgClaimEnrollment({
         installId: targetInstallId,
         fleetClaimCode: code,
@@ -250,12 +348,24 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
   }
 
   await saveStore();
+
+  let restored = false;
+  if (reconnected) {
+    try {
+      restored = await queueBusStateRestore(busId);
+    } catch (err) {
+      console.warn('Bus state restore after reconnect failed:', err.message);
+    }
+  }
+
   return {
     ok: true,
     busId,
     installId: targetInstallId,
     profile,
     deviceToken,
+    reconnected,
+    restored,
   };
 }
 
@@ -298,6 +408,10 @@ export async function revokeBusDevice(busId, { ownerId = null, admin = false } =
       device.tokenHash = null;
       device.pendingToken = null;
     }
+  }
+
+  if (usePostgres()) {
+    await pgRevokeDevicesForBus(busId);
   }
 
   await saveStore();

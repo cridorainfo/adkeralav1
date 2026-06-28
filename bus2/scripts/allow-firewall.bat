@@ -1,23 +1,20 @@
 @echo off
-:: One-time Administrator setup — permanent firewall rules for driver phone (HTTP + HTTPS).
+:: One-time Administrator setup — opens Windows Firewall for driver phones.
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "RULE_HTTP=AdKerala Bus Port 5174"
 set "RULE_HTTPS=AdKerala Bus Port 5175"
+set "PORT=5174"
 
 netsh advfirewall firewall delete rule name="%RULE_HTTP%" >nul 2>&1
-netsh advfirewall firewall add rule name="%RULE_HTTP%" dir=in action=allow protocol=TCP localport=5174 enable=yes profile=private,public,domain
+netsh advfirewall firewall add rule name="%RULE_HTTP%" dir=in action=allow protocol=TCP localport=5174 localip=any remoteip=any enable=yes profile=private,public,domain
 if errorlevel 1 (
-  echo Failed to add firewall rule for port 5174.
-  exit /b 1
+  echo netsh failed — trying PowerShell...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "New-NetFirewallRule -DisplayName '%RULE_HTTP%' -Direction Inbound -Protocol TCP -LocalPort 5174 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null"
 )
 
 netsh advfirewall firewall delete rule name="%RULE_HTTPS%" >nul 2>&1
-netsh advfirewall firewall add rule name="%RULE_HTTPS%" dir=in action=allow protocol=TCP localport=5175 enable=yes profile=private,public,domain
-if errorlevel 1 (
-  echo Failed to add firewall rule for port 5175.
-  exit /b 1
-)
+netsh advfirewall firewall add rule name="%RULE_HTTPS%" dir=in action=allow protocol=TCP localport=5175 localip=any remoteip=any enable=yes profile=private,public,domain
 
 if exist "%~dp0AdKeralaDisplay.exe" (
   set "APP=%~dp0AdKeralaDisplay.exe"
@@ -25,5 +22,18 @@ if exist "%~dp0AdKeralaDisplay.exe" (
   netsh advfirewall firewall add rule name="AdKerala Bus Display App" dir=in action=allow program="!APP!" enable=yes profile=private,public,domain
 )
 
-echo Firewall opened for ports 5174 (display) and 5175 (driver HTTPS).
-exit /b 0
+echo.
+echo Firewall rules added for ports 5174 and 5175.
+echo.
+echo Listening on port %PORT%:
+netstat -an | findstr ":%PORT% "
+echo.
+echo Test on THIS PC (replace IP with your Wi-Fi address from the bus screen):
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+  set "IP=%%a"
+  set "IP=!IP:~1!"
+  echo   http://!IP!:%PORT%/control
+)
+echo.
+echo If phone still fails after this, check phone is on the SAME Wi-Fi (not mobile data).
+pause

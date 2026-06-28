@@ -112,6 +112,22 @@ export async function pgGetDeviceForInstall(installId) {
   return rows[0] ?? null;
 }
 
+export async function pgRevokeDevicesForBus(busId, { exceptInstallId = null } = {}) {
+  const now = Date.now();
+  if (exceptInstallId) {
+    await query(
+      `UPDATE bus_devices SET revoked_at = $2, token_hash = NULL, pending_token = NULL
+       WHERE bus_id = $1 AND install_id <> $3::uuid`,
+      [busId, now, exceptInstallId]
+    );
+    return;
+  }
+  await query(
+    `UPDATE bus_devices SET revoked_at = $2, token_hash = NULL, pending_token = NULL WHERE bus_id = $1`,
+    [busId, now]
+  );
+}
+
 export function pgUsesFleet() {
   return usePostgres();
 }

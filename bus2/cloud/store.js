@@ -553,6 +553,21 @@ function findBusIdByPlateOrCode(store, plateOrCode) {
   return null;
 }
 
+/** Find an existing fleet bus by normalized plate (reinstall / new fleet code). */
+export async function findBusIdByPlate(plateInput) {
+  const asPlate = normalizePlate(plateInput);
+  if (!asPlate) return null;
+  if (usePostgres()) {
+    const { rows } = await query(
+      'SELECT bus_id FROM bus_profiles WHERE plate = $1 ORDER BY bus_id LIMIT 1',
+      [asPlate]
+    );
+    return rows[0]?.bus_id ?? null;
+  }
+  const store = await loadStore();
+  return findBusIdByPlateOrCode(store, asPlate);
+}
+
 export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state = {}) {
   if (usePostgres()) {
     const profile = (await pg.pgGetBusProfile(busId)) ?? {};

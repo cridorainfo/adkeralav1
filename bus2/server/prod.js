@@ -2,13 +2,13 @@ import { createServer as createHttpServer } from 'http';
 import express from 'express';
 import path from 'path';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
-import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
+import { buildNetworkUrls, logNetworkStartup, probeLanHttp, pickPrimaryLanAddress } from './networkInfo.js';
 import { startCloudSyncLoop } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
 import { startHttpsMirror, getHttpsPort } from './tls.js';
-import { ensureWindowsFirewallPorts } from './firewall.js';
+import { ensureWindowsFirewallPorts, checkFirewallPorts } from './firewall.js';
 
 /**
  * Production bus server — static SPA + same API as dev.js (no Vite).
@@ -39,12 +39,35 @@ export async function startBusServer(options = {}) {
   setupCloudProxy(app, dataRoot);
 
   let httpsInfo = { httpsEnabled: false, httpsPort: null };
+  let firewallStatus = { ok: true, open: [], closed: [] };
+  let lanProbe = { ok: null, error: null, ip: null };
 
-  app.get('/api/network', (_req, res) => {
-    const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+  const refreshLanProbe = async () => {
+    const ip = pickPrimaryLanAddress();
+    lanProbe.ip = ip;
+    if (ip === '127.0.0.1') {
+      lanProbe = { ok: false, error: 'no_wifi', ip };
+      return lanProbe;
+    }
+    const result = await probeLanHttp(ip, PORT);
+    lanProbe = { ...result, ip };
+    return lanProbe;
+  };
+
+  app.get('/api/network', async (_req, res) => {
+    if (lanProbe.ok === null) await refreshLanProbe();
+    const urls = buildNetworkUrls(PORT, HOST, {
+      ...httpsInfo,
+      lanReachable: lanProbe.ok,
+      lanProbeError: lanProbe.error ?? null,
+    });
     res.json({
       ok: true,
       ...urls,
+      firewallOk: firewallStatus.ok,
+      firewallClosedPorts: firewallStatus.closed,
+      lanReachable: lanProbe.ok,
+      lanProbeError: lanProbe.error ?? null,
       adminUrl: localAdmin?.adminUrl ?? null,
       adminKeyHint: localAdmin?.adminKey ?? null,
     });
@@ -82,7 +105,24 @@ export async function startBusServer(options = {}) {
   if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
     firewallPorts.push(httpsInfo.httpsPort);
   }
-  ensureWindowsFirewallPorts(firewallPorts);
+  ensureWindowsFirewallPorts(firewallPorts, process.env.ADKERALA_PACKAGED === '1' ? process.execPath : null);
+  firewallStatus = checkFirewallPorts(firewallPorts);
+  await refreshLanProbe();
+  const probeTimer = setInterval(() => {
+    refreshLanProbe().catch(() => {});
+  }, 15000);
+  if (!lanProbe.ok) {
+    console.warn(
+      `  LAN probe failed (${lanProbe.ip}:${PORT}) — phones cannot connect yet (${lanProbe.error ?? 'blocked'}).\n` +
+        `           Right-click allow-firewall.bat → Run as administrator.`
+    );
+  }
+  if (!firewallStatus.ok) {
+    console.warn(
+      `  Firewall: port(s) ${firewallStatus.closed.join(', ')} may block driver phones.\n` +
+        `           Right-click allow-firewall.bat → Run as administrator (in the app folder).`
+    );
+  }
   logNetworkStartup(urls, {
     production: true,
     adminUrl: localAdmin?.adminUrl,
@@ -90,13 +130,29 @@ export async function startBusServer(options = {}) {
   });
 
   const shutdown = () => {
+    clearInterval(probeTimer);
     stopCloud();
     localAdmin?.stop();
     httpsMirror.httpsServer?.close();
     httpServer.close();
   };
 
-  return { httpServer, httpsServer: httpsMirror.httpsServer, shutdown, port: PORT, host: HOST, root: dataRoot, appRoot, urls };
+  return {
+    httpServer,
+    httpsServer: httpsMirror.httpsServer,
+    shutdown,
+    port: PORT,
+    host: HOST,
+    root: dataRoot,
+    appRoot,
+    urls: buildNetworkUrls(PORT, HOST, {
+      ...httpsInfo,
+      lanReachable: lanProbe.ok,
+      lanProbeError: lanProbe.error ?? null,
+    }),
+    lanProbe,
+    refreshLanProbe,
+  };
 }
 
 const isDirectRun = process.argv[1]?.endsWith('prod.js');

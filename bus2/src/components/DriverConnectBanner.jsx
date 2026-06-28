@@ -2,10 +2,12 @@ import { useNetworkUrls } from '../hooks/useNetworkUrls';
 
 export default function DriverConnectBanner() {
   const network = useNetworkUrls();
-  const controlUrl = network?.controlUrlHttps ?? network?.controlUrl ?? null;
-  const controlUrlHttp = network?.controlUrlHttp ?? null;
+  const controlUrl = network?.controlUrlHttp ?? network?.controlUrl ?? null;
+  const controlUrlHttps = network?.controlUrlHttps ?? null;
+  const driverUrl = network?.driverUrl ?? null;
   const displayUrl = network?.displayUrl ?? null;
   const httpsEnabled = Boolean(network?.httpsEnabled);
+  const firewallBlocked = network?.firewallOk === false;
 
   if (!controlUrl) return null;
 
@@ -13,20 +15,29 @@ export default function DriverConnectBanner() {
     <div className="driver-connect-banner" role="status">
       {displayUrl && (
         <p>
-          <strong>Bus display:</strong>{' '}
-          <code>{displayUrl}</code>
+          <strong>Bus display:</strong> <code>{displayUrl}</code>
         </p>
       )}
       <p>
         <strong>Driver phone:</strong> open{' '}
         <a href={controlUrl} className="driver-connect-link">
           {controlUrl}
-        </a>
-        {httpsEnabled ? ' (HTTPS — required for GPS)' : ''} on the same Wi‑Fi.
+        </a>{' '}
+        on the same Wi‑Fi (use <strong>http</strong>, not https).
       </p>
-      {httpsEnabled && controlUrlHttp && controlUrlHttp !== controlUrl && (
+      {driverUrl && (
+        <p>
+          <strong>Pair:</strong> <code>{driverUrl}</code>
+        </p>
+      )}
+      {httpsEnabled && controlUrlHttps && (
         <p className="driver-connect-sub">
-          HTTP fallback: <code>{controlUrlHttp}</code> (GPS may not work on iPhone)
+          HTTPS (GPS only): <code>{controlUrlHttps}</code> — accept certificate warning once.
+        </p>
+      )}
+      {firewallBlocked && (
+        <p className="driver-connect-sub" style={{ color: '#b45309' }}>
+          Run <strong>allow-firewall.bat</strong> as Administrator if the phone cannot connect.
         </p>
       )}
     </div>

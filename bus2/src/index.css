@@ -272,7 +272,7 @@ textarea {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 8500;
+  z-index: 10050;
   padding: 0.5rem 1rem 1rem;
   pointer-events: none;
 }
@@ -3700,10 +3700,33 @@ textarea {
   margin-bottom: 0.35rem;
 }
 
-.driver-pairing-code-row {
+.driver-pairing-code-row,
+.driver-pairing-lan-row {
   display: flex;
   align-items: baseline;
   gap: 0.65rem;
+  margin-top: 0.35rem;
+}
+
+.driver-pairing-code-row:first-of-type,
+.driver-pairing-lan-row:first-of-type {
+  margin-top: 0;
+}
+
+.driver-pairing-lan {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.driver-pairing-banner--compact .driver-pairing-lan {
+  font-size: 0.85rem;
+}
+
+.driver-pairing-badge .driver-pairing-lan {
+  font-weight: 500;
+  opacity: 0.9;
 }
 
 .driver-pairing-label {
@@ -3728,6 +3751,13 @@ textarea {
   margin: 0.5rem 0 0;
   font-size: 0.72rem;
   opacity: 0.8;
+}
+
+.driver-pairing-firewall-warn {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  color: #fcd34d;
+  font-weight: 600;
 }
 
 .driver-pairing-badge {

@@ -5,16 +5,30 @@ export function useNetworkUrls() {
 
   useEffect(() => {
     let cancelled = false;
+    let timer = null;
 
-    fetch('/api/network')
-      .then((r) => r.json())
-      .then((json) => {
-        if (!cancelled && json.ok) setUrls(json);
-      })
-      .catch(() => {});
+    const load = () => {
+      fetch('/api/network')
+        .then((r) => r.json())
+        .then((json) => {
+          if (cancelled) return;
+          if (json.ok) {
+            setUrls(json);
+            if (timer) {
+              clearInterval(timer);
+              timer = null;
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
+    load();
+    timer = setInterval(load, 4000);
 
     return () => {
       cancelled = true;
+      if (timer) clearInterval(timer);
     };
   }, []);
 

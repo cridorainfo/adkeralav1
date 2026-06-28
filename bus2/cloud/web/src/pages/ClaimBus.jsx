@@ -29,7 +29,12 @@ export default function ClaimBus() {
         setMessage(json.error ?? 'Claim failed');
         return;
       }
-      setMessage(`Linked bus ${json.busId}${json.profile?.plateDisplay ? ` (${json.profile.plateDisplay})` : ''}`);
+      setMessage(
+        json.reconnected
+          ? `Re-linked bus ${json.busId}${json.profile?.plateDisplay ? ` (${json.profile.plateDisplay})` : ''}` +
+              (json.restored ? ' — routes & settings queued for sync.' : ' — claim with same plate as before.')
+          : `Linked bus ${json.busId}${json.profile?.plateDisplay ? ` (${json.profile.plateDisplay})` : ''}`
+      );
       setCode('');
       setPlate('');
       if (json.busId) {
@@ -47,6 +52,7 @@ export default function ClaimBus() {
       <h2>Claim bus</h2>
       <p className="hint">
         Enter the 6-digit fleet code shown on the bus PC display to add it to your fleet.
+        Use the <strong>same plate number</strong> as before to restore routes and settings after a reinstall.
       </p>
 
       {pending.length > 0 && (
