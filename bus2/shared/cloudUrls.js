@@ -13,12 +13,15 @@ export function normalizeCloudUrl(url) {
     .replace(/\/+$/, '');
 }
 
-/** Resolve cloud URL from env. Empty when unset (local dev stays offline). */
+/** Resolve cloud URL from env. Packaged bus PCs always get production when unset. */
 export function resolveCloudUrl(env = process.env) {
-  return (
+  const fromEnv =
     normalizeCloudUrl(env.ADKERALA_CLOUD_URL) ||
     normalizeCloudUrl(env.ADKERALA_PUBLIC_URL) ||
-    normalizeCloudUrl(env.VITE_CLOUD_URL) ||
-    ''
-  );
+    normalizeCloudUrl(env.VITE_CLOUD_URL);
+  if (fromEnv) return fromEnv;
+  if (env.ADKERALA_PACKAGED === '1') {
+    return DEFAULT_CLOUD_URLS[1] || DEFAULT_PUBLIC_CLOUD_URL;
+  }
+  return '';
 }

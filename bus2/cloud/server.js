@@ -314,14 +314,19 @@ app.get('/api/fleet/enroll/:installId/status', enrollLimiter, async (req, res) =
 });
 
 app.post('/api/fleet/claim', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
-  const { fleetClaimCode, plate, installId } = req.body ?? {};
-  const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? req.user.id;
-  const result = await claimBusByCode({ fleetClaimCode, plate, ownerId, installId });
-  if (!result.ok) {
-    res.status(400).json(result);
-    return;
+  try {
+    const { fleetClaimCode, plate, installId } = req.body ?? {};
+    const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? req.user.id;
+    const result = await claimBusByCode({ fleetClaimCode, plate, ownerId, installId });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('Fleet claim failed:', err);
+    res.status(500).json({ ok: false, error: err.message ?? 'Claim failed' });
   }
-  res.json(result);
 });
 
 app.get('/api/fleet/pending', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
@@ -1008,6 +1013,11 @@ async function start() {
     await warmUpStore();
     await bootstrapAdminIfNeeded();
     if (usePostgres()) {
+      const store = await loadStore();
+      const { pgUpsertUser } = await import('./usersPg.js');
+      for (const user of Object.values(store.users ?? {})) {
+        await pgUpsertUser(user);
+      }
       setInterval(() => {
         import('./storePg.js').then((m) => m.pgPruneCommands()).catch(() => {});
       }, 60 * 60 * 1000);

@@ -5,6 +5,7 @@ const { execSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { ensureFirewallOnce } = require('./firewall.cjs');
 const { setupAutoUpdater } = require('./updater.cjs');
+const { applyPackagedDefaults } = require('./installEnv.cjs');
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HTTPS_PORT = Number(process.env.ADKERALA_HTTPS_PORT ?? PORT + 1);
@@ -16,13 +17,7 @@ let busServer = null;
 
 function configureAppRoot() {
   if (app.isPackaged) {
-    process.env.ADKERALA_PACKAGED = '1';
-    process.env.ADKERALA_APP_PATH = app.getAppPath();
-    // Portable EXE extracts to temp — db must live beside the user's .exe file.
-    process.env.ADKERALA_DATA_ROOT =
-      process.env.PORTABLE_EXECUTABLE_DIR ||
-      path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe'));
-    process.env.ADKERALA_LOCAL_ADMIN = '0';
+    applyPackagedDefaults(app);
   } else {
     process.env.ADKERALA_ROOT = path.join(__dirname, '..');
   }

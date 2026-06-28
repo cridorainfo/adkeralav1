@@ -25,6 +25,8 @@ export async function bootstrapAdminIfNeeded() {
   };
   await saveStore();
   console.log(`Bootstrap admin created: ${email}`);
+  const { pgUpsertUser } = await import('./usersPg.js');
+  await pgUpsertUser(store.users[id]);
   return sanitizeUser(store.users[id]);
 }
 
@@ -71,6 +73,8 @@ export async function createUser({ email, password, name, role }) {
   };
   store.users[id] = user;
   await saveStore();
+  const { pgUpsertUser } = await import('./usersPg.js');
+  await pgUpsertUser(user);
   return { ok: true, user: sanitizeUser(user) };
 }
 
@@ -83,6 +87,8 @@ export async function authenticateUser(email, password) {
   if (!valid) {
     return { ok: false, error: 'Invalid email or password' };
   }
+  const { pgUpsertUser } = await import('./usersPg.js');
+  await pgUpsertUser(user);
   return { ok: true, user: sanitizeUser(user) };
 }
 

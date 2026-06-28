@@ -10,6 +10,7 @@ files:
   - dist/**/*
   - server/**/*
   - kiosk/**/*
+  - shared/**/*
   - src/store/**/*
   - src/lib/**/*
   - package.json
@@ -37,16 +38,28 @@ win:
         - x64
   artifactName: AdKeralaDisplay-${version}.${ext}
   signAndEditExecutable: false
+  electronLanguages:
+    - en-US
+    - ml
 
 nsis:
   oneClick: true
   perMachine: false
   allowToChangeInstallationDirectory: false
   deleteAppDataOnUninstall: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  runAfterFinish: true
+  shortcutName: AdKerala Display
+  include: build/installer.nsh
 
 extraFiles:
   - from: scripts/allow-firewall.bat
     to: allow-firewall.bat
+  - from: scripts/Install-AdKerala.bat
+    to: Install-AdKerala.bat
+  - from: scripts/install-portable.ps1
+    to: install-portable.ps1
 
 asar: true
 

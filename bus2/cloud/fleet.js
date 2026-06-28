@@ -2,6 +2,15 @@ import { randomUUID, randomBytes, createHash } from 'crypto';
 import { loadStore, saveStore, generatePairingCode, normalizePlate } from './store.js';
 import { usePostgres, query } from './db/pool.js';
 import { pgUpsertBusProfile } from './storePg.js';
+import { pgEnsureUser, pgOwnerId, isValidUuid } from './usersPg.js';
+import {
+  pgUpsertEnrollment,
+  pgGetEnrollment,
+  pgFindEnrollmentByCode,
+  pgListPendingEnrollments,
+  pgClaimEnrollment,
+  pgGetDeviceForInstall,
+} from './fleetPg.js';
 
 const ENROLL_TTL_MS = 30 * 60 * 1000;
 const ONLINE_THRESHOLD_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
@@ -59,6 +68,14 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
     appVersion,
     updatedAt: Date.now(),
   };
+  if (usePostgres() && isValidUuid(id)) {
+    await pgUpsertEnrollment({
+      installId: id,
+      fleetClaimCode: code,
+      expiresAt: store.fleetEnrollments[id].expiresAt,
+      appVersion,
+    });
+  }
   await saveStore();
   return { ok: true, installId: id, claimed: false, expiresAt: store.fleetEnrollments[id].expiresAt };
 }
@@ -66,6 +83,42 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
 export async function getEnrollmentStatus(installId) {
   const id = String(installId ?? '').trim();
   if (!id) return { ok: false, error: 'Missing installId' };
+
+  if (usePostgres() && isValidUuid(id)) {
+    const enrollment = await pgGetEnrollment(id);
+    if (!enrollment) {
+      return { ok: true, claimed: false, registered: false };
+    }
+
+    if (enrollment.expiresAt && Date.now() > enrollment.expiresAt && !enrollment.claimed) {
+      return { ok: true, claimed: false, registered: true, expired: true };
+    }
+
+    const device = await pgGetDeviceForInstall(id);
+    if (enrollment.claimed && device?.pending_token) {
+      const token = device.pending_token;
+      await query(
+        `UPDATE bus_devices SET pending_token = NULL, token_hash = $2 WHERE install_id = $1::uuid`,
+        [id, hashToken(token)]
+      );
+      return {
+        ok: true,
+        claimed: true,
+        busId: enrollment.busId,
+        deviceToken: token,
+      };
+    }
+
+    return {
+      ok: true,
+      claimed: Boolean(enrollment.claimed),
+      busId: enrollment.busId ?? null,
+      registered: true,
+      expired: Boolean(
+        enrollment.expiresAt && Date.now() > enrollment.expiresAt && !enrollment.claimed
+      ),
+    };
+  }
 
   const store = await loadStore();
   ensureFleetStore(store);
@@ -111,10 +164,18 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
   ensureFleetStore(store);
 
   let targetInstallId = installId ? String(installId).trim() : null;
+  let enrollment = null;
+
+  if (!targetInstallId && usePostgres()) {
+    enrollment = await pgFindEnrollmentByCode(code);
+    if (enrollment) targetInstallId = enrollment.installId;
+  }
+
   if (!targetInstallId) {
     for (const [id, row] of Object.entries(store.fleetEnrollments)) {
       if (row.fleetClaimCode === code && !row.claimed) {
         targetInstallId = id;
+        enrollment = row;
         break;
       }
     }
@@ -124,10 +185,19 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
     return { ok: false, error: 'Fleet code not found. Check the bus display and try again.' };
   }
 
-  const enrollment = store.fleetEnrollments[targetInstallId];
+  if (!enrollment) {
+    if (usePostgres() && isValidUuid(targetInstallId)) {
+      enrollment = await pgGetEnrollment(targetInstallId);
+    }
+    enrollment = enrollment ?? store.fleetEnrollments[targetInstallId];
+  }
   if (!enrollment || enrollment.fleetClaimCode !== code) {
     return { ok: false, error: 'Invalid fleet code' };
   }
+  if (!store.fleetEnrollments[targetInstallId]) {
+    store.fleetEnrollments[targetInstallId] = { ...enrollment, installId: targetInstallId };
+  }
+  enrollment = store.fleetEnrollments[targetInstallId];
   if (enrollment.claimed) {
     return { ok: false, error: 'This bus is already claimed' };
   }
@@ -137,6 +207,7 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
 
   const busId = generateBusId();
   const deviceToken = generateDeviceToken();
+  const pgOwner = pgOwnerId(ownerId);
   if (!store.busProfiles) store.busProfiles = {};
   store.busProfiles[busId] = {
     plate: plate ? normalizePlate(plate) : '',
@@ -144,13 +215,13 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
     pairingCode: generatePairingCode(),
     linkedDriverId: null,
     linkedAt: null,
-    ownerId,
+    ownerId: pgOwner ?? ownerId,
   };
   const profile = store.busProfiles[busId];
 
   enrollment.claimed = true;
   enrollment.busId = busId;
-  enrollment.ownerId = ownerId;
+  enrollment.ownerId = pgOwner ?? ownerId;
   enrollment.claimedAt = Date.now();
 
   store.busDevices[targetInstallId] = {
@@ -163,19 +234,19 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
   };
 
   if (usePostgres()) {
-    await pgUpsertBusProfile(busId, profile);
-    await query(
-      `INSERT INTO fleet_enrollments (install_id, fleet_claim_code, expires_at, claimed, bus_id, owner_id, updated_at, claimed_at)
-       VALUES ($1, $2, $3, TRUE, $4, $5, $6, $6)
-       ON CONFLICT (install_id) DO UPDATE SET claimed = TRUE, bus_id = EXCLUDED.bus_id, owner_id = EXCLUDED.owner_id, claimed_at = EXCLUDED.claimed_at`,
-      [targetInstallId, code, enrollment.expiresAt, busId, ownerId, Date.now()]
-    );
-    await query(
-      `INSERT INTO bus_devices (install_id, bus_id, token_hash, pending_token, claimed_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (install_id) DO UPDATE SET bus_id = EXCLUDED.bus_id, token_hash = EXCLUDED.token_hash, pending_token = EXCLUDED.pending_token`,
-      [targetInstallId, busId, hashToken(deviceToken), deviceToken, Date.now()]
-    );
+    await pgEnsureUser(ownerId);
+    await pgUpsertBusProfile(busId, { ...profile, ownerId: pgOwner });
+    if (isValidUuid(targetInstallId)) {
+      await pgClaimEnrollment({
+        installId: targetInstallId,
+        fleetClaimCode: code,
+        busId,
+        ownerId: pgOwner,
+        expiresAt: enrollment.expiresAt,
+        deviceTokenHash: hashToken(deviceToken),
+        pendingToken: deviceToken,
+      });
+    }
   }
 
   await saveStore();
@@ -189,6 +260,11 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
 }
 
 export async function listPendingEnrollments({ ownerId = null } = {}) {
+  if (usePostgres()) {
+    const rows = await pgListPendingEnrollments();
+    return rows.filter((row) => !ownerId || !row.ownerId || row.ownerId === ownerId);
+  }
+
   const store = await loadStore();
   ensureFleetStore(store);
   const rows = [];

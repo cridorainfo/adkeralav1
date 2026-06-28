@@ -18,7 +18,7 @@ export default function FleetSetupOverlay() {
         return;
       }
       if (!json.cloudUrl) {
-        setStatus('Cloud URL not configured. Set ADKERALA_CLOUD_URL or rebuild with VITE_CLOUD_URL.');
+        setStatus('Connecting to cloud… restart the app if this persists.');
         return;
       }
       setStatus('Waiting for owner to claim this bus in the cloud portal.');
@@ -33,7 +33,18 @@ export default function FleetSetupOverlay() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  if (!config || config.claimed) return null;
+  if (config === null) {
+    return (
+      <div className="fleet-setup-overlay" role="dialog" aria-labelledby="fleet-setup-title">
+        <div className="fleet-setup-card">
+          <h1 id="fleet-setup-title">{APP_NAME} — Fleet setup</h1>
+          <p className="fleet-setup-status" role="status">{status}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (config.claimed) return null;
 
   const claimBase = config.publicUrl || config.cloudUrl;
   const claimUrl = claimBase
