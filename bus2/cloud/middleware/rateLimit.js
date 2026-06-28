@@ -22,3 +22,8 @@ export function rateLimit({ windowMs = 60000, max = 30, keyFn = (req) => req.ip 
 export const enrollLimiter = rateLimit({ windowMs: 60000, max: 60 });
 export const pairLimiter = rateLimit({ windowMs: 60000, max: 5 });
 export const authLimiter = rateLimit({ windowMs: 900000, max: 20 });
+export const locationLimiter = rateLimit({
+  windowMs: 60000,
+  max: 120,
+  keyFn: (req) => String(req.body?.driverId ?? req.ip),
+});

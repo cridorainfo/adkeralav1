@@ -58,6 +58,7 @@ function OnboardingWizard({ allowRegister, claimHref }) {
         </li>
         <li>
           <strong>Pair driver</strong> — driver scans QR on the bus display and enters the <strong>admin OTP</strong>.
+          Linked drivers send live GPS to the fleet map automatically.
         </li>
         <li>
           <strong>Push content</strong> — use <strong>Ads</strong> tab with a bus selected to push ads to that bus only.

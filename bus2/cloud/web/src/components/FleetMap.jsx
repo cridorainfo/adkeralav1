@@ -49,6 +49,12 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
               <Popup>
                 <strong>{bus.busId}</strong>
                 {bus.busId === selectedBusId ? ' (selected)' : ''}
+                {loc.at ? (
+                  <>
+                    <br />
+                    <small>GPS {new Date(loc.at).toLocaleTimeString()}</small>
+                  </>
+                ) : null}
               </Popup>
             </Marker>
           );

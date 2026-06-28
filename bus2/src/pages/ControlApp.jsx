@@ -4,6 +4,7 @@ import { useEspSerialControl } from '../hooks/useEspSerialControl';
 import { useAppViewHotkeys } from '../hooks/useAppViewHotkeys';
 import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useDriverGps } from '../hooks/useDriverGps';
+import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
 import { useGpsAutoDrive } from '../hooks/useGpsAutoDrive';
 import ControlScreen from './ControlScreen';
 import DriverControlGate from '../components/DriverControlGate';
@@ -22,6 +23,7 @@ function ControlAppInner() {
 
   useRemoteStateSync(true);
   const { permission: gpsPermission, requestGps } = useDriverGps(true);
+  useDriverCloudLocation({ enabled: true, location: state.driverLocation });
   const { status: gpsDriveStatus, isGpsMode } = useGpsAutoDrive({
     enabled: true,
     state,

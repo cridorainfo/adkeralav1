@@ -12,6 +12,9 @@ import {
   unlinkDriver,
 } from '../lib/driverCloud';
 import { downloadAndInstallApk } from '../lib/driverUpdate';
+import { useBusStore } from '../hooks/useBusStore';
+import { useDriverGps } from '../hooks/useDriverGps';
+import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,6 +31,11 @@ export default function DriverConnect() {
   const [needsCloudUrl, setNeedsCloudUrl] = useState(false);
   const [ready, setReady] = useState(false);
   const [driverUpdate, setDriverUpdate] = useState(null);
+  const { state } = useBusStore();
+  const linked = Boolean(session?.linked);
+
+  useDriverGps(linked);
+  useDriverCloudLocation({ enabled: linked, location: state.driverLocation, linked });
 
   useEffect(() => {
     let cancelled = false;
@@ -163,7 +171,6 @@ export default function DriverConnect() {
     else setStatus('Bus LAN address not available yet. Stay on bus Wi‑Fi.');
   };
 
-  const linked = Boolean(session?.linked);
   const controlReady = linked && session?.lanIp;
 
   return (
@@ -242,6 +249,7 @@ export default function DriverConnect() {
                 Unlink
               </button>
             </div>
+            <p className="driver-connect-foot">Live GPS is sent to the fleet map while this app is open.</p>
           </div>
         ) : (
           <form className="driver-connect-section" onSubmit={handlePair}>

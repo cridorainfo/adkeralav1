@@ -10,6 +10,41 @@ export async function pgWarmUp() {
   /* migrations run separately */
 }
 
+export async function pgPatchDriverLocation(busId, driverLocation) {
+  const now = Date.now();
+  const lat = driverLocation.lat ?? null;
+  const lng = driverLocation.lng ?? null;
+  const existing = await pgGetBus(busId);
+  const existingLoc = existing?.telemetry?.driverLocation;
+  if ((existingLoc?.at ?? 0) > (driverLocation.at ?? 0) && existingLoc?.lat != null) {
+    return existing;
+  }
+
+  const telemetry = { ...(existing?.telemetry ?? {}), driverLocation };
+
+  if (existing) {
+    await query(
+      `UPDATE bus_telemetry SET telemetry = $2, lat = $3, lng = $4, updated_at = $5 WHERE bus_id = $1`,
+      [busId, JSON.stringify(telemetry), lat, lng, now]
+    );
+  } else {
+    await query(
+      `INSERT INTO bus_telemetry (bus_id, telemetry, state, lat, lng, updated_at, full_state_at)
+       VALUES ($1, $2, '{}', $3, $4, $5, 0)`,
+      [busId, JSON.stringify(telemetry), lat, lng, now]
+    );
+  }
+
+  if (lat != null && lng != null) {
+    await query(
+      `INSERT INTO bus_location_history (bus_id, lat, lng, recorded_at) VALUES ($1, $2, $3, $4)`,
+      [busId, lat, lng, now]
+    );
+  }
+
+  return pgGetBus(busId);
+}
+
 export async function pgUpsertBusTelemetry(busId, { telemetry, state, displaySnapshot }) {
   const now = Date.now();
   const lat = telemetry?.driverLocation?.lat ?? null;

@@ -122,24 +122,123 @@ async function pgGetBusCompat(busId) {
   return pg.pgGetBus(busId);
 }
 
+/** Keep the fresher driverLocation when bus PC and driver phone both push GPS. */
+export function mergeDriverLocationTelemetry(incomingTelemetry = {}, existingTelemetry = {}) {
+  if (!incomingTelemetry || typeof incomingTelemetry !== 'object') return incomingTelemetry ?? {};
+  const incoming = incomingTelemetry.driverLocation;
+  const existing = existingTelemetry?.driverLocation;
+  if (!existing?.lat || incoming?.lat == null) return incomingTelemetry;
+  const incomingAt = incoming?.at ?? 0;
+  const existingAt = existing?.at ?? 0;
+  if (existingAt > incomingAt) {
+    return { ...incomingTelemetry, driverLocation: existing };
+  }
+  return incomingTelemetry;
+}
+
 export async function upsertBusTelemetry(busId, { telemetry, state, displaySnapshot } = {}) {
   if (usePostgres()) {
-    await pg.pgUpsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
-    await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
+    const existing = await pg.pgGetBus(busId);
+    const mergedTelemetry = mergeDriverLocationTelemetry(
+      telemetry ?? {},
+      existing?.telemetry ?? {}
+    );
+    await pg.pgUpsertBusTelemetry(busId, {
+      telemetry: mergedTelemetry,
+      state,
+      displaySnapshot,
+    });
+    await syncBusProfileFromTelemetry(busId, mergedTelemetry, state ?? {});
     await syncBusAdsCatalogFromTelemetry(busId, state ?? {});
     return pgGetBusCompat(busId);
   }
   const store = await loadStore();
+  const existingTelemetry = store.buses[busId]?.telemetry ?? {};
+  const mergedTelemetry = mergeDriverLocationTelemetry(telemetry ?? {}, existingTelemetry);
   store.buses[busId] = {
-    telemetry: telemetry ?? {},
+    telemetry: mergedTelemetry,
     state: state ?? {},
     displaySnapshot: displaySnapshot ?? null,
     updatedAt: Date.now(),
   };
-  await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
+  await syncBusProfileFromTelemetry(busId, mergedTelemetry, state ?? {});
   await syncBusAdsCatalogFromTelemetry(busId, state ?? {});
   await saveStore();
   return store.buses[busId];
+}
+
+async function resolveLinkedBusId(driverId) {
+  const store = await loadStore();
+  const fromDriver = store.drivers?.[driverId]?.linkedBusId;
+  if (fromDriver) return fromDriver;
+
+  if (usePostgres()) {
+    const { rows: profileRows } = await query(
+      'SELECT bus_id FROM bus_profiles WHERE linked_driver_id = $1 LIMIT 1',
+      [driverId]
+    );
+    if (profileRows[0]?.bus_id) return profileRows[0].bus_id;
+
+    const { rows: driverRows } = await query(
+      'SELECT linked_bus_id FROM drivers WHERE driver_id = $1 LIMIT 1',
+      [driverId]
+    );
+    if (driverRows[0]?.linked_bus_id) return driverRows[0].linked_bus_id;
+  }
+
+  for (const [busId, profile] of Object.entries(store.busProfiles ?? {})) {
+    if (profile?.linkedDriverId === driverId) return busId;
+  }
+  return null;
+}
+
+/** Live GPS from a paired driver phone — updates fleet map without waiting for bus PC sync. */
+export async function updateDriverLocation(driverId, location = {}) {
+  const id = String(driverId ?? '').trim();
+  if (!id) return { ok: false, error: 'Missing driverId' };
+
+  const lat = location.lat;
+  const lng = location.lng;
+  if (lat == null || lng == null) {
+    return { ok: false, error: 'Missing lat/lng' };
+  }
+
+  const busId = await resolveLinkedBusId(id);
+  if (!busId) {
+    return { ok: false, error: 'Driver not linked to a bus' };
+  }
+
+  const at = Number(location.at) || Date.now();
+  const driverLocation = {
+    lat,
+    lng,
+    accuracy: location.accuracy ?? null,
+    heading: location.heading ?? null,
+    speed: location.speed ?? null,
+    at,
+    source: 'phone',
+  };
+
+  if (usePostgres()) {
+    const row = await pg.pgPatchDriverLocation(busId, driverLocation);
+    return { ok: true, busId, updatedAt: row?.updatedAt ?? Date.now() };
+  }
+
+  const store = await loadStore();
+  const busRow = store.buses[busId] ?? { telemetry: {}, state: {}, updatedAt: 0 };
+  const existing = busRow.telemetry?.driverLocation;
+  if ((existing?.at ?? 0) > at && existing?.lat != null) {
+    return { ok: true, busId, skipped: true, updatedAt: busRow.updatedAt ?? 0 };
+  }
+
+  const telemetry = { ...busRow.telemetry, driverLocation };
+  store.buses[busId] = {
+    ...busRow,
+    telemetry,
+    updatedAt: Date.now(),
+  };
+  await saveStore();
+  return { ok: true, busId, updatedAt: store.buses[busId].updatedAt };
 }
 
 export async function getBus(busId) {

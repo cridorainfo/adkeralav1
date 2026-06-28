@@ -258,7 +258,15 @@ export function setupDbApi(app, root) {
       const current = (await readInfoFile(root)) ?? {};
       const { mergeIncomingState } = await import('./stateMerge.js');
       const merged = mergeIncomingState(current, req.body ?? {});
+      const gpsChanged =
+        JSON.stringify(current.driverLocation ?? null) !== JSON.stringify(merged.driverLocation ?? null) &&
+        merged.driverLocation?.lat != null;
       await writeInfoFileSerialized(root, merged);
+      if (gpsChanged) {
+        import('./cloudSync.js')
+          .then(({ runCloudSync }) => runCloudSync(root))
+          .catch(() => {});
+      }
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });

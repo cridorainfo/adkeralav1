@@ -43,6 +43,7 @@ import {
   unlinkDriverByBusId,
   getDriverSession,
   deleteBus,
+  updateDriverLocation,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -93,7 +94,7 @@ import {
   findBusIdByDeviceToken,
   withMediaFiles,
 } from './fleet.js';
-import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.js';
+import { enrollLimiter, pairLimiter, authLimiter, locationLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
@@ -736,6 +737,16 @@ app.post('/api/driver/heartbeat', async (req, res) => {
     );
   }
   res.json({ ok: true });
+});
+
+app.post('/api/driver/location', locationLimiter, async (req, res) => {
+  const { driverId, location } = req.body ?? {};
+  const result = await updateDriverLocation(String(driverId ?? '').trim(), location ?? {});
+  if (!result.ok) {
+    res.status(result.error === 'Driver not linked to a bus' ? 403 : 400).json(result);
+    return;
+  }
+  res.json(result);
 });
 
 app.post('/api/driver/unlink', async (req, res) => {
