@@ -117,8 +117,47 @@ export function applyCloudCommands(current, commands) {
         let activeRouteId = next.activeRouteId;
         if (activeRouteId === routeId) {
           activeRouteId = routes[0]?.id ?? null;
+          next.tripStarted = false;
+          next.tripEnded = false;
+          next.tripDeparted = false;
+          next.currentStopIndex = 0;
         }
+        const assignedIds = (next.busProfile?.assignedRouteIds ?? []).filter((id) => id !== routeId);
+        next.busProfile = { ...(next.busProfile ?? {}), assignedRouteIds: assignedIds };
         next = { ...next, routes, activeRouteId, savedAt: payload.savedAt ?? Date.now() };
+        break;
+      }
+
+      case 'SYNC_ASSIGNED_ROUTES': {
+        const payloadRoutes = (payload.routes ?? [])
+          .map((r) => normalizeRouteMiddleStops(r))
+          .filter((r) => r?.id);
+        const assignedIds = payload.assignedRouteIds ?? payloadRoutes.map((r) => r.id);
+        const assignedSet = new Set(assignedIds);
+        const mergedRoutes = payloadRoutes.map((r) => {
+          const existing = (next.routes ?? []).find((x) => x.id === r.id);
+          return {
+            ...(existing ? mergeRouteById(existing, r) : r),
+            sharedFromCloud: true,
+            cloudRouteId: r.id,
+          };
+        });
+        next.routes = dedupeRoutes(mergedRoutes);
+        if (payload.removeLocalOrphans !== false) {
+          /* drop local demo / orphan routes not assigned from server */
+        }
+        if (next.activeRouteId && !assignedSet.has(next.activeRouteId)) {
+          next.activeRouteId = next.routes[0]?.id ?? null;
+          next.tripStarted = false;
+          next.tripEnded = false;
+          next.tripDeparted = false;
+          next.currentStopIndex = 0;
+        }
+        next.busProfile = {
+          ...(next.busProfile ?? {}),
+          assignedRouteIds: [...assignedSet],
+        };
+        next.savedAt = payload.savedAt ?? Date.now();
         break;
       }
 

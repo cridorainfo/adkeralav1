@@ -45,7 +45,10 @@ import {
   deleteBus,
   updateDriverLocation,
   getLocationHistory,
-  queueDriverDriveAction,
+  addBusAssignedRoute,
+  removeBusAssignedRoute,
+  getBusAssignedRouteIds,
+  hasPendingCommandType,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -539,6 +542,54 @@ async function enrichRouteForClient(route) {
   return attachStopAudioToRoute(merged, catalog.stopAudio ?? {});
 }
 
+const routeSyncDebounce = new Map();
+const ROUTE_SYNC_DEBOUNCE_MS = 30000;
+
+async function buildAssignedRoutesPayload(busId) {
+  const assignedIds = await getBusAssignedRouteIds(busId);
+  const routes = [];
+  for (const id of assignedIds) {
+    const route = await getRouteById(id);
+    if (!route) continue;
+    const enriched = await enrichRouteForClient(route);
+    routes.push({
+      id: enriched.id,
+      name: enriched.name,
+      startStop: enriched.startStop,
+      endStop: enriched.endStop,
+      stops: enriched.stops ?? [],
+      sharedFromCloud: true,
+      cloudRouteId: enriched.id,
+    });
+  }
+  return { assignedIds, routes };
+}
+
+async function maybeEnqueueAssignedRouteSync(busId, busState = {}) {
+  if (!busId) return null;
+  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  const busRoutes = busState?.routes ?? [];
+  const busIds = busRoutes.map((r) => r.id);
+  const localOrphans = busRoutes.filter((r) => !r.sharedFromCloud && !r.cloudRouteId);
+  const assignedSet = new Set(assignedIds);
+  const extraOnBus = busIds.filter((id) => !assignedSet.has(id));
+  const missingOnBus = assignedIds.filter((id) => !busIds.includes(id));
+
+  if (!localOrphans.length && !extraOnBus.length && !missingOnBus.length) return null;
+
+  const last = routeSyncDebounce.get(busId) ?? 0;
+  if (Date.now() - last < ROUTE_SYNC_DEBOUNCE_MS) return null;
+  if (await hasPendingCommandType(busId, 'SYNC_ASSIGNED_ROUTES')) return null;
+
+  routeSyncDebounce.set(busId, Date.now());
+  return enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
+    routes,
+    assignedRouteIds: assignedIds,
+    removeLocalOrphans: true,
+    savedAt: Date.now(),
+  });
+}
+
 /** Queue global phrase clips + stop audio from catalog for the bus route. */
 async function queueAudioBundleForBus(busId, { routeId = null } = {}) {
   const queued = [];
@@ -641,6 +692,30 @@ app.get('/api/buses', authSession, requireAuth, async (req, res) => {
   const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
   const buses = await listBuses({ ownerId });
   res.json({ ok: true, buses });
+});
+
+app.get('/api/buses/:busId/routes', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const busId = req.params.busId;
+  const row = await getBus(busId);
+  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  const activeRouteId =
+    row?.state?.activeRouteId ?? row?.telemetry?.activeRouteId ?? null;
+  const activeRoute = routes.find((r) => r.id === activeRouteId) ?? null;
+  res.json({
+    ok: true,
+    busId,
+    assignedRouteIds: assignedIds,
+    routes,
+    activeRouteId,
+    activeRoute,
+    trip: {
+      tripStarted: Boolean(row?.state?.tripStarted ?? row?.telemetry?.tripStarted),
+      tripEnded: Boolean(row?.state?.tripEnded ?? row?.telemetry?.tripEnded),
+      routeDirection: row?.state?.routeDirection ?? row?.telemetry?.routeDirection ?? 'forward',
+      currentStopIndex: row?.state?.currentStopIndex ?? row?.telemetry?.currentStopIndex ?? 0,
+    },
+  });
 });
 
 app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
@@ -809,6 +884,7 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   const busId = req.params.busId;
   const { telemetry, state, displaySnapshot } = req.body ?? {};
   await upsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
+  await maybeEnqueueAssignedRouteSync(busId, state ?? {});
   res.json({ ok: true });
 });
 
@@ -934,6 +1010,7 @@ app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
     activeRouteId: route.id,
     savedAt: Date.now(),
   });
+  await addBusAssignedRoute(req.params.busId, route.id);
   const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
   res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
@@ -956,6 +1033,7 @@ app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
     },
     savedAt: Date.now(),
   });
+  await addBusAssignedRoute(req.params.busId, route.id);
   const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
   res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
@@ -1093,10 +1171,12 @@ app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
   }
   const targetBusIds = req.body?.targetBusIds ?? [];
   for (const busId of targetBusIds) {
+    await removeBusAssignedRoute(busId, req.params.routeId);
     await enqueueCommand(busId, 'DELETE_ROUTE', {
       routeId: req.params.routeId,
       savedAt: Date.now(),
     });
+    await maybeEnqueueAssignedRouteSync(busId, (await getBus(busId))?.state ?? {});
   }
   res.json({ ok: true, deleted: req.params.routeId, queuedFor: targetBusIds });
 });

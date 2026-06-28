@@ -227,6 +227,12 @@ export async function pgGetBusProfile(busId) {
   const { rows } = await query('SELECT * FROM bus_profiles WHERE bus_id = $1', [busId]);
   if (!rows.length) return null;
   const row = rows[0];
+  const assignedRaw = row.assigned_route_ids;
+  const assignedRouteIds = Array.isArray(assignedRaw)
+    ? assignedRaw
+    : typeof assignedRaw === 'string'
+      ? JSON.parse(assignedRaw)
+      : [];
   return {
     plate: row.plate,
     plateDisplay: row.plate_display,
@@ -235,6 +241,7 @@ export async function pgGetBusProfile(busId) {
     linkedDriverId: row.linked_driver_id,
     linkedAt: row.linked_at ? Number(row.linked_at) : null,
     ownerId: row.owner_id,
+    assignedRouteIds,
   };
 }
 
@@ -248,13 +255,17 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
     linkedDriverId: null,
     linkedAt: null,
     ownerId: null,
+    assignedRouteIds: [],
     ...existing,
     ...patch,
   };
+  if (patch.assignedRouteIds) {
+    profile.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
+  }
 
   await query(
-    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
      ON CONFLICT (bus_id) DO UPDATE SET
        plate = EXCLUDED.plate,
        plate_display = EXCLUDED.plate_display,
@@ -262,7 +273,8 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
        pairing_code = EXCLUDED.pairing_code,
        linked_driver_id = EXCLUDED.linked_driver_id,
        linked_at = EXCLUDED.linked_at,
-       owner_id = COALESCE(EXCLUDED.owner_id, bus_profiles.owner_id)`,
+       owner_id = COALESCE(EXCLUDED.owner_id, bus_profiles.owner_id),
+       assigned_route_ids = EXCLUDED.assigned_route_ids`,
     [
       busId,
       profile.plate ?? '',
@@ -272,6 +284,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
       profile.linkedDriverId,
       profile.linkedAt,
       profile.ownerId,
+      JSON.stringify(profile.assignedRouteIds ?? []),
     ]
   );
   return profile;
@@ -281,6 +294,14 @@ export async function pgDeleteBus(busId) {
   const { rowCount } = await query('DELETE FROM bus_profiles WHERE bus_id = $1', [busId]);
   if (!rowCount) return { ok: false, error: 'Bus not found' };
   return { ok: true, busId };
+}
+
+export async function pgHasPendingCommandType(busId, type) {
+  const { rows } = await query(
+    `SELECT 1 FROM bus_commands WHERE bus_id = $1 AND status = 'pending' AND type = $2 LIMIT 1`,
+    [busId, type]
+  );
+  return rows.length > 0;
 }
 
 export async function pgEnqueueCommand(busId, type, payload) {

@@ -680,6 +680,18 @@ export function isAssignedRoute(route) {
   return Boolean(route?.sharedFromCloud || route?.cloudRouteId);
 }
 
+/** Routes the driver control panel may use — server-assigned only when IDs are known. */
+export function getDriverVisibleRoutes(state = {}) {
+  const routes = dedupeRoutes(state.routes ?? []);
+  const assignedIds = state.busProfile?.assignedRouteIds;
+  if (Array.isArray(assignedIds)) {
+    if (!assignedIds.length) return [];
+    const idSet = new Set(assignedIds);
+    return routes.filter((r) => idSet.has(r.id));
+  }
+  return getAssignedRoutes(routes);
+}
+
 export function getAssignedRoutes(routes = []) {
   return dedupeRoutes(routes).filter(isAssignedRoute);
 }

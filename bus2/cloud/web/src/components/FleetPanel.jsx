@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import FleetMap, { isBusOnline } from './FleetMap.jsx';
+import FleetBusDetail from './FleetBusDetail.jsx';
 import { busDisplayLabel, useSelectedBus } from './BusContext.jsx';
 
 function OnboardingWizard({ allowRegister, claimHref }) {
@@ -325,6 +326,8 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
             </>
           )}
           {message && <p className="hint">{message}</p>}
+
+          {selectedBusId && <FleetBusDetail busId={selectedBusId} buses={buses} />}
         </div>
         <div className="card">
           <h2>Live map</h2>

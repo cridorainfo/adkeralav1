@@ -1042,6 +1042,85 @@ button, input, select, textarea { font-family: inherit; }
   pointer-events: none;
 }
 
+.fleet-bus-detail {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(11, 92, 74, 0.12);
+}
+
+.fleet-bus-detail h3 {
+  margin-bottom: 0.35rem;
+}
+
+.fleet-bus-mirror {
+  margin: 0.75rem 0 1rem;
+}
+
+.fleet-bus-mirror-label {
+  font-size: 0.82rem;
+  opacity: 0.85;
+  margin-bottom: 0.35rem;
+}
+
+.fleet-bus-mirror h4 {
+  margin: 0 0 0.5rem;
+}
+
+.fleet-section-title {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.92rem;
+  color: var(--kerala-green-dark);
+}
+
+.fleet-route-list,
+.fleet-stop-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.fleet-route-item {
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.4rem;
+  border-radius: 8px;
+  border: 1px solid rgba(11, 92, 74, 0.15);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.fleet-route-item.active {
+  border-color: var(--kerala-green);
+  background: rgba(26, 127, 75, 0.08);
+}
+
+.fleet-route-item small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--kerala-muted);
+}
+
+.fleet-route-badge {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--kerala-green);
+  text-transform: uppercase;
+}
+
+.fleet-stop-list li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  font-size: 0.88rem;
+}
+
+.fleet-stop-role {
+  display: inline-block;
+  min-width: 2.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--kerala-muted);
+  text-transform: uppercase;
+}
+
 .fleet-bus-marker.gps-stale .fleet-bus-marker-label {
   color: #64748b;
   border-color: rgba(100, 116, 139, 0.35);

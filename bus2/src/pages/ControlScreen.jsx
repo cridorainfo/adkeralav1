@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
-import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop, getAssignedRoutes } from '../store/busStore';
+import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop, getDriverVisibleRoutes } from '../store/busStore';
 import { APP_NAME, APP_CONTROL_SUBTITLE } from '../lib/brand';
 import RouteManager from '../components/RouteManager';
 import AdManager from '../components/AdManager';
@@ -125,7 +125,7 @@ export default function ControlScreen({
     return json;
   }, []);
 
-  const busRoutes = driverMode ? getAssignedRoutes(state.routes ?? []) : (state.routes ?? []);
+  const busRoutes = driverMode ? getDriverVisibleRoutes(state) : (state.routes ?? []);
   const activeRouteId =
     busRoutes.some((r) => r.id === state.activeRouteId) ? state.activeRouteId : (busRoutes[0]?.id ?? null);
   const hasBusRoutes = busRoutes.length > 0;

@@ -765,7 +765,11 @@ function ensureBusProfile(store, busId) {
       linkedDriverId: null,
       linkedAt: null,
       ownerId: null,
+      assignedRouteIds: [],
     };
+  }
+  if (!Array.isArray(store.busProfiles[busId].assignedRouteIds)) {
+    store.busProfiles[busId].assignedRouteIds = [];
   }
   return store.busProfiles[busId];
 }
@@ -780,9 +784,41 @@ export async function upsertBusProfile(busId, patch = {}) {
   if (usePostgres()) return pg.pgUpsertBusProfile(busId, patch);
   const store = await loadStore();
   const profile = ensureBusProfile(store, busId);
+  if (patch.assignedRouteIds) {
+    patch.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
+  }
   Object.assign(profile, patch);
   await saveStore();
   return profile;
+}
+
+export async function addBusAssignedRoute(busId, routeId) {
+  const id = String(routeId ?? '').trim();
+  if (!busId || !id) return null;
+  const profile = await getBusProfile(busId);
+  const ids = [...new Set([...(profile?.assignedRouteIds ?? []), id])];
+  return upsertBusProfile(busId, { assignedRouteIds: ids });
+}
+
+export async function removeBusAssignedRoute(busId, routeId) {
+  const id = String(routeId ?? '').trim();
+  if (!busId || !id) return null;
+  const profile = await getBusProfile(busId);
+  const ids = (profile?.assignedRouteIds ?? []).filter((x) => x !== id);
+  return upsertBusProfile(busId, { assignedRouteIds: ids });
+}
+
+export async function getBusAssignedRouteIds(busId) {
+  const profile = await getBusProfile(busId);
+  return profile?.assignedRouteIds ?? [];
+}
+
+export async function hasPendingCommandType(busId, type) {
+  if (usePostgres()) return pg.pgHasPendingCommandType(busId, type);
+  const store = await loadStore();
+  return (store.commands ?? []).some(
+    (c) => c.busId === busId && c.status === 'pending' && c.type === type
+  );
 }
 
 export async function setBusProfilePlate(busId, plateInput) {
