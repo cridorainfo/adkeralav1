@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
-import { usePostgres, runMigrations } from './db/pool.js';
+import { usePostgres, runMigrations, query } from './db/pool.js';
 import * as pg from './storePg.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,10 +66,34 @@ export async function warmUpStore() {
   if (usePostgres()) {
     await runMigrations();
     await pg.pgPruneCommands();
+    await seedRouteCatalogIfEmpty();
     return null;
   }
   await ensureDataDir();
-  return loadStore();
+  const store = await loadStore();
+  await seedRouteCatalogIfEmpty(store);
+  return store;
+}
+
+/** Seed demo/shared routes when catalog is empty (Postgres or file store). */
+export async function seedRouteCatalogIfEmpty(store = null) {
+  const defaults = defaultStore().routeCatalog;
+  if (usePostgres()) {
+    const existing = await pg.pgListAllRoutes();
+    if (existing.length > 0) return existing.length;
+    for (const route of defaults) {
+      await pg.pgUpsertRoute(route);
+      for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
+        if (stop?.en) await upsertStopCatalog(stop);
+      }
+    }
+    return defaults.length;
+  }
+  const s = store ?? (await loadStore());
+  if ((s.routeCatalog ?? []).length > 0) return s.routeCatalog.length;
+  s.routeCatalog = defaults;
+  await saveStore();
+  return defaults.length;
 }
 
 export async function loadStore() {
@@ -235,7 +259,7 @@ function stopNamesMatch(a, b) {
 
 /** Find shared routes matching start + end stop names (for route creation suggestions). */
 export async function matchRoutesByEndpoints(startEn, endEn) {
-  const store = await loadStore();
+  const catalog = await listAllRoutes();
   const start = String(startEn ?? '').trim();
   const end = String(endEn ?? '').trim();
   if (!start || !end) return [];
@@ -243,7 +267,7 @@ export async function matchRoutesByEndpoints(startEn, endEn) {
   const hits = [];
   const seen = new Set();
 
-  for (const route of store.routeCatalog ?? []) {
+  for (const route of catalog ?? []) {
     if (!route?.startStop?.en || !route?.endStop?.en) continue;
 
     const forward =
@@ -362,6 +386,21 @@ export async function getStopFromCatalog(en) {
 
 /** Seed stop catalog from route catalog on first load. */
 export async function ensureStopCatalogFromRoutes() {
+  if (usePostgres()) {
+    const { rows } = await query('SELECT COUNT(*)::int AS n FROM stop_catalog');
+    if ((rows[0]?.n ?? 0) > 0) {
+      return pg.pgSearchStopCatalog('');
+    }
+    const routes = await listAllRoutes();
+    for (const route of routes) {
+      const stops = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
+      for (const stop of stops) {
+        if (stop?.en) await upsertStopCatalog(stop);
+      }
+    }
+    return pg.pgSearchStopCatalog('');
+  }
+
   const store = await loadStore();
   if ((store.stopCatalog ?? []).length > 0) return store.stopCatalog;
 

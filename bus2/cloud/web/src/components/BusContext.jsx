@@ -6,7 +6,7 @@ const BusContext = createContext(null);
 
 /** @typedef {'selected' | 'all' | 'multi'} TargetMode */
 
-export function SelectedBusProvider({ children, defaultBusId = 'bus-1' }) {
+export function SelectedBusProvider({ children, defaultBusId = '' }) {
   const [selectedBusId, setSelectedBusId] = useState(defaultBusId);
   const [pushToBus, setPushToBus] = useState(true);
   const [targetMode, setTargetMode] = useState(/** @type {TargetMode} */ ('selected'));
@@ -18,7 +18,7 @@ export function SelectedBusProvider({ children, defaultBusId = 'bus-1' }) {
       const json = await api('/api/buses');
       const list = json.buses ?? [];
       setBuses(list);
-      if (list.length && !list.some((b) => b.busId === selectedBusId)) {
+      if (list.length && (!selectedBusId || !list.some((b) => b.busId === selectedBusId))) {
         setSelectedBusId(list[0].busId);
       }
     } catch {
@@ -105,7 +105,8 @@ export function BusSelector() {
               {busLabel(b)}
             </option>
           ))}
-          {!buses?.length && <option value={selectedBusId}>{selectedBusId}</option>}
+          {!buses?.length && <option value="">No buses — claim first</option>}
+          {buses?.length > 0 && !selectedBusId && <option value="">— select bus —</option>}
         </select>
       </label>
       <label style={{ fontSize: '0.85rem' }}>

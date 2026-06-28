@@ -268,7 +268,10 @@ export async function pgListAllRoutes(ownerId = null) {
     params.push(ownerId);
   }
   const { rows } = await query(sql, params);
-  return rows.map((r) => r.data);
+  return rows.map((r) => {
+    const data = r.data;
+    return typeof data === 'string' ? JSON.parse(data) : data;
+  });
 }
 
 export async function pgUpsertRoute(route, ownerId = null) {
@@ -287,7 +290,9 @@ export async function pgDeleteRoute(routeId) {
 
 export async function pgGetRouteById(routeId) {
   const { rows } = await query('SELECT data FROM routes WHERE id = $1', [routeId]);
-  return rows.length ? rows[0].data : null;
+  if (!rows.length) return null;
+  const data = rows[0].data;
+  return typeof data === 'string' ? JSON.parse(data) : data;
 }
 
 export async function pgSearchStopCatalog(queryStr = '') {

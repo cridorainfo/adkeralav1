@@ -760,16 +760,21 @@ app.post('/api/routes', authCatalog, async (req, res) => {
 });
 
 app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
-  const route = normalizeRoute({ ...req.body, id: req.params.routeId });
-  await upsertRouteCatalog(route);
-  for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
-    if (stop?.en) await upsertStopCatalog(stop);
+  try {
+    const route = normalizeRoute({ ...req.body, id: req.params.routeId });
+    await upsertRouteCatalog(route);
+    for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
+      if (stop?.en) await upsertStopCatalog(stop);
+    }
+    const targetBusIds = req.body?.targetBusIds ?? [];
+    for (const busId of targetBusIds) {
+      await enqueueCommand(busId, 'UPSERT_ROUTE', { route, savedAt: Date.now() });
+    }
+    res.json({ ok: true, route, queuedFor: targetBusIds });
+  } catch (err) {
+    console.error('PUT /api/routes failed:', err);
+    res.status(500).json({ ok: false, error: err.message ?? 'Could not save route' });
   }
-  const targetBusIds = req.body?.targetBusIds ?? [];
-  for (const busId of targetBusIds) {
-    await enqueueCommand(busId, 'UPSERT_ROUTE', { route, savedAt: Date.now() });
-  }
-  res.json({ ok: true, route, queuedFor: targetBusIds });
 });
 
 app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
@@ -789,13 +794,23 @@ app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
 });
 
 app.get('/api/routes', authCatalog, async (_req, res) => {
-  const routes = await listAllRoutes();
-  res.json({ ok: true, routes });
+  try {
+    const routes = await listAllRoutes();
+    res.json({ ok: true, routes });
+  } catch (err) {
+    console.error('GET /api/routes failed:', err);
+    res.status(500).json({ ok: false, error: err.message ?? 'Could not list routes' });
+  }
 });
 
 app.get('/api/routes/search', authCatalog, async (req, res) => {
-  const routes = await searchRoutes(String(req.query.q ?? ''));
-  res.json({ ok: true, routes });
+  try {
+    const routes = await searchRoutes(String(req.query.q ?? ''));
+    res.json({ ok: true, routes });
+  } catch (err) {
+    console.error('GET /api/routes/search failed:', err);
+    res.status(500).json({ ok: false, error: err.message ?? 'Search failed' });
+  }
 });
 
 app.get('/api/routes/match', authCatalog, async (req, res) => {
