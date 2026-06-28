@@ -307,16 +307,18 @@ function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved) {
 
   const addRoutes = (routes) => {
     for (const route of routes ?? []) {
-      if (route?.id) byId.set(route.id, route);
+      if (!route?.id) continue;
+      const existing = byId.get(route.id);
+      byId.set(route.id, existing ? mergeRouteById(existing, route) : route);
     }
   };
 
   if (remoteIsNewer) {
-    addRoutes(storedRoutes);
     addRoutes(prevRoutes);
+    addRoutes(storedRoutes);
   } else {
-    addRoutes(prevRoutes);
     addRoutes(storedRoutes);
+    addRoutes(prevRoutes);
   }
 
   let routes = dedupeRoutes([...byId.values()]);
@@ -326,22 +328,66 @@ function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved) {
   return routes;
 }
 
+function mergeHydratedAudioMap(existing = {}, incoming = {}) {
+  const out = { ...(existing ?? {}) };
+  for (const [key, langs] of Object.entries(incoming ?? {})) {
+    out[key] = { ...(out[key] ?? {}) };
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      if (val && typeof val === 'object' && (val.audioUrl || val.audioFile)) {
+        out[key][lang] = { ...(out[key][lang] ?? {}), ...val };
+      }
+    }
+  }
+  return out;
+}
+
+function mergeStopCatalogs(prev = [], stored = []) {
+  const byKey = new Map();
+  const add = (entry) => {
+    const key = String(entry?.en ?? '')
+      .trim()
+      .toLowerCase();
+    if (!key) return;
+    byKey.set(key, { ...(byKey.get(key) ?? {}), ...entry, en: entry.en ?? byKey.get(key)?.en });
+  };
+  for (const entry of prev ?? []) add(entry);
+  for (const entry of stored ?? []) add(entry);
+  return [...byKey.values()];
+}
+
 function mergeStoredIntoPrev(prev, parsed) {
   try {
     const stored = mergeStoredState(parsed);
     const prevSaved = prev?.savedAt ?? 0;
     const remoteSaved = stored.savedAt ?? 0;
+    const remoteIsNewer = remoteSaved >= prevSaved;
+    const cloudPushAdvanced = (stored.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
+
     const routes = mergeRoutesFromSync(
       prev?.routes ?? [],
       stored.routes ?? [],
       prevSaved,
       remoteSaved
     );
-    const merged = { ...stored, routes };
-    // localStorage omits in-flight requests; keep live request from BroadcastChannel.
+    const stopAudio = mergeHydratedAudioMap(prev?.stopAudio, stored.stopAudio);
+    const audioFragments = mergeHydratedAudioMap(prev?.audioFragments, stored.audioFragments);
+    const stopCatalog = mergeStopCatalogs(prev?.stopCatalog, stored.stopCatalog);
+
+    const liveBase = remoteIsNewer ? { ...prev, ...stored } : { ...stored, ...prev };
+    const merged = {
+      ...liveBase,
+      routes,
+      stopAudio,
+      audioFragments,
+      stopCatalog,
+      lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
+    };
+
     if (prev?.announcementRequest?.id && !stored.announcementRequest?.id) {
-      return { ...merged, announcementRequest: prev.announcementRequest };
+      merged.announcementRequest = prev.announcementRequest;
     }
+
+    merged._cloudPushAdvanced = cloudPushAdvanced;
     return merged;
   } catch {
     return prev ?? defaultState();
@@ -403,7 +449,7 @@ function stateForPersistence(state) {
   return {
     ...state,
     announcementStatus: null,
-    savedAt: Date.now(),
+    savedAt: state.savedAt ?? Date.now(),
   };
 }
 
@@ -449,6 +495,11 @@ function saveStateLocal(state) {
 
 let dbWriteInFlight = false;
 
+function notifySaveError(message) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('adkerala-save-error', { detail: { message } }));
+}
+
 export function isDbWriteInFlight() {
   return dbWriteInFlight;
 }
@@ -480,6 +531,11 @@ export function saveState(state, { force = false } = {}) {
     } catch (err) {
       dbWriteInFlight = false;
       console.warn('AdKerala: could not save to db/info.txt', err);
+      const msg =
+        err.code === 'DRIVER_LOCKED'
+          ? 'Driver unlock required — re-enter pairing code and admin OTP'
+          : (err.message ?? 'Could not save to bus');
+      notifySaveError(msg);
     }
 
     saveStateLocal(state);
@@ -581,6 +637,62 @@ export function normalizeRouteMiddleStops(route) {
   }
 
   return { ...route, startStop: start, endStop: end, stops: cleaned };
+}
+
+/** Combine stop fields so cloud-pushed Malayalam is not lost when the phone saves GPS. */
+function mergeStopFields(a, b) {
+  const left = normalizeStop(a);
+  const right = normalizeStop(b);
+  return {
+    en: right.en || left.en,
+    ml: right.ml || left.ml,
+    lat: right.lat ?? left.lat,
+    lng: right.lng ?? left.lng,
+    radiusM: right.radiusM ?? left.radiusM,
+  };
+}
+
+function stopEnKey(stop) {
+  return normalizeStop(stop).en.toLowerCase();
+}
+
+function mergeMiddleStops(a = [], b = []) {
+  const byEn = new Map();
+  for (const stop of a ?? []) {
+    const key = stopEnKey(stop);
+    if (key) byEn.set(key, stop);
+  }
+  for (const stop of b ?? []) {
+    const key = stopEnKey(stop);
+    if (!key) continue;
+    const existing = byEn.get(key);
+    byEn.set(key, existing ? mergeStopFields(existing, stop) : stop);
+  }
+  return [...byEn.values()];
+}
+
+export function mergeRouteById(existing, incoming) {
+  const left = normalizeRouteMiddleStops(existing);
+  const right = normalizeRouteMiddleStops(incoming);
+  if (!left?.id) return right;
+  if (!right?.id) return left;
+
+  return normalizeRouteMiddleStops({
+    ...left,
+    ...right,
+    id: right.id || left.id,
+    name: right.name || left.name,
+    startStop: mergeStopFields(left.startStop, right.startStop),
+    endStop: mergeStopFields(left.endStop, right.endStop),
+    stops: mergeMiddleStops(left.stops, right.stops),
+    sharedFromCloud: right.sharedFromCloud ?? left.sharedFromCloud,
+    cloudRouteId: right.cloudRouteId ?? left.cloudRouteId,
+  });
+}
+
+/** Merge route lists from two sync sources (used by server state merge too). */
+export function mergeRoutesForSync(prevRoutes, storedRoutes, prevSaved, remoteSaved) {
+  return mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved);
 }
 
 /** Build ordered stop list without repeating start/end or consecutive duplicates. */

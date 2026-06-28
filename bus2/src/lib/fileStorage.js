@@ -197,8 +197,13 @@ export async function saveStateToDb(state) {
     headers,
     body: JSON.stringify(body, null, 2),
   });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'Could not save db/info.txt');
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) {
+    const err = new Error(json.error || 'Could not save db/info.txt');
+    if (json.code) err.code = json.code;
+    else if (res.status === 403) err.code = 'DRIVER_LOCKED';
+    throw err;
+  }
   return { ok: true };
 }
 
@@ -212,7 +217,10 @@ export async function fetchStateFromDb() {
 export async function uploadMediaFile(category, file, suggestedName) {
   const form = new FormData();
   form.append('file', file, suggestedName || file.name || 'upload.bin');
-  const res = await fetch(`/api/media/${category}`, { method: 'POST', body: form });
+  const headers = {};
+  const token = getStoredDriverToken();
+  if (token) headers['X-Driver-Token'] = token;
+  const res = await fetch(`/api/media/${category}`, { method: 'POST', headers, body: form });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Upload failed');
   return { path: json.path, url: json.url };

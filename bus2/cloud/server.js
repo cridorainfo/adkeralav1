@@ -467,6 +467,72 @@ function normalizeRoute(body) {
   };
 }
 
+function collectAudioMediaPaths(...maps) {
+  const paths = new Set();
+  for (const map of maps) {
+    if (!map) continue;
+    for (const entry of Object.values(map)) {
+      for (const lang of Object.values(entry ?? {})) {
+        const file = lang?.audioFile;
+        if (file && typeof file === 'string') paths.add(file);
+      }
+    }
+  }
+  return [...paths];
+}
+
+async function mergeStopWithCatalog(stop) {
+  if (!stop?.en) return stop;
+  const catalog = await getStopFromCatalog(stop.en);
+  if (!catalog) return stop;
+  return {
+    ...stop,
+    ml: stop.ml || catalog.ml || '',
+    lat: stop.lat ?? catalog.lat ?? null,
+    lng: stop.lng ?? catalog.lng ?? null,
+    radiusM: stop.radiusM ?? catalog.radiusM ?? 80,
+  };
+}
+
+/** Fill missing Malayalam/GPS on route stops from the shared cloud catalog. */
+async function enrichRouteFromCatalog(route) {
+  if (!route) return route;
+  return {
+    ...route,
+    startStop: await mergeStopWithCatalog(route.startStop),
+    endStop: await mergeStopWithCatalog(route.endStop),
+    stops: await Promise.all((route.stops ?? []).map((s) => mergeStopWithCatalog(s))),
+  };
+}
+
+/** Queue global phrase clips + any stop audio already on the bus cloud snapshot. */
+async function queueAudioBundleForBus(busId) {
+  const queued = [];
+  const global = await getGlobalPhraseAudio();
+  if (global?.audioFragments && Object.keys(global.audioFragments).length) {
+    const cmd = await enqueueCommand(busId, 'MERGE_STATE', {
+      audioFragments: global.audioFragments,
+      mediaFiles: global.mediaFiles ?? [],
+      savedAt: Date.now(),
+    });
+    queued.push(cmd.id);
+  }
+
+  const row = await getBus(busId);
+  const stopAudio = row?.state?.stopAudio;
+  if (stopAudio && Object.keys(stopAudio).length) {
+    const mediaFiles = collectAudioMediaPaths(stopAudio);
+    const cmd = await enqueueCommand(busId, 'MERGE_STATE', {
+      stopAudio,
+      ...(mediaFiles.length ? { mediaFiles } : {}),
+      savedAt: Date.now(),
+    });
+    queued.push(cmd.id);
+  }
+
+  return queued;
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -702,7 +768,7 @@ app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
 app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const routeId = req.body?.routeId;
-  const route = await getRouteById(routeId);
+  const route = await enrichRouteFromCatalog(await getRouteById(routeId));
   if (!route) {
     res.status(404).json({ ok: false, error: 'Route not found' });
     return;
@@ -718,7 +784,8 @@ app.post('/api/buses/:busId/assign-route', authFleet, async (req, res) => {
     activeRouteId: route.id,
     savedAt: Date.now(),
   });
-  res.json({ ok: true, commandId: cmd.id, route });
+  const audioCommandIds = await queueAudioBundleForBus(req.params.busId);
+  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
 
 /** Push route to bus without resetting trip (merge into routes list). */
@@ -730,11 +797,13 @@ app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
     res.status(404).json({ ok: false, error: 'Route not found' });
     return;
   }
+  route = await enrichRouteFromCatalog(normalizeRoute(route));
   const cmd = await enqueueCommand(req.params.busId, 'UPSERT_ROUTE', {
-    route: normalizeRoute(route),
+    route,
     savedAt: Date.now(),
   });
-  res.json({ ok: true, commandId: cmd.id, route });
+  const audioCommandIds = await queueAudioBundleForBus(req.params.busId);
+  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
 });
 
 /** Push stop audio / announcement fragments to bus (queued until bus is online). */
@@ -811,11 +880,13 @@ app.post('/api/routes', authCatalog, async (req, res) => {
   for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
     if (stop?.en) await upsertStopCatalog(stop);
   }
+  const enriched = await enrichRouteFromCatalog(route);
   const targetBusIds = req.body?.targetBusIds ?? [];
   for (const busId of targetBusIds) {
-    await enqueueCommand(busId, 'UPSERT_ROUTE', { route, savedAt: Date.now() });
+    await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
+    await queueAudioBundleForBus(busId);
   }
-  res.json({ ok: true, route, queuedFor: targetBusIds });
+  res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
 });
 
 app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
@@ -825,11 +896,13 @@ app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
     for (const stop of [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean)) {
       if (stop?.en) await upsertStopCatalog(stop);
     }
+    const enriched = await enrichRouteFromCatalog(route);
     const targetBusIds = req.body?.targetBusIds ?? [];
     for (const busId of targetBusIds) {
-      await enqueueCommand(busId, 'UPSERT_ROUTE', { route, savedAt: Date.now() });
+      await enqueueCommand(busId, 'UPSERT_ROUTE', { route: enriched, savedAt: Date.now() });
+      await queueAudioBundleForBus(busId);
     }
-    res.json({ ok: true, route, queuedFor: targetBusIds });
+    res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
   } catch (err) {
     console.error('PUT /api/routes failed:', err);
     res.status(500).json({ ok: false, error: err.message ?? 'Could not save route' });

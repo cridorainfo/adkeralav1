@@ -1,4 +1,4 @@
-import { dedupeRoutes } from '../src/store/busStore.js';
+import { dedupeRoutes, mergeRoutesForSync } from '../src/store/busStore.js';
 import { mergeAudioMap } from './audioMerge.js';
 
 function mergeCatalogs(current = [], incoming = []) {
@@ -70,26 +70,7 @@ export function mergeIncomingState(current = {}, incoming = {}) {
 
   const curRoutes = dedupeRoutes(current.routes ?? []);
   const incRoutes = dedupeRoutes(incoming.routes ?? []);
-  const routeById = new Map();
-
-  const addRoutes = (routes) => {
-    for (const route of routes) {
-      if (route?.id) routeById.set(route.id, route);
-    }
-  };
-
-  if (remoteIsNewer) {
-    addRoutes(incRoutes);
-    addRoutes(curRoutes);
-  } else {
-    addRoutes(curRoutes);
-    addRoutes(incRoutes);
-  }
-
-  let routes = dedupeRoutes([...routeById.values()]);
-  if (routes.length === 0 && (curRoutes.length > 0 || incRoutes.length > 0)) {
-    routes = curRoutes.length > 0 ? curRoutes : incRoutes;
-  }
+  const routes = mergeRoutesForSync(curRoutes, incRoutes, curSaved, incSaved);
 
   const base = remoteIsNewer ? { ...current, ...incoming } : { ...incoming, ...current };
   base.routes = routes;
@@ -102,6 +83,7 @@ export function mergeIncomingState(current = {}, incoming = {}) {
     base.activeRouteId = routes[0]?.id ?? null;
   }
 
-  base.savedAt = Math.max(curSaved, incSaved, Date.now());
+  base.savedAt = Math.max(curSaved, incSaved);
+  base.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, incoming.lastCloudPushAt ?? 0);
   return base;
 }

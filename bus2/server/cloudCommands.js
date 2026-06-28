@@ -1,4 +1,4 @@
-import { dedupeRoutes, normalizeRouteMiddleStops } from '../src/store/busStore.js';
+import { dedupeRoutes, normalizeRouteMiddleStops, mergeRouteById } from '../src/store/busStore.js';
 import { applyDriveAction } from '../src/store/driveActions.js';
 
 import { mergeAudioMap } from './audioMerge.js';
@@ -38,7 +38,15 @@ export function applyCloudCommands(current, commands) {
         const { stopAudio, audioFragments, routes, savedAt, driverLink, busProfile, ...rest } =
           payload;
         if (Array.isArray(routes)) {
-          next.routes = dedupeRoutes(routes);
+          const byId = new Map();
+          for (const r of next.routes ?? []) {
+            if (r?.id) byId.set(r.id, r);
+          }
+          for (const r of dedupeRoutes(routes)) {
+            const existing = byId.get(r.id);
+            byId.set(r.id, existing ? mergeRouteById(existing, r) : r);
+          }
+          next.routes = dedupeRoutes([...byId.values()]);
         }
         next = {
           ...next,
@@ -47,7 +55,8 @@ export function applyCloudCommands(current, commands) {
           ...(audioFragments
             ? { audioFragments: mergeAudioMap(next.audioFragments, audioFragments) }
             : {}),
-          savedAt: savedAt ?? Date.now(),
+          savedAt: payload.savedAt ?? Date.now(),
+          lastCloudPushAt: Math.max(next.lastCloudPushAt ?? 0, payload.lastCloudPushAt ?? Date.now()),
         };
         if ('driverLink' in payload) {
           next.driverLink = driverLink ?? null;
@@ -61,7 +70,12 @@ export function applyCloudCommands(current, commands) {
       case 'ASSIGN_ROUTE': {
         const route = normalizeRouteMiddleStops(payload.route);
         if (!route?.id) break;
-        const routes = dedupeRoutes([...(next.routes ?? []).filter((r) => r.id !== route.id), route]);
+        const existing = (next.routes ?? []).find((r) => r.id === route.id);
+        const mergedRoute = existing ? mergeRouteById(existing, route) : route;
+        const routes = dedupeRoutes([
+          ...(next.routes ?? []).filter((r) => r.id !== route.id),
+          mergedRoute,
+        ]);
         next = {
           ...next,
           routes,
@@ -81,12 +95,7 @@ export function applyCloudCommands(current, commands) {
         const route = normalizeRouteMiddleStops(payload.route);
         if (!route?.id) break;
         const existing = (next.routes ?? []).find((r) => r.id === route.id);
-        const mergedRoute = {
-          ...(existing ?? {}),
-          ...route,
-          sharedFromCloud: route.sharedFromCloud ?? existing?.sharedFromCloud ?? false,
-          cloudRouteId: route.cloudRouteId ?? existing?.cloudRouteId ?? null,
-        };
+        const mergedRoute = existing ? mergeRouteById(existing, route) : route;
         const routes = dedupeRoutes([
           ...(next.routes ?? []).filter((r) => r.id !== route.id),
           mergedRoute,

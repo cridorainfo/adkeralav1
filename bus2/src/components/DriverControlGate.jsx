@@ -66,7 +66,16 @@ export default function DriverControlGate({ children }) {
       fetch('/api/driver/heartbeat', {
         method: 'POST',
         headers: { 'X-Driver-Token': token },
-      }).catch(() => {});
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json?.expired) {
+            clearDriverCredentials();
+            setUnlocked(false);
+            setPlate('');
+          }
+        })
+        .catch(() => {});
     };
 
     ping();

@@ -110,14 +110,17 @@ async function syncGlobalPhraseAudio(root, creds) {
     if (!res.ok) return;
     const json = await res.json();
     if (!json?.ok || !json.audioFragments) return;
+    if (!Object.keys(json.audioFragments).length && !(json.mediaFiles?.length)) return;
 
     const current = (await readInfoFile(root)) ?? {};
+    const pushAt = Date.now();
     const merged = {
       ...current,
       audioFragments: mergeAudioMap(current.audioFragments, json.audioFragments),
-      savedAt: Math.max(current.savedAt ?? 0, json.savedAt ?? 0, Date.now()),
+      savedAt: Math.max(current.savedAt ?? 0, json.savedAt ?? 0, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
     };
-    await writeInfoFileSerialized(root, merged);
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-phrases' });
 
     if (Array.isArray(json.mediaFiles) && json.mediaFiles.length) {
       await syncCloudMedia(root, json.mediaFiles, creds);
@@ -170,7 +173,10 @@ export async function runCloudSync(root) {
     const mediaPaths = collectMediaDownloads(pending.commands);
     const current = (await readInfoFile(root)) ?? {};
     const merged = applyCloudCommands(current, pending.commands);
-    await writeInfoFileSerialized(root, merged);
+    const pushAt = Date.now();
+    merged.savedAt = pushAt;
+    merged.lastCloudPushAt = pushAt;
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
     await syncCloudMedia(root, mediaPaths, creds);
 
     for (const cmd of pending.commands) {
@@ -180,6 +186,9 @@ export async function runCloudSync(root) {
         { method: 'POST', body: '{}' }
       );
     }
+    console.log(
+      `AdKerala cloud sync: applied ${pending.commands.length} command(s) — routes/audio updated in db/info.txt`
+    );
   }
 
   lastPushedAt = Date.now();

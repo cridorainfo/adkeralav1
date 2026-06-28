@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'fs';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
 import { requireDriverAuthUnlessLocal } from './driverAuth.js';
+import { notifyStateChanged, subscribeStateChanged } from './stateEvents.js';
 
 const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
 
@@ -148,9 +149,16 @@ export async function writeInfoFile(root, data) {
 let writeInfoQueue = Promise.resolve();
 
 /** Serialize writes to db/info.txt so cloud sync and API saves cannot interleave. */
-export function writeInfoFileSerialized(root, data) {
+export function writeInfoFileSerialized(root, data, meta = {}) {
   writeInfoQueue = writeInfoQueue
-    .then(() => writeInfoFile(root, data))
+    .then(async () => {
+      await writeInfoFile(root, data);
+      notifyStateChanged(root, {
+        savedAt: data?.savedAt ?? 0,
+        lastCloudPushAt: data?.lastCloudPushAt ?? 0,
+        source: meta.source ?? 'write',
+      });
+    })
     .catch((err) => {
       console.warn('AdKerala: db/info.txt write failed:', err.message);
     });
@@ -215,6 +223,33 @@ export function setupDbApi(app, root) {
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
+  });
+
+  /** Live push to display/control when db/info.txt changes — no app restart needed. */
+  app.get('/api/state/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const writeEvent = (payload) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    writeEvent({ type: 'connected', at: Date.now() });
+
+    const unsub = subscribeStateChanged(root, (detail) => {
+      writeEvent({ type: 'state-changed', ...detail });
+    });
+
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsub();
+    });
   });
 
   app.post('/api/state', requireDriverAuthUnlessLocal, async (req, res) => {

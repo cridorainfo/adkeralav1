@@ -55,6 +55,14 @@ function useBusStoreLogic() {
   stateRef.current = state;
 
   useEffect(() => {
+    const onSaveError = (e) => {
+      setStorageError(e.detail?.message ?? 'Could not save to bus');
+    };
+    window.addEventListener('adkerala-save-error', onSaveError);
+    return () => window.removeEventListener('adkerala-save-error', onSaveError);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     setPersistenceReady(false);
     loadStateAsync()
@@ -63,7 +71,6 @@ function useBusStoreLogic() {
         setState(stored);
         setPersistenceReady(true);
         lastWriteAtRef.current = stored.savedAt ?? 0;
-        saveState(stored, { force: true });
       })
       .catch(() => {
         if (!cancelled) setPersistenceReady(true);
@@ -143,11 +150,18 @@ function useBusStoreLogic() {
     setState((prev) => {
       if (!isPersistenceReady()) return prev;
       if (isDbWriteInFlight()) return prev;
-      if (Date.now() - lastWriteAtRef.current < 2000 && lastWriteAtRef.current > (remoteHydrated?.savedAt ?? 0)) {
-        return prev;
-      }
+
+      const cloudPushAdvanced =
+        (remoteHydrated?.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
+      const blockedByRecentLocalWrite =
+        !cloudPushAdvanced &&
+        Date.now() - lastWriteAtRef.current < 4000 &&
+        lastWriteAtRef.current > (remoteHydrated?.savedAt ?? 0);
+      if (blockedByRecentLocalWrite) return prev;
 
       const merged = mergeRemoteState(prev, remoteHydrated);
+      delete merged._cloudPushAdvanced;
+
       if (prev?.announcementRequest?.id && !merged.announcementRequest?.id) {
         merged.announcementRequest = prev.announcementRequest;
       }
@@ -212,8 +226,8 @@ function useBusStoreLogic() {
     setState((prev) => {
       const next = { ...prev, driverLocation: location };
       if (!persist) return next;
-      const stamped = { ...next, savedAt: Date.now() };
-      lastWriteAtRef.current = stamped.savedAt;
+      // GPS-only saves must not bump savedAt — that was overwriting cloud-pushed routes/audio.
+      const stamped = { ...next, savedAt: prev.savedAt ?? Date.now() };
       saveState(stamped);
       return stamped;
     });

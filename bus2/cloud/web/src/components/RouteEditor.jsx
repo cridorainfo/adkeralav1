@@ -124,6 +124,24 @@ export default function RouteEditor() {
         });
       }
 
+      if (andPush && pushToBus && targetBusIds.length) {
+        try {
+          const phrases = await api('/api/announcements/phrases/catalog');
+          if (phrases?.audioFragments && Object.keys(phrases.audioFragments).length) {
+            await fleetBroadcast({
+              targetBusIds,
+              commandType: 'MERGE_STATE',
+              payload: {
+                audioFragments: phrases.audioFragments,
+                mediaFiles: phrases.mediaFiles ?? [],
+              },
+            });
+          }
+        } catch {
+          /* phrase catalog optional */
+        }
+      }
+
       setRoute(json.route);
       setStatus(
         andPush && pushToBus && targetBusIds.length
