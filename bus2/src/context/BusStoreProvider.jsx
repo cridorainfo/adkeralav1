@@ -684,6 +684,7 @@ function useBusStoreLogic() {
     (ad) => {
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         ads: [...s.ads, { id: createId(), name: `Ad ${s.ads.length + 1}`, ...ad }],
       }));
     },
@@ -695,6 +696,7 @@ function useBusStoreLogic() {
       if (!items.length) return;
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         ads: [
           ...s.ads,
           ...items.map((ad, i) => ({
@@ -740,6 +742,7 @@ function useBusStoreLogic() {
 
         return {
           ...s,
+          adsSavedAt: Date.now(),
           ads,
           nextAdIndex,
           currentAdIndex,
@@ -760,6 +763,7 @@ function useBusStoreLogic() {
     (id, data) => {
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         ads: s.ads.map((a) => (a.id === id ? { ...a, ...data } : a)),
       }));
     },
@@ -770,6 +774,7 @@ function useBusStoreLogic() {
     (ad) => {
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         bannerAds: [...s.bannerAds, { id: createId(), name: `Banner ${s.bannerAds.length + 1}`, ...ad }],
       }));
     },
@@ -781,6 +786,7 @@ function useBusStoreLogic() {
       if (!items.length) return;
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         bannerAds: [
           ...s.bannerAds,
           ...items.map((ad, i) => ({
@@ -805,6 +811,7 @@ function useBusStoreLogic() {
 
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         bannerAds: remainingBanners,
       }));
 
@@ -819,6 +826,7 @@ function useBusStoreLogic() {
     (id, data) => {
       update((s) => ({
         ...s,
+        adsSavedAt: Date.now(),
         bannerAds: s.bannerAds.map((a) => (a.id === id ? { ...a, ...data } : a)),
       }));
     },

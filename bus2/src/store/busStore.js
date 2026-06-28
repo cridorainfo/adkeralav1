@@ -15,6 +15,7 @@ const defaultState = () => ({
   routeDirection: 'forward',
   ads: [],
   bannerAds: [],
+  adsSavedAt: 0,
   adSettings: {
     enabled: true,
     intervalSec: 90,
@@ -374,12 +375,16 @@ function mergeStoredIntoPrev(prev, parsed) {
     const stopCatalog = mergeStopCatalogs(prev?.stopCatalog, stored.stopCatalog);
 
     const liveBase = remoteIsNewer ? { ...prev, ...stored } : { ...stored, ...prev };
+    const remoteAdsNewer = (stored.adsSavedAt ?? 0) >= (prev?.adsSavedAt ?? 0);
     const merged = {
       ...liveBase,
       routes,
       stopAudio,
       audioFragments,
       stopCatalog,
+      ads: remoteAdsNewer ? (stored.ads ?? []) : (prev?.ads ?? []),
+      bannerAds: remoteAdsNewer ? (stored.bannerAds ?? []) : (prev?.bannerAds ?? []),
+      adsSavedAt: remoteAdsNewer ? (stored.adsSavedAt ?? 0) : (prev?.adsSavedAt ?? 0),
       lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
     };
 

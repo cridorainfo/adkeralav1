@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { usePostgres, runMigrations, query } from './db/pool.js';
 import * as pg from './storePg.js';
+import { normalizeAdsList, collectAdMediaPathsFromLists } from './adsCatalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -28,6 +29,7 @@ const defaultStore = () => ({
   stopCatalog: [],
   stopAudioCatalog: {},
   stopAudioSavedAt: 0,
+  busAdsCatalog: {},
   globalAudioFragments: {},
   globalAudioSavedAt: 0,
   routeCatalog: [
@@ -124,6 +126,7 @@ export async function upsertBusTelemetry(busId, { telemetry, state, displaySnaps
   if (usePostgres()) {
     await pg.pgUpsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
     await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
+    await syncBusAdsCatalogFromTelemetry(busId, state ?? {});
     return pgGetBusCompat(busId);
   }
   const store = await loadStore();
@@ -134,6 +137,7 @@ export async function upsertBusTelemetry(busId, { telemetry, state, displaySnaps
     updatedAt: Date.now(),
   };
   await syncBusProfileFromTelemetry(busId, telemetry ?? {}, state ?? {});
+  await syncBusAdsCatalogFromTelemetry(busId, state ?? {});
   await saveStore();
   return store.buses[busId];
 }
@@ -210,6 +214,72 @@ export async function ackCommand(commandId) {
 
 const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
 const PG_KEY_STOP_AUDIO = 'stop_audio_catalog';
+const PG_KEY_BUS_ADS_PREFIX = 'bus_ads:';
+
+export async function getBusAdsCatalog(busId) {
+  if (!busId) return { ads: [], bannerAds: [], savedAt: 0, adsSavedAt: 0, source: null };
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(`${PG_KEY_BUS_ADS_PREFIX}${busId}`, null);
+    return {
+      ads: row?.ads ?? [],
+      bannerAds: row?.bannerAds ?? [],
+      savedAt: row?.savedAt ?? 0,
+      adsSavedAt: row?.adsSavedAt ?? 0,
+      source: row?.source ?? null,
+    };
+  }
+  const store = await loadStore();
+  if (!store.busAdsCatalog) store.busAdsCatalog = {};
+  const row = store.busAdsCatalog[busId] ?? {};
+  return {
+    ads: row.ads ?? [],
+    bannerAds: row.bannerAds ?? [],
+    savedAt: row.savedAt ?? 0,
+    adsSavedAt: row.adsSavedAt ?? 0,
+    source: row.source ?? null,
+  };
+}
+
+export async function setBusAdsCatalog(busId, { ads = [], bannerAds = [], adsSavedAt, source = 'dashboard' } = {}) {
+  if (!busId) throw new Error('busId required');
+  const savedAt = Date.now();
+  const payload = {
+    ads: normalizeAdsList(ads),
+    bannerAds: normalizeAdsList(bannerAds),
+    savedAt,
+    adsSavedAt: adsSavedAt ?? savedAt,
+    source,
+  };
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(`${PG_KEY_BUS_ADS_PREFIX}${busId}`, payload);
+    return { ...payload, mediaFiles: collectAdMediaPathsFromLists(payload.ads, payload.bannerAds) };
+  }
+  const store = await loadStore();
+  if (!store.busAdsCatalog) store.busAdsCatalog = {};
+  store.busAdsCatalog[busId] = payload;
+  await saveStore();
+  return { ...payload, mediaFiles: collectAdMediaPathsFromLists(payload.ads, payload.bannerAds) };
+}
+
+export async function syncBusAdsCatalogFromTelemetry(busId, state = {}) {
+  if (!busId || !state) return null;
+  const busAds = normalizeAdsList(state.ads);
+  const busBanners = normalizeAdsList(state.bannerAds);
+  const busAdsAt = state.adsSavedAt ?? 0;
+  const current = await getBusAdsCatalog(busId);
+  const catalogAt = current.adsSavedAt ?? current.savedAt ?? 0;
+  const catalogEmpty = !current.ads?.length && !current.bannerAds?.length;
+  const busHasAds = busAds.length > 0 || busBanners.length > 0;
+  const busIsNewer = busAdsAt > catalogAt;
+  const seedFromBus = catalogEmpty && busHasAds;
+  if (!busIsNewer && !seedFromBus) return null;
+  return setBusAdsCatalog(busId, {
+    ads: busAds,
+    bannerAds: busBanners,
+    adsSavedAt: busAdsAt || Date.now(),
+    source: 'bus',
+  });
+}
 
 export async function getGlobalPhraseAudio() {
   if (usePostgres()) {

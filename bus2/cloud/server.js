@@ -25,6 +25,7 @@ import {
   ensureStopCatalogFromRoutes,
   loadStore,
   saveStore,
+  defaultStore,
   warmUpStore,
   scanCatalogGaps,
   getGlobalPhraseAudio,
@@ -32,6 +33,9 @@ import {
   getStopAudioCatalog,
   mergeStopAudioCatalog,
   getStopAudioForRoute,
+  getBusAdsCatalog,
+  setBusAdsCatalog,
+  syncBusAdsCatalogFromTelemetry,
   getBusProfile,
   setBusProfilePlate,
   upsertBusProfile,
@@ -93,6 +97,7 @@ import {
 import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl } from './mediaStorage.js';
+import { collectAdMediaPathsFromLists } from './adsCatalog.js';
 import { usePostgres, getPool } from './db/pool.js';
 import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
 import {
@@ -784,16 +789,63 @@ app.post('/api/buses/:busId/commands/:commandId/ack', authBus, async (req, res) 
 app.post('/api/buses/:busId/ads', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { ads, bannerAds } = req.body ?? {};
+  const adsSavedAt = Date.now();
+  const catalog = await setBusAdsCatalog(req.params.busId, {
+    ads: ads ?? [],
+    bannerAds: bannerAds ?? [],
+    adsSavedAt,
+    source: 'dashboard',
+  });
   const cmd = await enqueueCommand(
     req.params.busId,
     'UPDATE_ADS',
     withMediaFiles({
-      ...(ads ? { ads } : {}),
-      ...(bannerAds ? { bannerAds } : {}),
-      savedAt: Date.now(),
+      ads: catalog.ads,
+      bannerAds: catalog.bannerAds,
+      adsSavedAt: catalog.adsSavedAt,
+      savedAt: adsSavedAt,
     })
   );
-  res.json({ ok: true, queued: true, commandId: cmd.id });
+  res.json({ ok: true, queued: true, commandId: cmd.id, catalog });
+});
+
+app.get('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const row = await getBus(req.params.busId);
+  await syncBusAdsCatalogFromTelemetry(req.params.busId, row?.state ?? {});
+  const catalog = await getBusAdsCatalog(req.params.busId);
+  res.json({
+    ok: true,
+    ...catalog,
+    mediaFiles: collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds),
+  });
+});
+
+app.put('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const { ads, bannerAds, push = true } = req.body ?? {};
+  const adsSavedAt = Date.now();
+  const catalog = await setBusAdsCatalog(req.params.busId, {
+    ads: ads ?? [],
+    bannerAds: bannerAds ?? [],
+    adsSavedAt,
+    source: 'dashboard',
+  });
+  let commandId = null;
+  if (push) {
+    const cmd = await enqueueCommand(
+      req.params.busId,
+      'UPDATE_ADS',
+      withMediaFiles({
+        ads: catalog.ads,
+        bannerAds: catalog.bannerAds,
+        adsSavedAt: catalog.adsSavedAt,
+        savedAt: adsSavedAt,
+      })
+    );
+    commandId = cmd.id;
+  }
+  res.json({ ok: true, catalog, queued: Boolean(commandId), commandId });
 });
 
 app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
@@ -879,6 +931,16 @@ app.post('/api/fleet/broadcast', authFleet, async (req, res) => {
   const mergedPayload = withMediaFiles({ ...(payload ?? {}), savedAt: Date.now() });
   const commandIds = [];
   for (const busId of busIds) {
+    if (commandType === 'UPDATE_ADS' && Array.isArray(payload?.ads) && Array.isArray(payload?.bannerAds)) {
+      const adsSavedAt = payload.adsSavedAt ?? mergedPayload.savedAt ?? Date.now();
+      await setBusAdsCatalog(busId, {
+        ads: payload.ads,
+        bannerAds: payload.bannerAds,
+        adsSavedAt,
+        source: 'dashboard',
+      });
+      mergedPayload.adsSavedAt = adsSavedAt;
+    }
     const cmd = await enqueueCommand(busId, commandType, mergedPayload);
     commandIds.push({ busId, commandId: cmd.id });
   }

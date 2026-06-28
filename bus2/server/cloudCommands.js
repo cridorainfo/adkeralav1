@@ -24,11 +24,12 @@ export function applyCloudCommands(current, commands) {
 
     switch (type) {
       case 'UPDATE_ADS': {
-        const { ads, bannerAds, savedAt } = payload;
+        const { ads, bannerAds, savedAt, adsSavedAt } = payload;
         next = {
           ...next,
           ...(Array.isArray(ads) ? { ads } : {}),
           ...(Array.isArray(bannerAds) ? { bannerAds } : {}),
+          adsSavedAt: adsSavedAt ?? savedAt ?? Date.now(),
           savedAt: savedAt ?? Date.now(),
         };
         break;
