@@ -25,7 +25,8 @@ function secsUntilNextAd(state) {
   return Math.max(0, interval - elapsed);
 }
 
-const DRIVER_ADS_PASSWORD = 'adpassword';
+const DRIVER_TABS = ['drive', 'routes', 'settings'];
+const ADMIN_TABS = ['drive', 'routes', 'ads', 'voice', 'settings'];
 
 export default function ControlScreen({
   serial,
@@ -82,9 +83,6 @@ export default function ControlScreen({
   const [unlinkStatus, setUnlinkStatus] = useState('');
   const { disconnect: disconnectDriverPhone } = useDriverControl();
   const [, tick] = useState(0);
-  const [adsUnlocked, setAdsUnlocked] = useState(false);
-  const [adsPasswordInput, setAdsPasswordInput] = useState('');
-  const [adsPasswordError, setAdsPasswordError] = useState(false);
   const { cloudEnabled } = useCloudRouteSearch();
 
   const handleSelectRoute = useCallback(
@@ -165,9 +163,7 @@ export default function ControlScreen({
   const atStop =
     gps?.lat != null && gps?.lng != null ? findStopAtLocation(state, gps.lat, gps.lng) : null;
 
-  const visibleTabs = driverMode
-    ? ['drive', 'routes', 'ads', 'settings']
-    : ['drive', 'routes', 'ads', 'voice', 'settings'];
+  const visibleTabs = driverMode ? DRIVER_TABS : ADMIN_TABS;
 
   const handleAnnounce = () => {
     if (!announceTarget) return;
@@ -179,36 +175,15 @@ export default function ControlScreen({
     requestAnnouncement(stop, { isTerminus });
   };
 
-  const handleAdsUnlock = (e) => {
-    e.preventDefault();
-    if (adsPasswordInput === DRIVER_ADS_PASSWORD) {
-      setAdsUnlocked(true);
-      setAdsPasswordError(false);
-      setAdsPasswordInput('');
-      return;
-    }
-    setAdsPasswordError(true);
-  };
-
   useEffect(() => {
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
-    const tabs = driverMode
-      ? ['drive', 'routes', 'ads', 'settings']
-      : ['drive', 'routes', 'ads', 'voice', 'settings'];
+    const tabs = driverMode ? DRIVER_TABS : ADMIN_TABS;
     if (!tabs.includes(tab)) setTab(tabs[0]);
   }, [tab, driverMode]);
-
-  useEffect(() => {
-    if (tab !== 'ads') {
-      setAdsUnlocked(false);
-      setAdsPasswordInput('');
-      setAdsPasswordError(false);
-    }
-  }, [tab]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -630,7 +605,7 @@ export default function ControlScreen({
                   </div>
                 </div>
 
-                {state.adSettings?.enabled && (state.ads?.length ?? 0) > 0 && (
+                {!driverMode && state.adSettings?.enabled && (state.ads?.length ?? 0) > 0 && (
                   <p className="control-ad-countdown">
                     {state.displayView === 'ad'
                       ? 'Advertisement on display…'
@@ -638,7 +613,7 @@ export default function ControlScreen({
                   </p>
                 )}
 
-                {state.displayView === 'ad' && (
+                {!driverMode && state.displayView === 'ad' && (
                   <button type="button" className="btn btn-ghost" style={{ marginTop: '1rem' }} onClick={endAd}>
                     Skip Ad → Back to Route
                   </button>
@@ -722,160 +697,31 @@ export default function ControlScreen({
           </>
         )}
 
-        {tab === 'ads' && (
+        {!driverMode && tab === 'ads' && (
           <>
-            {driverMode && !adsUnlocked ? (
-              <div className="panel driver-ads-gate" style={{ maxWidth: 420, margin: '0 auto' }}>
-                <h3 className="panel-title">📢 Advertisements</h3>
-                <p className="driver-ads-gate-hint">
-                  Enter the password to upload, edit, or remove ads on this bus.
-                </p>
-                <form className="driver-ads-gate-form" onSubmit={handleAdsUnlock}>
-                  <div className="form-group">
-                    <label htmlFor="driver-ads-password">Password</label>
-                    <input
-                      id="driver-ads-password"
-                      type="password"
-                      value={adsPasswordInput}
-                      onChange={(e) => {
-                        setAdsPasswordInput(e.target.value);
-                        if (adsPasswordError) setAdsPasswordError(false);
-                      }}
-                      autoComplete="off"
-                      placeholder="Enter password"
-                    />
-                  </div>
-                  {adsPasswordError && (
-                    <p className="driver-ads-gate-error" role="alert">
-                      Incorrect password. Try again.
-                    </p>
-                  )}
-                  <button type="submit" className="btn btn-primary">
-                    Unlock ads
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <>
-                {driverMode && (
-                  <div className="driver-ads-unlocked-bar">
-                    <span>Ads management unlocked</span>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setAdsUnlocked(false)}
-                    >
-                      Lock
-                    </button>
-                  </div>
-                )}
-                <AdManager
-                  ads={state.ads ?? []}
-                  onAddAd={addAd}
-                  onAddAds={addAds}
-                  onRemoveAd={removeAd}
-                  onUpdateAd={updateAd}
-                  adFormat="fullscreen"
-                  title="📢 Fullscreen Advertisements"
-                  emptyHint="No fullscreen ads yet. These play full-screen on the interval below."
-                />
-                <AdManager
-                  ads={state.bannerAds ?? []}
-                  onAddAd={addBannerAd}
-                  onAddAds={addBannerAds}
-                  onRemoveAd={removeBannerAd}
-                  onUpdateAd={updateBannerAd}
-                  adFormat="banner"
-                  title="🏷️ Banner Advertisements"
-                  emptyHint="No banner ads yet. These appear below the route on the passenger screen."
-                  durationLabel="Each banner duration (sec)"
-                  defaultDuration={8}
-                  showAudioUpload={false}
-                />
-                {driverMode && (
-                  <div className="panel">
-                    <h3 className="panel-title">⚙️ Ad playback settings</h3>
-                    <h4 className="settings-section-title">Fullscreen advertisements</h4>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Play ad every (seconds)</label>
-                        <input
-                          type="number"
-                          min={15}
-                          max={600}
-                          value={state.adSettings?.intervalSec ?? 90}
-                          onChange={(e) => updateAdSettings({ intervalSec: Number(e.target.value) })}
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Each ad duration (seconds)</label>
-                        <input
-                          type="number"
-                          min={3}
-                          max={120}
-                          value={state.adSettings?.defaultDurationSec ?? 12}
-                          onChange={(e) =>
-                            updateAdSettings({ defaultDurationSec: Number(e.target.value) })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.adSettings?.enabled ?? false}
-                            onChange={(e) => updateAdSettings({ enabled: e.target.checked })}
-                            style={{ marginRight: '0.5rem' }}
-                          />
-                          Auto-play ads on interval
-                        </label>
-                      </div>
-                      <div className="form-group">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.adSettings?.playAudio ?? false}
-                            onChange={(e) => updateAdSettings({ playAudio: e.target.checked })}
-                            style={{ marginRight: '0.5rem' }}
-                          />
-                          Play ad audio on display
-                        </label>
-                      </div>
-                    </div>
-                    <h4 className="settings-section-title">Banner advertisements</h4>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>Default banner duration (seconds)</label>
-                        <input
-                          type="number"
-                          min={3}
-                          max={30}
-                          value={state.bannerAdSettings?.defaultDurationSec ?? 8}
-                          onChange={(e) =>
-                            updateBannerAdSettings({ defaultDurationSec: Number(e.target.value) })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="form-row">
-                      <div className="form-group">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={state.bannerAdSettings?.enabled !== false}
-                            onChange={(e) => updateBannerAdSettings({ enabled: e.target.checked })}
-                            style={{ marginRight: '0.5rem' }}
-                          />
-                          Show banner ads below route details
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+            <AdManager
+              ads={state.ads ?? []}
+              onAddAd={addAd}
+              onAddAds={addAds}
+              onRemoveAd={removeAd}
+              onUpdateAd={updateAd}
+              adFormat="fullscreen"
+              title="📢 Fullscreen Advertisements"
+              emptyHint="No fullscreen ads yet. These play full-screen on the interval below."
+            />
+            <AdManager
+              ads={state.bannerAds ?? []}
+              onAddAd={addBannerAd}
+              onAddAds={addBannerAds}
+              onRemoveAd={removeBannerAd}
+              onUpdateAd={updateBannerAd}
+              adFormat="banner"
+              title="🏷️ Banner Advertisements"
+              emptyHint="No banner ads yet. These appear below the route on the passenger screen."
+              durationLabel="Each banner duration (sec)"
+              defaultDuration={8}
+              showAudioUpload={false}
+            />
           </>
         )}
 
@@ -924,6 +770,8 @@ export default function ControlScreen({
               Passenger screen shows Malayalam, then English, then Malayalam again — each for this many
               seconds (when both names are set).
             </p>
+            {!driverMode && (
+              <>
             <h4 className="settings-section-title">Fullscreen advertisements</h4>
             <div className="form-row">
               <div className="form-group">
@@ -1006,6 +854,8 @@ export default function ControlScreen({
             <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginTop: '0.5rem' }}>
               Banner ads rotate while stop details are shown. They are hidden during fullscreen ads.
             </p>
+              </>
+            )}
 
             {driverMode && (
               <>
