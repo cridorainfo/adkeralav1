@@ -25,7 +25,6 @@ import {
   ensureStopCatalogFromRoutes,
   loadStore,
   saveStore,
-  defaultStore,
   warmUpStore,
   scanCatalogGaps,
   getGlobalPhraseAudio,
