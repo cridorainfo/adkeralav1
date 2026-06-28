@@ -88,6 +88,7 @@ import {
   revokeBusDevice,
   verifyBusDeviceToken,
   findBusIdByDeviceToken,
+  withMediaFiles,
 } from './fleet.js';
 import { enrollLimiter, pairLimiter, authLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit } from './logger.js';
@@ -783,11 +784,15 @@ app.post('/api/buses/:busId/commands/:commandId/ack', authBus, async (req, res) 
 app.post('/api/buses/:busId/ads', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const { ads, bannerAds } = req.body ?? {};
-  const cmd = await enqueueCommand(req.params.busId, 'UPDATE_ADS', {
-    ...(ads ? { ads } : {}),
-    ...(bannerAds ? { bannerAds } : {}),
-    savedAt: Date.now(),
-  });
+  const cmd = await enqueueCommand(
+    req.params.busId,
+    'UPDATE_ADS',
+    withMediaFiles({
+      ...(ads ? { ads } : {}),
+      ...(bannerAds ? { bannerAds } : {}),
+      savedAt: Date.now(),
+    })
+  );
   res.json({ ok: true, queued: true, commandId: cmd.id });
 });
 
@@ -871,7 +876,7 @@ app.post('/api/fleet/broadcast', authFleet, async (req, res) => {
     res.status(400).json({ ok: false, error: 'No accessible target buses' });
     return;
   }
-  const mergedPayload = { ...(payload ?? {}), savedAt: Date.now() };
+  const mergedPayload = withMediaFiles({ ...(payload ?? {}), savedAt: Date.now() });
   const commandIds = [];
   for (const busId of busIds) {
     const cmd = await enqueueCommand(busId, commandType, mergedPayload);
@@ -1134,6 +1139,11 @@ app.get('/api/media/:category/:filename', authBus, async (req, res) => {
   const lower = relPath.toLowerCase();
   if (lower.endsWith('.mp3') || lower.endsWith('.mpeg')) res.type('audio/mpeg');
   else if (lower.endsWith('.wav')) res.type('audio/wav');
+  else if (lower.endsWith('.mp4') || lower.endsWith('.webm')) res.type('video/mp4');
+  else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) res.type('image/jpeg');
+  else if (lower.endsWith('.png')) res.type('image/png');
+  else if (lower.endsWith('.gif')) res.type('image/gif');
+  else if (lower.endsWith('.webp')) res.type('image/webp');
   res.sendFile(fullPath);
 });
 

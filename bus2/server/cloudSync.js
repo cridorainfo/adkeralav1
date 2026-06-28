@@ -1,6 +1,6 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads } from './cloudCommands.js';
+import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia } from './cloudMediaSync.js';
 import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
 import { getLanAddresses } from './networkInfo.js';
@@ -176,9 +176,14 @@ export async function runCloudSync(root) {
 
   const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
   if (pending?.ok && Array.isArray(pending.commands) && pending.commands.length) {
-    const mediaPaths = collectMediaDownloads(pending.commands);
     const current = (await readInfoFile(root)) ?? {};
     const merged = applyCloudCommands(current, pending.commands);
+    const mediaPaths = [
+      ...new Set([
+        ...collectMediaDownloads(pending.commands),
+        ...collectAdMediaFromState(merged),
+      ]),
+    ];
     const pushAt = Date.now();
     merged.savedAt = pushAt;
     merged.lastCloudPushAt = pushAt;
@@ -206,6 +211,24 @@ export async function runCloudSync(root) {
 
   lastPushedAt = Date.now();
   await syncGlobalPhraseAudio(root, creds);
+
+  // Catch up any ad/banner media referenced in state but not yet on disk.
+  try {
+    const latest = await readInfoFile(root);
+    const adPaths = collectAdMediaFromState(latest ?? {});
+    if (adPaths.length) {
+      const downloaded = await syncCloudMedia(root, adPaths, creds);
+      if (downloaded > 0) {
+        notifyStateChanged(root, {
+          savedAt: latest?.savedAt ?? 0,
+          lastCloudPushAt: latest?.lastCloudPushAt ?? 0,
+          source: 'cloud-media',
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export function startCloudSyncLoop(root) {

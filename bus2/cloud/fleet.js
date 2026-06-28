@@ -28,8 +28,24 @@ function generateBusId() {
   return `bus-${randomUUID().slice(0, 8)}`;
 }
 
-function collectMediaFromState(state = {}) {
+function collectAdMediaPaths(ads = [], bannerAds = []) {
   const paths = new Set();
+  for (const ad of [...(ads ?? []), ...(bannerAds ?? [])]) {
+    if (ad?.mediaFile && typeof ad.mediaFile === 'string') paths.add(ad.mediaFile);
+    if (ad?.audioFile && typeof ad.audioFile === 'string') paths.add(ad.audioFile);
+  }
+  return [...paths];
+}
+
+export function withMediaFiles(payload = {}) {
+  const paths = new Set(Array.isArray(payload.mediaFiles) ? payload.mediaFiles : []);
+  for (const rel of collectAdMediaPaths(payload.ads, payload.bannerAds)) paths.add(rel);
+  if (!paths.size) return payload;
+  return { ...payload, mediaFiles: [...paths] };
+}
+
+function collectMediaFromState(state = {}) {
+  const paths = new Set(collectAdMediaPaths(state.ads, state.bannerAds));
   for (const map of [state.stopAudio, state.audioFragments]) {
     if (!map) continue;
     for (const entry of Object.values(map)) {
@@ -46,9 +62,6 @@ function collectMediaFromState(state = {}) {
         if (file && typeof file === 'string') paths.add(file);
       }
     }
-  }
-  for (const ad of [...(state.ads ?? []), ...(state.bannerAds ?? [])]) {
-    if (ad?.mediaFile) paths.add(ad.mediaFile);
   }
   return [...paths];
 }

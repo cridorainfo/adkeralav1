@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { loadStore, saveStore, enqueueCommand } from './store.js';
+import { withMediaFiles } from './fleet.js';
 
 export async function listCampaigns(user) {
   const store = await loadStore();
@@ -90,11 +91,15 @@ export async function pushCampaignToBuses(id, user, busProfiles) {
       const profile = busProfiles?.[busId];
       if (profile?.ownerId !== user.id) continue;
     }
-    const cmd = await enqueueCommand(busId, 'UPDATE_ADS', {
-      ads: campaign.ads,
-      bannerAds: campaign.bannerAds,
-      savedAt: Date.now(),
-    });
+    const cmd = await enqueueCommand(
+      busId,
+      'UPDATE_ADS',
+      withMediaFiles({
+        ads: campaign.ads,
+        bannerAds: campaign.bannerAds,
+        savedAt: Date.now(),
+      })
+    );
     queued.push({ busId, commandId: cmd.id });
   }
   return { ok: true, queued };

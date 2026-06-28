@@ -31,6 +31,7 @@ import {
 import { collectUsedStopAudioKeys } from '../lib/audioFragments';
 import { runAnnouncementPlayback } from '../lib/runAnnouncementPlayback';
 import { isDisplayRole } from '../lib/appRole';
+import { nextPlayableAdIndex, adHasPlayableMedia } from '../lib/adPlayback';
 import {
   mergeStopWithCatalog,
   upsertCatalogEntry,
@@ -833,13 +834,13 @@ function useBusStoreLogic() {
 
   const playAdNow = useCallback(() => {
     update((s) => {
-      if (!s.ads.length) {
+      const index = nextPlayableAdIndex(s.ads, s.nextAdIndex ?? 0);
+      if (index < 0) {
         return s.displayView === 'ad'
-          ? { ...s, displayView: 'route', lastAdEndedAt: Date.now() }
+          ? { ...s, displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null }
           : s;
       }
       if (s.displayView === 'ad') return s;
-      const index = (s.nextAdIndex ?? 0) % s.ads.length;
       return {
         ...s,
         displayView: 'ad',

@@ -167,6 +167,24 @@ export function buildDisplaySnapshot(state) {
   };
 }
 
+/** Collect relative media paths from ad objects (mediaFile / audioFile). */
+function collectAdMediaFromList(ads = []) {
+  const paths = [];
+  for (const ad of ads) {
+    if (ad?.mediaFile && typeof ad.mediaFile === 'string') paths.push(ad.mediaFile);
+    if (ad?.audioFile && typeof ad.audioFile === 'string') paths.push(ad.audioFile);
+  }
+  return paths;
+}
+
+/** Collect ad/banner paths from bus state (for catch-up sync). */
+export function collectAdMediaFromState(state = {}) {
+  return [
+    ...collectAdMediaFromList(state.ads),
+    ...collectAdMediaFromList(state.bannerAds),
+  ];
+}
+
 /** Collect relative media paths referenced in command payloads for cloud download. */
 export function collectMediaDownloads(commands) {
   const paths = new Set();
@@ -186,6 +204,8 @@ export function collectMediaDownloads(commands) {
         }
       }
     }
+    for (const rel of collectAdMediaFromList(payload.ads)) paths.add(rel);
+    for (const rel of collectAdMediaFromList(payload.bannerAds)) paths.add(rel);
   }
   return [...paths];
 }

@@ -17,9 +17,10 @@ function authHeaders(creds = {}) {
 /** Download missing media files from cloud admin into db/media/ (offline-first bus storage). */
 export async function syncCloudMedia(root, relativePaths, creds = {}) {
   const cloudUrl = (creds.cloudUrl ?? process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
-  if (!cloudUrl || !relativePaths?.length) return;
+  if (!cloudUrl || !relativePaths?.length) return 0;
 
   const { mediaDir } = getDbPaths(root);
+  let downloaded = 0;
 
   for (const relPath of relativePaths) {
     if (!relPath || relPath.includes('..')) continue;
@@ -33,12 +34,19 @@ export async function syncCloudMedia(root, relativePaths, creds = {}) {
       const res = await fetch(`${cloudUrl}/api/media/${relPath}`, {
         headers: authHeaders(creds),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        console.warn('AdKerala media sync: download failed', relPath, res.status);
+        continue;
+      }
       const buffer = Buffer.from(await res.arrayBuffer());
       await fs.mkdir(path.dirname(localFile), { recursive: true });
       await fs.writeFile(localFile, buffer);
+      downloaded += 1;
+      console.log('AdKerala media sync: saved', relPath);
     } catch (err) {
       console.warn('AdKerala media sync:', relPath, err.message);
     }
   }
+
+  return downloaded;
 }

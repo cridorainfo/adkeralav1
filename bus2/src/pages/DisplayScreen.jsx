@@ -6,6 +6,7 @@ import DriverPairingBanner from '../components/DriverPairingBanner';
 import { BilingualStop, LanguageAlternateProvider } from '../components/BilingualStop';
 import { useBusStore } from '../hooks/useBusStore';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
+import { adHasPlayableMedia, nextPlayableAdIndex } from '../lib/adPlayback';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
   const { state, endAd, playAdNow } = useBusStore();
@@ -32,7 +33,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const destinationStop = stopInfo.final ?? stopInfo.start;
   const currentAd = ads[s.currentAdIndex] ?? null;
   const adDuration = currentAd?.durationSec ?? s.adSettings?.defaultDurationSec ?? 12;
-  const showingAd = s.displayView === 'ad' && currentAd;
+  const showingAd = s.displayView === 'ad' && currentAd && adHasPlayableMedia(currentAd);
   const adStartedAt = s.adStartedAt ?? null;
   const isVideoAd = showingAd && currentAd?.type === 'video';
   const announcementPlaying = s.announcementStatus === 'playing';
@@ -189,7 +190,14 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   }, [ads.length, s.displayView, endAd]);
 
   useEffect(() => {
-    if (!(s.adSettings?.enabled ?? true) || !ads.length) return;
+    if (s.displayView !== 'ad' || !currentAd) return;
+    if (adHasPlayableMedia(currentAd)) return;
+    const next = nextPlayableAdIndex(ads, (s.currentAdIndex ?? 0) + 1);
+    if (next < 0) endAd();
+  }, [s.displayView, currentAd, ads, s.currentAdIndex, endAd]);
+
+  useEffect(() => {
+    if (!(s.adSettings?.enabled ?? true) || !ads.some(adHasPlayableMedia)) return;
 
     const intervalSec = s.adSettings?.intervalSec ?? 90;
     const id = setInterval(() => {
@@ -244,9 +252,10 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
                     src={currentAd.mediaUrl}
                     playsInline
                     muted={Boolean(currentAd.audioUrl) || !(s.adSettings?.playAudio ?? true)}
+                    onError={() => endAd()}
                   />
                 ) : (
-                  <img src={currentAd.mediaUrl} alt="" />
+                  <img src={currentAd.mediaUrl} alt="" onError={() => endAd()} />
                 )}
               </div>
             </div>

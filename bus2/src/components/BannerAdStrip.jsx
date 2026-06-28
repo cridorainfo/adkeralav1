@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { adHasPlayableMedia } from '../lib/adPlayback';
 
 export default function BannerAdStrip({ bannerAds, settings }) {
   const [index, setIndex] = useState(0);
   const videoRef = useRef(null);
 
   const enabled = settings?.enabled !== false;
-  const ads = bannerAds ?? [];
+  const ads = (bannerAds ?? []).filter(adHasPlayableMedia);
   const current = ads.length ? ads[index % ads.length] : null;
   const durationSec = current?.durationSec ?? settings?.defaultDurationSec ?? 8;
   const isVideo = current?.type === 'video';
@@ -56,7 +57,7 @@ export default function BannerAdStrip({ bannerAds, settings }) {
         {isVideo ? (
           <video ref={videoRef} src={current.mediaUrl} playsInline muted />
         ) : (
-          <img src={current.mediaUrl} alt="" />
+          <img src={current.mediaUrl} alt="" onError={() => setIndex((i) => (i + 1) % ads.length)} />
         )}
       </div>
     </aside>

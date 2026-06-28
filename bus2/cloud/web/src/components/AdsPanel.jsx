@@ -50,14 +50,20 @@ export default function AdsPanel() {
       return;
     }
     setMessage('Queuing…');
-    const payload = {
-      ads: ads.filter((a) => a.mediaFile),
-      bannerAds: bannerAds.filter((a) => a.mediaFile),
-    };
+    const filteredAds = ads.filter((a) => a.mediaFile);
+    const filteredBanners = bannerAds.filter((a) => a.mediaFile);
+    const mediaFiles = [
+      ...filteredAds.map((a) => a.mediaFile),
+      ...filteredBanners.map((a) => a.mediaFile),
+    ];
     const json = await fleetBroadcast({
       targetBusIds,
       commandType: 'UPDATE_ADS',
-      payload,
+      payload: {
+        ads: filteredAds,
+        bannerAds: filteredBanners,
+        mediaFiles,
+      },
     });
     setMessage(`Queued for ${(json.queuedFor ?? []).join(', ')}`);
   }
