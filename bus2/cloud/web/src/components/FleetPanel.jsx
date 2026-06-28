@@ -87,8 +87,27 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     if (!selectedBusId) return;
     const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
     setProfile(json.profile);
-    setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
-    setDisplayName(json.profile?.displayName ?? '');
+  }, [selectedBusId]);
+
+  /** Load editable fields only when switching buses — not on every poll. */
+  useEffect(() => {
+    if (!selectedBusId) {
+      setProfile(null);
+      setPlate('');
+      setDisplayName('');
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
+      if (cancelled) return;
+      setProfile(json.profile);
+      setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
+      setDisplayName(json.profile?.displayName ?? '');
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedBusId]);
 
   useEffect(() => {
@@ -122,12 +141,14 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   async function saveProfile() {
     if (!selectedBusId) return;
     setMessage('');
-    await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
+    const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
       method: 'PUT',
       body: JSON.stringify({ plate, displayName }),
     });
+    setProfile(json.profile);
+    setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
+    setDisplayName(json.profile?.displayName ?? displayName);
     setMessage('Bus profile saved');
-    refreshSelected();
     refreshBuses();
   }
 
