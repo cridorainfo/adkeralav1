@@ -10,6 +10,8 @@ function stopLine(stop) {
 export default function FleetBusDetail({ busId, buses }) {
   const [telemetryData, setTelemetryData] = useState(null);
   const [routesData, setRoutesData] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
+  const [removingRouteId, setRemovingRouteId] = useState(null);
 
   const busRow = (buses ?? []).find((b) => b.busId === busId);
   const online = busRow ? isBusOnline(busRow.updatedAt) : Boolean(telemetryData?.online);
@@ -33,12 +35,37 @@ export default function FleetBusDetail({ busId, buses }) {
     if (!busId) {
       setTelemetryData(null);
       setRoutesData(null);
+      setActionMessage('');
       return undefined;
     }
     refresh();
     const t = setInterval(refresh, 4000);
     return () => clearInterval(t);
   }, [busId, refresh]);
+
+  async function removeAssignedRoute(routeId, routeName) {
+    if (
+      !window.confirm(
+        `Remove "${routeName}" from this bus?\n\nThe route stays in the catalog. The bus drops it on next sync (~5s when online).`
+      )
+    ) {
+      return;
+    }
+    setActionMessage('');
+    setRemovingRouteId(routeId);
+    try {
+      await api(
+        `/api/buses/${encodeURIComponent(busId)}/assigned-routes/${encodeURIComponent(routeId)}`,
+        { method: 'DELETE' }
+      );
+      setActionMessage(`Removed "${routeName}" from fleet assignment.`);
+      await refresh();
+    } catch (err) {
+      setActionMessage(err.message ?? 'Could not remove route');
+    } finally {
+      setRemovingRouteId(null);
+    }
+  }
 
   if (!busId) return null;
 
@@ -88,6 +115,7 @@ export default function FleetBusDetail({ busId, buses }) {
       </div>
 
       <h4 className="fleet-section-title">Assigned routes</h4>
+      {actionMessage && <p className="hint">{actionMessage}</p>}
       {!assignedRoutes.length ? (
         <p className="hint">No routes assigned from the dashboard yet. Use Routes or Route catalog to assign.</p>
       ) : (
@@ -96,8 +124,20 @@ export default function FleetBusDetail({ busId, buses }) {
             const active = route.id === routesData?.activeRouteId;
             return (
               <li key={route.id} className={`fleet-route-item${active ? ' active' : ''}`}>
-                <strong>{route.name}</strong>
-                {active && <span className="fleet-route-badge">Active</span>}
+                <div className="fleet-route-item-head">
+                  <div>
+                    <strong>{route.name}</strong>
+                    {active && <span className="fleet-route-badge">Active</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm fleet-route-remove"
+                    disabled={removingRouteId === route.id}
+                    onClick={() => removeAssignedRoute(route.id, route.name)}
+                  >
+                    {removingRouteId === route.id ? 'Removing…' : 'Remove'}
+                  </button>
+                </div>
                 <small>
                   {stopLine(route.startStop)} → {stopLine(route.endStop)}
                   {' · '}

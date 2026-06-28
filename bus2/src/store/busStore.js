@@ -689,6 +689,7 @@ export function getDriverVisibleRoutes(state = {}) {
     const idSet = new Set(assignedIds);
     return routes.filter((r) => idSet.has(r.id));
   }
+  /* Before first cloud sync — hide local demo routes; show only cloud-pushed routes. */
   return getAssignedRoutes(routes);
 }
 

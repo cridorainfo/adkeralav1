@@ -997,6 +997,8 @@ app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
     res.status(404).json({ ok: false, error: 'Route not found' });
     return;
   }
+  await addBusAssignedRoute(req.params.busId, route.id);
+  const assignedRouteIds = await getBusAssignedRouteIds(req.params.busId);
   const cmd = await enqueueCommand(req.params.busId, 'ASSIGN_ROUTE', {
     route: {
       id: route.id,
@@ -1007,12 +1009,28 @@ app.post('/api/buses/:busId/command', authFleet, async (req, res) => {
       sharedFromCloud: true,
       cloudRouteId: route.id,
     },
+    assignedRouteIds,
     activeRouteId: route.id,
     savedAt: Date.now(),
   });
-  await addBusAssignedRoute(req.params.busId, route.id);
   const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
-  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
+  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route, assignedRouteIds });
+});
+
+/** Remove a route from a bus fleet assignment (does not delete from catalog). */
+app.delete('/api/buses/:busId/assigned-routes/:routeId', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const busId = req.params.busId;
+  const routeId = req.params.routeId;
+  await removeBusAssignedRoute(busId, routeId);
+  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  const cmd = await enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
+    routes,
+    assignedRouteIds: assignedIds,
+    removeLocalOrphans: true,
+    savedAt: Date.now(),
+  });
+  res.json({ ok: true, commandId: cmd.id, assignedRouteIds: assignedIds, removed: routeId });
 });
 
 /** Push route to bus without resetting trip (merge into routes list). */
@@ -1025,17 +1043,19 @@ app.post('/api/buses/:busId/push-route', authFleet, async (req, res) => {
     return;
   }
   route = await enrichRouteFromCatalog(normalizeRoute(route));
+  await addBusAssignedRoute(req.params.busId, route.id);
+  const assignedRouteIds = await getBusAssignedRouteIds(req.params.busId);
   const cmd = await enqueueCommand(req.params.busId, 'UPSERT_ROUTE', {
     route: {
       ...route,
       sharedFromCloud: true,
       cloudRouteId: route.id,
     },
+    assignedRouteIds,
     savedAt: Date.now(),
   });
-  await addBusAssignedRoute(req.params.busId, route.id);
   const audioCommandIds = await queueAudioBundleForBus(req.params.busId, { routeId: route.id });
-  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route });
+  res.json({ ok: true, commandId: cmd.id, audioCommandIds, route, assignedRouteIds });
 });
 
 /** Push stop audio / announcement fragments to bus (queued until bus is online). */

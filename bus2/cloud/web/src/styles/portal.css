@@ -1087,6 +1087,18 @@ button, input, select, textarea { font-family: inherit; }
   background: rgba(255, 255, 255, 0.7);
 }
 
+.fleet-route-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.fleet-route-remove {
+  flex-shrink: 0;
+  color: #b45309;
+}
+
 .fleet-route-item.active {
   border-color: var(--kerala-green);
   background: rgba(26, 127, 75, 0.08);
