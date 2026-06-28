@@ -128,6 +128,9 @@ export default function FleetBusDetail({ busId, buses }) {
                   <div>
                     <strong>{route.name}</strong>
                     {active && <span className="fleet-route-badge">Active</span>}
+                    <small className="route-id-inline">
+                      <code>{route.id}</code>
+                    </small>
                   </div>
                   <button
                     type="button"

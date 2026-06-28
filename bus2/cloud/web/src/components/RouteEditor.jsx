@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
+import { useBusAssignedRoutes } from '../hooks/useBusAssignedRoutes.js';
+import { createRouteId, routeSelectLabel } from '../lib/routeLabels.js';
 
 const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
@@ -76,6 +78,7 @@ function attachSavedAudio(route, stopAudioCatalog) {
 
 export default function RouteEditor() {
   const { selectedBusId, pushToBus, targetBusIds, buses } = useSelectedBus();
+  const { isAssigned, refresh: refreshAssigned } = useBusAssignedRoutes(selectedBusId);
   const [routes, setRoutes] = useState([]);
   const [route, setRoute] = useState(null);
   const [stopAudioCatalog, setStopAudioCatalog] = useState({});
@@ -145,7 +148,7 @@ export default function RouteEditor() {
     setError('');
     setStatus('');
     setRoute({
-      id: `route-${Date.now()}`,
+      id: createRouteId(),
       name: '',
       startStop: emptyStop(),
       endStop: emptyStop(),
@@ -275,6 +278,10 @@ export default function RouteEditor() {
       setError('Select your claimed bus in the toolbar above first.');
       return;
     }
+    if (isAssigned(route.id)) {
+      setStatus(`Already assigned to ${selectedBusId} (${route.id}).`);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -283,7 +290,8 @@ export default function RouteEditor() {
         method: 'POST',
         body: JSON.stringify({ routeId: route.id }),
       });
-      setStatus(`Route assigned & queued for ${selectedBusId}`);
+      setStatus(`Route ${route.id} assigned & queued for ${selectedBusId}`);
+      await refreshAssigned();
     } catch (err) {
       setError(err.message ?? 'Assign failed');
     } finally {
@@ -348,7 +356,7 @@ export default function RouteEditor() {
             <option value="">— select route —</option>
             {routes.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.name}
+                {routeSelectLabel(r)}
               </option>
             ))}
           </select>
@@ -382,10 +390,14 @@ export default function RouteEditor() {
         <select value={route.id} onChange={(e) => selectRoute(e.target.value)}>
           {routes.map((r) => (
             <option key={r.id} value={r.id}>
-              {r.name || r.id}
+              {routeSelectLabel(r)}
             </option>
           ))}
         </select>
+      </div>
+      <div className="form-group">
+        <label>Route ID</label>
+        <input value={route.id} readOnly className="route-id-readonly" title="Unique id — duplicate names and endpoints are allowed" />
       </div>
       <div className="form-group">
         <label>Route name</label>
@@ -440,8 +452,8 @@ export default function RouteEditor() {
         <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveRoute(true)}>
           Push route to bus
         </button>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={assignRoute}>
-          Assign & activate
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy || isAssigned(route.id)} onClick={assignRoute}>
+          {isAssigned(route.id) ? '✓ Already assigned' : 'Assign & activate'}
         </button>
         <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={deleteRoute}>
           Delete route

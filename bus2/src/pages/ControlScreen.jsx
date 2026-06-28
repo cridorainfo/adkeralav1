@@ -3,7 +3,6 @@ import { useBusStore } from '../hooks/useBusStore';
 import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop, getDriverVisibleRoutes } from '../store/busStore';
 import { APP_NAME, APP_CONTROL_SUBTITLE } from '../lib/brand';
 import RouteManager from '../components/RouteManager';
-import AdManager from '../components/AdManager';
 import AnnouncementManager from '../components/AnnouncementManager';
 import SerialSettings from '../components/SerialSettings';
 import { BilingualStop } from '../components/BilingualStop';
@@ -18,15 +17,8 @@ import {
 } from '../lib/geoUtils';
 import { useDriverControl } from '../components/DriverControlContext';
 
-function secsUntilNextAd(state) {
-  if (!state.adSettings?.enabled || !(state.ads?.length)) return null;
-  const interval = state.adSettings?.intervalSec ?? 90;
-  const elapsed = Math.floor((Date.now() - (state.lastAdEndedAt ?? Date.now())) / 1000);
-  return Math.max(0, interval - elapsed);
-}
-
 const DRIVER_TABS = ['drive', 'routes', 'settings'];
-const ADMIN_TABS = ['drive', 'routes', 'ads', 'voice', 'settings'];
+const ADMIN_TABS = ['drive', 'routes', 'voice', 'settings'];
 
 export default function ControlScreen({
   serial,
@@ -56,19 +48,7 @@ export default function ControlScreen({
     moveForward,
     undoForward,
     setRouteDirection,
-    addAd,
-    addAds,
-    removeAd,
-    updateAd,
-    addBannerAd,
-    addBannerAds,
-    removeBannerAd,
-    updateBannerAd,
-    playAdNow,
-    endAd,
     updateSerialSettings,
-    updateAdSettings,
-    updateBannerAdSettings,
     updateDisplaySettings,
     updateAnnouncementSettings,
     updateDriveSettings,
@@ -82,7 +62,6 @@ export default function ControlScreen({
   const [tab, setTab] = useState('drive');
   const [unlinkStatus, setUnlinkStatus] = useState('');
   const { disconnect: disconnectDriverPhone } = useDriverControl();
-  const [, tick] = useState(0);
   const { cloudEnabled } = useCloudRouteSearch();
 
   const handleSelectRoute = useCallback(
@@ -141,7 +120,6 @@ export default function ControlScreen({
   const showStartButton = hasRoute && !tripStarted;
   const showEndButton = hasRoute && tripStarted && atTripEnd && !tripEnded;
   const showForwardButton = hasRoute && tripStarted && !atTripEnd && !tripEnded;
-  const nextAdIn = secsUntilNextAd(state);
   const routeStops = stopInfo.allStops ?? [];
   const tripStopsOrdered =
     routeDir === 'reverse' ? [...routeStops].reverse() : routeStops;
@@ -153,7 +131,7 @@ export default function ControlScreen({
     canPlayAnnouncement(state, announceTarget);
 
   const displayLive =
-    state.displayView === 'ad' || (tripStarted && !tripEnded) || tripEnded;
+    (tripStarted && !tripEnded) || tripEnded;
 
   const gps = state.driverLocation;
   const driveSettings = state.driveSettings ?? {};
@@ -174,11 +152,6 @@ export default function ControlScreen({
   const handleTestAnnouncement = (stop, isTerminus) => {
     requestAnnouncement(stop, { isTerminus });
   };
-
-  useEffect(() => {
-    const id = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const tabs = driverMode ? DRIVER_TABS : ADMIN_TABS;
@@ -207,11 +180,6 @@ export default function ControlScreen({
             <span className="control-display-live-dot" aria-hidden />
             Display {displayLive ? 'LIVE' : 'standby'}
           </span>
-          {!driverMode && (
-            <button type="button" className="btn btn-gold" onClick={playAdNow} disabled={!(state.ads?.length)}>
-              ▶ Play Ad
-            </button>
-          )}
           <button
             type="button"
             className="btn btn-primary"
@@ -254,17 +222,6 @@ export default function ControlScreen({
             onClick={() => setTab('routes')}
           >
             🗺️ Routes
-          </button>
-          )}
-          {visibleTabs.includes('ads') && (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'ads'}
-            className={`tab ${tab === 'ads' ? 'active' : ''}`}
-            onClick={() => setTab('ads')}
-          >
-            📢 Ads
           </button>
           )}
           {visibleTabs.includes('voice') && (
@@ -597,7 +554,7 @@ export default function ControlScreen({
                       )}
                     </span>
                     <span>
-                      {state.displayView === 'ad' ? '📢 Ad playing' : '🚌 Route on display'}
+                      {state.displayView === 'ad' ? '📢 Ad on display' : '🚌 Route on display'}
                     </span>
                   </div>
                   <div className="progress-bar">
@@ -605,19 +562,6 @@ export default function ControlScreen({
                   </div>
                 </div>
 
-                {!driverMode && state.adSettings?.enabled && (state.ads?.length ?? 0) > 0 && (
-                  <p className="control-ad-countdown">
-                    {state.displayView === 'ad'
-                      ? 'Advertisement on display…'
-                      : `Next ad in ${nextAdIn}s · Ad ${((state.nextAdIndex ?? 0) % (state.ads?.length ?? 1)) + 1} of ${state.ads?.length ?? 0}`}
-                  </p>
-                )}
-
-                {!driverMode && state.displayView === 'ad' && (
-                  <button type="button" className="btn btn-ghost" style={{ marginTop: '1rem' }} onClick={endAd}>
-                    Skip Ad → Back to Route
-                  </button>
-                )}
               </>
                 )}
               </>
@@ -647,7 +591,11 @@ export default function ControlScreen({
                         >
                           <div className="route-item-info">
                             <strong>{route.name}</strong>
-                            <small>Assigned from server</small>
+                            <small>
+                              {route.id}
+                              {' · '}
+                              Assigned from server
+                            </small>
                           </div>
                         </li>
                       ))}
@@ -697,34 +645,6 @@ export default function ControlScreen({
           </>
         )}
 
-        {!driverMode && tab === 'ads' && (
-          <>
-            <AdManager
-              ads={state.ads ?? []}
-              onAddAd={addAd}
-              onAddAds={addAds}
-              onRemoveAd={removeAd}
-              onUpdateAd={updateAd}
-              adFormat="fullscreen"
-              title="📢 Fullscreen Advertisements"
-              emptyHint="No fullscreen ads yet. These play full-screen on the interval below."
-            />
-            <AdManager
-              ads={state.bannerAds ?? []}
-              onAddAd={addBannerAd}
-              onAddAds={addBannerAds}
-              onRemoveAd={removeBannerAd}
-              onUpdateAd={updateBannerAd}
-              adFormat="banner"
-              title="🏷️ Banner Advertisements"
-              emptyHint="No banner ads yet. These appear below the route on the passenger screen."
-              durationLabel="Each banner duration (sec)"
-              defaultDuration={8}
-              showAudioUpload={false}
-            />
-          </>
-        )}
-
         {tab === 'voice' && (
           <AnnouncementManager
             state={state}
@@ -739,7 +659,7 @@ export default function ControlScreen({
 
         {tab === 'settings' && (
           <div className="panel">
-            <h3 className="panel-title">⚙️ {driverMode ? 'Settings' : 'Display & Ad Settings'}</h3>
+            <h3 className="panel-title">⚙️ {driverMode ? 'Settings' : 'Display settings'}</h3>
 
             {driverMode && (
               <SerialSettings
@@ -770,92 +690,6 @@ export default function ControlScreen({
               Passenger screen shows Malayalam, then English, then Malayalam again — each for this many
               seconds (when both names are set).
             </p>
-            {!driverMode && (
-              <>
-            <h4 className="settings-section-title">Fullscreen advertisements</h4>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Play ad every (seconds)</label>
-                <input
-                  type="number"
-                  min={15}
-                  max={600}
-                  value={state.adSettings?.intervalSec ?? 90}
-                  onChange={(e) => updateAdSettings({ intervalSec: Number(e.target.value) })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Each ad duration (seconds)</label>
-                <input
-                  type="number"
-                  min={3}
-                  max={120}
-                  value={state.adSettings?.defaultDurationSec ?? 12}
-                  onChange={(e) => updateAdSettings({ defaultDurationSec: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={state.adSettings?.enabled ?? false}
-                    onChange={(e) => updateAdSettings({ enabled: e.target.checked })}
-                    style={{ marginRight: '0.5rem' }}
-                  />
-                  Auto-play ads on interval
-                </label>
-              </div>
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={state.adSettings?.playAudio ?? false}
-                    onChange={(e) => updateAdSettings({ playAudio: e.target.checked })}
-                    style={{ marginRight: '0.5rem' }}
-                  />
-                  Play ad audio on display
-                </label>
-              </div>
-            </div>
-            <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginTop: '0.5rem' }}>
-              One ad plays every {state.adSettings?.intervalSec ?? 90} seconds, cycling through all uploaded
-              files in order, then starting again.
-            </p>
-            <h4 className="settings-section-title">Banner advertisements</h4>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Default banner duration (seconds)</label>
-                <input
-                  type="number"
-                  min={3}
-                  max={30}
-                  value={state.bannerAdSettings?.defaultDurationSec ?? 8}
-                  onChange={(e) =>
-                    updateBannerAdSettings({ defaultDurationSec: Number(e.target.value) })
-                  }
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={state.bannerAdSettings?.enabled !== false}
-                    onChange={(e) => updateBannerAdSettings({ enabled: e.target.checked })}
-                    style={{ marginRight: '0.5rem' }}
-                  />
-                  Show banner ads below route details
-                </label>
-              </div>
-            </div>
-            <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginTop: '0.5rem' }}>
-              Banner ads rotate while stop details are shown. They are hidden during fullscreen ads.
-            </p>
-              </>
-            )}
 
             {driverMode && (
               <>

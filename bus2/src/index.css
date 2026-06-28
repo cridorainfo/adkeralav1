@@ -1628,6 +1628,20 @@ textarea {
   color: var(--kerala-muted);
 }
 
+.drive-bus-route-id {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--kerala-muted);
+}
+
+.drive-bus-route-id code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(11, 92, 74, 0.08);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+
 .drive-bus-route-direction {
   padding: 0 1rem 1rem;
   border-top: 1px solid rgba(11, 92, 74, 0.08);

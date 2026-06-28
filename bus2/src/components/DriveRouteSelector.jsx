@@ -45,6 +45,11 @@ export default function DriveRouteSelector({
                   {route.name}
                   <RouteAudioBadge route={route} />
                 </span>
+                {route.id && (
+                  <span className="drive-bus-route-id">
+                    <code>{route.id}</code>
+                  </span>
+                )}
                 {origin && terminus && (
                   <span className="drive-bus-route-endpoints">
                     {getStopEn(origin)} → {getStopEn(terminus)}

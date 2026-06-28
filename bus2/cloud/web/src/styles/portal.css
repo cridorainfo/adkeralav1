@@ -1099,6 +1099,46 @@ button, input, select, textarea { font-family: inherit; }
   color: #b45309;
 }
 
+.route-id-code,
+.route-id-readonly,
+.route-id-inline code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  background: rgba(11, 92, 74, 0.08);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.route-id-readonly {
+  color: var(--kerala-muted);
+  cursor: default;
+}
+
+.route-id-inline {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.route-assigned-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--kerala-green);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(26, 127, 75, 0.1);
+}
+
+tr.route-row-assigned {
+  background: rgba(26, 127, 75, 0.05);
+}
+
+.route-via-cell {
+  max-width: 12rem;
+  font-size: 0.82rem;
+  color: var(--kerala-muted);
+}
+
 .fleet-route-item.active {
   border-color: var(--kerala-green);
   background: rgba(26, 127, 75, 0.08);

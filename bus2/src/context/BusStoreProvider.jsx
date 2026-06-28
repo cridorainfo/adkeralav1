@@ -20,6 +20,7 @@ import {
   isDbWriteInFlight,
   syncLocalCacheFromServer,
 } from '../store/busStore';
+import { createRouteId } from '../lib/routeLabels';
 import {
   uploadDataUrl,
   collectUsedAdMediaPaths,
@@ -266,7 +267,7 @@ function useBusStoreLogic() {
     (name, startEn, endEn, startMl = '', endMl = '') => {
       const catalog = stateRef.current.stopCatalog ?? [];
       const route = {
-        id: createId(),
+        id: createRouteId(),
         name,
         startStop: mergeStopWithCatalog({ en: startEn.trim(), ml: startMl.trim() }, catalog),
         endStop: mergeStopWithCatalog({ en: endEn.trim(), ml: endMl.trim() }, catalog),
