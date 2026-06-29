@@ -27,7 +27,7 @@ export default function DriverConnect() {
   const [ready, setReady] = useState(false);
   const linked = Boolean(session?.linked);
 
-  const { location, permission, requestGps, trackingMode } = useDriverGps(linked);
+  const { location, permission, requestGps, trackingMode } = useDriverGps(ready);
   useDriverCloudLocation({ enabled: linked, location, linked, driverId });
 
   useEffect(() => {
@@ -156,8 +156,8 @@ export default function DriverConnect() {
               ) : (
                 <p className="hint">
                   {permission === 'denied'
-                    ? 'Location blocked — enable in phone settings.'
-                    : 'Waiting for GPS…'}
+                    ? 'Location blocked — open Settings → Apps → browser or AdKerala Driver → Location → Allow.'
+                    : 'Waiting for GPS… Allow location when prompted.'}
                   {permission !== 'granted' && (
                     <button
                       type="button"
@@ -165,7 +165,7 @@ export default function DriverConnect() {
                       onClick={requestGps}
                       style={{ marginLeft: 8 }}
                     >
-                      Enable location
+                      Allow location access
                     </button>
                   )}
                 </p>

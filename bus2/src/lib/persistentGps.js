@@ -1,6 +1,11 @@
+import {
+  HIGH_ACCURACY_GEO,
+  requestLocationAccess,
+} from './locationPermissions.js';
+
 const HIDDEN_POLL_MS = 4000;
-const GEO_WATCH = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
-const GEO_POLL = { enableHighAccuracy: true, maximumAge: 5000, timeout: 25000 };
+const GEO_WATCH = HIGH_ACCURACY_GEO;
+const GEO_POLL = HIGH_ACCURACY_GEO;
 
 function coordsFromPosition(pos) {
   const { latitude: lat, longitude: lng, accuracy, heading, speed } = pos.coords ?? pos;
@@ -10,7 +15,8 @@ function coordsFromPosition(pos) {
     accuracy: accuracy ?? null,
     heading: heading ?? null,
     speed: speed ?? null,
-    at: pos.timestamp ?? Date.now(),
+    // Use receive time — cached fixes keep an old position.timestamp and stall cloud sync.
+    at: Date.now(),
   };
 }
 
@@ -147,21 +153,27 @@ export function createPersistentGpsWatcher({ onFix, onError, onPermission }) {
       const { Capacitor } = await import('@capacitor/core');
       if (!Capacitor.isNativePlatform()) return false;
 
-      const { Geolocation } = await import('@capacitor/geolocation');
-      const perm = await Geolocation.requestPermissions();
-      if (perm.location === 'denied') {
+      const permState = await requestLocationAccess();
+      if (permState === 'denied') {
         onPermission?.('denied');
         return true;
       }
+      if (permState !== 'granted') {
+        onPermission?.('prompt');
+        return true;
+      }
 
+      const { Geolocation } = await import('@capacitor/geolocation');
       mode = 'native';
+      const capOptions = {
+        enableHighAccuracy: true,
+        timeout: HIGH_ACCURACY_GEO.timeout,
+        maximumAge: 0,
+      };
+
       capPollOnce = async () => {
         try {
-          const pos = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 25000,
-            maximumAge: 5000,
-          });
+          const pos = await Geolocation.getCurrentPosition(capOptions);
           handleFix(pos);
         } catch (err) {
           handleErr(err);
@@ -170,16 +182,13 @@ export function createPersistentGpsWatcher({ onFix, onError, onPermission }) {
 
       await capPollOnce();
 
-      const watch = await Geolocation.watchPosition(
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 2000 },
-        (pos, err) => {
-          if (err) {
-            handleErr(err);
-            return;
-          }
-          if (pos) handleFix(pos);
+      const watch = await Geolocation.watchPosition(capOptions, (pos, err) => {
+        if (err) {
+          handleErr(err);
+          return;
         }
-      );
+        if (pos) handleFix(pos);
+      });
 
       capacitorClear = async () => {
         try {
@@ -191,17 +200,14 @@ export function createPersistentGpsWatcher({ onFix, onError, onPermission }) {
 
       if (Capacitor.getPlatform() === 'android') {
         try {
-          const { startAndroidTrackingService, stopAndroidTrackingService } = await import(
-            './androidTrackingService.js'
-          );
-          await startAndroidTrackingService();
+          const { stopAndroidTrackingService } = await import('./androidTrackingService.js');
           const prevClear = capacitorClear;
           capacitorClear = async () => {
             await prevClear?.();
             await stopAndroidTrackingService();
           };
         } catch {
-          /* foreground service optional */
+          /* foreground service started in requestLocationAccess */
         }
       }
 

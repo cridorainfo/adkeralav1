@@ -3,11 +3,17 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap 
 import L from 'leaflet';
 import { api } from '../lib/api.js';
 import { busDisplayLabel } from './BusContext.jsx';
+import {
+  routeMapSegments,
+  routeMapStopMarkers,
+  toMapPosition,
+  trailMapSegments,
+} from '../lib/mapCoords.js';
 
 const TRAIL_COLORS = ['#0b5c4a', '#2563eb', '#c2410c', '#7c3aed', '#b45309', '#be123c'];
 const ROUTE_COLORS = ['#e8b923', '#1a8a7a', '#d45d3a', '#5a7268', '#147a63', '#8b5cf6'];
 const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_API_KEY ?? '';
-const GPS_LIVE_MS = 45000;
+const GPS_LIVE_MS = 90000;
 
 const MAP_STYLES = {
   standard: {
@@ -82,49 +88,6 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function hasStopCoords(stop) {
-  return (
-    stop &&
-    Number.isFinite(Number(stop.lat)) &&
-    Number.isFinite(Number(stop.lng))
-  );
-}
-
-function routeStopPoints(route) {
-  if (!route) return [];
-  const ordered = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
-  return ordered
-    .filter((s) => hasStopCoords(s))
-    .map((s) => ({
-      lat: Number(s.lat),
-      lng: Number(s.lng),
-      en: s.en,
-      ml: s.ml,
-    }));
-}
-
-/** Only connect consecutive stops that both have GPS — never jump over missing stops. */
-function routePolylineSegments(route) {
-  if (!route) return [];
-  const ordered = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
-  const segments = [];
-  let current = [];
-
-  for (const stop of ordered) {
-    if (hasStopCoords(stop)) {
-      current.push([Number(stop.lat), Number(stop.lng)]);
-    } else if (current.length >= 2) {
-      segments.push(current);
-      current = [];
-    } else {
-      current = [];
-    }
-  }
-  if (current.length >= 2) segments.push(current);
-
-  return segments;
-}
-
 function routeColor(routeId, index) {
   let hash = 0;
   for (let i = 0; i < routeId.length; i += 1) hash = (hash * 31 + routeId.charCodeAt(i)) | 0;
@@ -149,22 +112,37 @@ function createBusIcon(label, { selected, gpsLive }) {
   });
 }
 
-export function isGpsLive(loc) {
+export function isGpsLive(loc, busUpdatedAt = 0) {
   if (!loc || loc.lat == null || loc.lng == null || loc.error) return false;
   const at = loc.at ?? 0;
-  return Date.now() - at < GPS_LIVE_MS;
+  if (at > 0 && Date.now() - at < GPS_LIVE_MS) return true;
+  return Boolean(busUpdatedAt && Date.now() - busUpdatedAt < GPS_LIVE_MS);
 }
 
 /** Current GPS fix, or last trail point when GPS dropped. */
 export function resolveBusMapPosition(bus, trails = {}) {
   const loc = bus.telemetry?.driverLocation;
-  if (loc?.lat != null && loc?.lng != null) {
-    return { lat: loc.lat, lng: loc.lng, loc, gpsLive: isGpsLive(loc) };
+  const busUpdatedAt = bus.updatedAt ?? 0;
+  const fromTelemetry = loc ? toMapPosition(loc.lat, loc.lng) : null;
+  if (fromTelemetry) {
+    return {
+      lat: fromTelemetry.lat,
+      lng: fromTelemetry.lng,
+      loc,
+      gpsLive: isGpsLive(loc, busUpdatedAt),
+    };
   }
   const trail = trails[bus.busId] ?? [];
-  const last = trail[trail.length - 1];
-  if (last?.lat != null && last?.lng != null) {
-    return { lat: last.lat, lng: last.lng, loc: last, gpsLive: false };
+  for (let i = trail.length - 1; i >= 0; i -= 1) {
+    const pos = toMapPosition(trail[i]?.lat, trail[i]?.lng);
+    if (pos) {
+      return {
+        lat: pos.lat,
+        lng: pos.lng,
+        loc: trail[i],
+        gpsLive: isGpsLive(trail[i], busUpdatedAt),
+      };
+    }
   }
   return null;
 }
@@ -173,10 +151,11 @@ function mergeTrailPoints(...lists) {
   const byKey = new Map();
   for (const list of lists) {
     for (const point of list ?? []) {
-      if (point?.lat == null || point?.lng == null) continue;
+      const pos = toMapPosition(point?.lat, point?.lng);
+      if (!pos) continue;
       const at = point.at ?? 0;
-      const key = `${at}:${point.lat.toFixed(5)}:${point.lng.toFixed(5)}`;
-      byKey.set(key, { lat: point.lat, lng: point.lng, at });
+      const key = `${at}:${pos.lat.toFixed(5)}:${pos.lng.toFixed(5)}`;
+      byKey.set(key, { lat: pos.lat, lng: pos.lng, at });
     }
   }
   return [...byKey.values()].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
@@ -198,7 +177,7 @@ function FitBounds({ buses, trails, assignedRoutes }) {
       }
     }
     for (const route of assignedRoutes ?? []) {
-      for (const stop of routeStopPoints(route)) {
+      for (const stop of routeMapStopMarkers(route)) {
         points.push([stop.lat, stop.lng]);
       }
     }
@@ -241,7 +220,8 @@ function useBusTrails(buses, selectedBusId) {
   useEffect(() => {
     for (const bus of buses ?? []) {
       const loc = bus.telemetry?.driverLocation;
-      if (loc?.lat == null || loc?.lng == null) continue;
+      const pos = loc ? toMapPosition(loc.lat, loc.lng) : null;
+      if (!pos) continue;
       const id = bus.busId;
       const trail = liveRef.current[id] ?? [];
       const last = trail[trail.length - 1];
@@ -249,10 +229,10 @@ function useBusTrails(buses, selectedBusId) {
       const moved =
         !last ||
         last.at !== at ||
-        Math.abs(last.lat - loc.lat) > 0.00001 ||
-        Math.abs(last.lng - loc.lng) > 0.00001;
+        Math.abs(last.lat - pos.lat) > 0.00001 ||
+        Math.abs(last.lng - pos.lng) > 0.00001;
       if (moved) {
-        liveRef.current[id] = [...trail, { lat: loc.lat, lng: loc.lng, at }].slice(-500);
+        liveRef.current[id] = [...trail, { lat: pos.lat, lng: pos.lng, at }].slice(-500);
         setTick((t) => t + 1);
       }
     }
@@ -366,7 +346,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
         <FitBounds buses={buses} trails={trails} assignedRoutes={assignedRoutes} />
         {selectedBusId &&
           assignedRoutes.flatMap((route, routeIndex) => {
-            const segments = routePolylineSegments(route);
+            const segments = routeMapSegments(route);
             const isActive = route.id === activeRouteId;
             const color = routeColor(route.id, routeIndex);
             return segments.map((positions, segIndex) => (
@@ -388,7 +368,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
           assignedRoutes.flatMap((route, routeIndex) => {
             const color = routeColor(route.id, routeIndex);
             const isActive = route.id === activeRouteId;
-            return routeStopPoints(route).map((stop) => (
+            return routeMapStopMarkers(route).map((stop) => (
               <CircleMarker
                 key={`stop-${route.id}-${stop.en}`}
                 center={[stop.lat, stop.lng]}
@@ -414,15 +394,13 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
               </CircleMarker>
             ));
           })}
-        {mapMarkers.map(({ bus, gpsLive }, index) => {
+        {mapMarkers.flatMap(({ bus, gpsLive }, index) => {
           const trail = trails[bus.busId] ?? [];
-          const positions = trail.map((p) => [p.lat, p.lng]);
           const selected = bus.busId === selectedBusId;
           const color = busTrailColor(bus.busId, index);
-          if (positions.length < 2) return null;
-          return (
+          return trailMapSegments(trail).map((positions, segIndex) => (
             <Polyline
-              key={`trail-${bus.busId}`}
+              key={`trail-${bus.busId}-${segIndex}`}
               positions={positions}
               pathOptions={{
                 color: gpsLive ? color : '#94a3b8',
@@ -432,7 +410,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
                 lineJoin: 'round',
               }}
             />
-          );
+          ));
         })}
         {mapMarkers.map(({ bus, lat, lng, loc, gpsLive }) => {
           const label = busDisplayLabel(bus);

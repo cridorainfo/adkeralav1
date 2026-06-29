@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBusStore } from './useBusStore';
 import { distanceMetres } from '../lib/geoUtils';
 import { createPersistentGpsWatcher } from '../lib/persistentGps';
+import {
+  checkLocationPermission,
+  requestLocationAccess,
+} from '../lib/locationPermissions';
 
 const SAVE_INTERVAL_MS = 2000;
 const MOVE_THRESHOLD_M = 12;
@@ -16,42 +20,54 @@ export function useDriverGps(enabled = true) {
 
   const persistIfNeeded = useCallback(
     (loc, force = false) => {
-      const at = loc.at ?? Date.now();
+      const receivedAt = Date.now();
+      const fix =
+        loc?.lat != null && loc?.lng != null && !loc.error
+          ? { ...loc, at: receivedAt }
+          : { ...loc, at: loc?.at ?? receivedAt };
+
       let shouldPersist = force;
 
-      if (!shouldPersist && at - lastSaveRef.current >= SAVE_INTERVAL_MS) {
+      if (!shouldPersist && receivedAt - lastSaveRef.current >= SAVE_INTERVAL_MS) {
         shouldPersist = true;
       }
 
       if (
         !shouldPersist &&
         lastSavedPosRef.current &&
-        loc.lat != null &&
-        loc.lng != null
+        fix.lat != null &&
+        fix.lng != null
       ) {
         const moved = distanceMetres(
           lastSavedPosRef.current.lat,
           lastSavedPosRef.current.lng,
-          loc.lat,
-          loc.lng
+          fix.lat,
+          fix.lng
         );
         if (moved >= MOVE_THRESHOLD_M) shouldPersist = true;
       }
 
       if (shouldPersist) {
-        lastSaveRef.current = at;
-        if (loc.lat != null && loc.lng != null) {
-          lastSavedPosRef.current = { lat: loc.lat, lng: loc.lng };
+        lastSaveRef.current = receivedAt;
+        if (fix.lat != null && fix.lng != null) {
+          lastSavedPosRef.current = { lat: fix.lat, lng: fix.lng };
         }
       }
 
-      updateDriverLocation(loc, shouldPersist);
+      updateDriverLocation(fix, shouldPersist);
     },
     [updateDriverLocation]
   );
 
-  const requestGps = useCallback(() => {
-    watcherRef.current?.requestFix?.();
+  const requestGps = useCallback(async () => {
+    const state = await requestLocationAccess();
+    setPermission(state);
+    const watcher = watcherRef.current;
+    if (watcher) {
+      await watcher.stop?.();
+      await watcher.start?.();
+    }
+    return state;
   }, []);
 
   useEffect(() => {
@@ -61,15 +77,11 @@ export function useDriverGps(enabled = true) {
       return undefined;
     }
 
-    if (navigator.permissions?.query) {
-      navigator.permissions
-        .query({ name: 'geolocation' })
-        .then((result) => {
-          setPermission(result.state);
-          result.onchange = () => setPermission(result.state);
-        })
-        .catch(() => {});
-    }
+    let cancelled = false;
+
+    checkLocationPermission().then((state) => {
+      if (!cancelled) setPermission(state);
+    });
 
     const watcher = createPersistentGpsWatcher({
       onFix: (fix) => persistIfNeeded(fix),
@@ -77,9 +89,10 @@ export function useDriverGps(enabled = true) {
       onPermission: setPermission,
     });
     watcherRef.current = watcher;
-    watcher.start();
+    void watcher.start();
 
     return () => {
+      cancelled = true;
       watcher.stop();
       watcherRef.current = null;
     };

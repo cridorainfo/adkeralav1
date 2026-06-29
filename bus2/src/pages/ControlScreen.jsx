@@ -16,6 +16,7 @@ import {
   formatGpsAccuracy,
 } from '../lib/geoUtils';
 import { useDriverControl } from '../components/DriverControlContext';
+import GpsPermissionBanner from '../components/GpsPermissionBanner';
 
 const DRIVER_TABS = ['drive', 'routes', 'settings'];
 const ADMIN_TABS = ['drive', 'routes', 'voice', 'settings'];
@@ -329,6 +330,12 @@ export default function ControlScreen({
                 )}
 
                 {driverMode && (
+                  <>
+                    <GpsPermissionBanner
+                      permission={gpsPermission}
+                      onEnable={onRequestGps}
+                      compact
+                    />
                   <div className="gps-status-card" role="status">
                     <div className="gps-status-row">
                       <span>GPS</span>
@@ -340,7 +347,8 @@ export default function ControlScreen({
                             : 'Acquiring…'}
                       </strong>
                     </div>
-                    {(gpsPermission === 'denied' || gpsPermission === 'prompt') && onRequestGps && (
+                    {(gpsPermission === 'denied' || gpsPermission === 'prompt' || gpsPermission === 'unknown') &&
+                      onRequestGps && (
                       <button
                         type="button"
                         className="btn btn-outline btn-sm gps-enable-btn"
@@ -370,6 +378,7 @@ export default function ControlScreen({
                       </div>
                     )}
                   </div>
+                  </>
                 )}
 
                 {driverMode && (

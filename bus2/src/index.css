@@ -290,6 +290,35 @@ textarea {
   margin-top: 0.35rem;
 }
 
+
+.gps-permission-banner {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(11, 92, 74, 0.12);
+  border: 1px solid rgba(11, 92, 74, 0.35);
+}
+
+.gps-permission-banner.denied {
+  background: rgba(180, 50, 40, 0.1);
+  border-color: rgba(180, 50, 40, 0.35);
+}
+
+.gps-permission-banner p {
+  margin: 0.35rem 0 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.gps-permission-banner.compact {
+  margin-top: 0;
+}
+
+.driver-gps-fix {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
 .gps-status-card {
   background: rgba(11, 92, 74, 0.06);
   border: 1px solid rgba(11, 92, 74, 0.12);

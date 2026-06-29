@@ -16,6 +16,7 @@ import { useBusStore } from '../hooks/useBusStore';
 import { useDriverGps } from '../hooks/useDriverGps';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
 import DriverBusInfo from '../components/DriverBusInfo';
+import GpsPermissionBanner from '../components/GpsPermissionBanner';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,7 +36,7 @@ export default function DriverConnect() {
   const { state } = useBusStore();
   const linked = Boolean(session?.linked);
 
-  useDriverGps(linked);
+  const { permission: gpsPermission, requestGps } = useDriverGps(ready);
   useDriverCloudLocation({ enabled: linked, location: state.driverLocation, linked });
 
   useEffect(() => {
@@ -139,11 +140,8 @@ export default function DriverConnect() {
         const next = await fetchDriverSession(driverId, cloudUrl);
         if (next?.linked && next.lanIp) {
           setSession(next);
-          const controlUrl = controlUrlForSession(next);
-          if (controlUrl) {
-            window.location.href = controlUrl;
-            return;
-          }
+          setStatus('Linked — tap Open control when on bus Wi‑Fi');
+          return;
         }
         await sleep(2000);
       }
@@ -227,6 +225,16 @@ export default function DriverConnect() {
           {status}
         </p>
 
+        <GpsPermissionBanner permission={gpsPermission} onEnable={requestGps} />
+
+        {gpsPermission === 'granted' && state.driverLocation?.lat != null && !state.driverLocation?.error && (
+          <p className="hint driver-gps-fix">
+            GPS: {state.driverLocation.lat.toFixed(5)}, {state.driverLocation.lng.toFixed(5)}
+            {state.driverLocation.accuracy != null &&
+              ` · ±${Math.round(state.driverLocation.accuracy)} m`}
+          </p>
+        )}
+
         {linked ? (
           <div className="driver-connect-section">
             <DriverBusInfo session={session} />
@@ -248,7 +256,10 @@ export default function DriverConnect() {
                 Unlink
               </button>
             </div>
-            <p className="driver-connect-foot">Live GPS is sent to the fleet map while this app is open.</p>
+            <p className="driver-connect-foot">
+              Live GPS streams to the fleet map while this app is open. For best accuracy, allow
+              location &quot;All the time&quot; in phone settings.
+            </p>
           </div>
         ) : (
           <form className="driver-connect-section" onSubmit={handlePair}>

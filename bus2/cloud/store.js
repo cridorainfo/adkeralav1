@@ -211,7 +211,7 @@ export async function updateDriverLocation(driverId, location = {}) {
     return { ok: false, error: 'Driver not linked to a bus' };
   }
 
-  const at = Number(location.at) || Date.now();
+  const at = Date.now();
   const driverLocation = {
     lat,
     lng,

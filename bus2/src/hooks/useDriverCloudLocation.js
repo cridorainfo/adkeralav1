@@ -73,9 +73,9 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
       if (!enabled || !linked || !loc || loc.error) return;
       if (loc.lat == null || loc.lng == null) return;
 
-      const at = loc.at ?? Date.now();
+      const receivedAt = Date.now();
       let shouldPush = force;
-      if (!shouldPush && at - lastPushRef.current >= PUSH_INTERVAL_MS) shouldPush = true;
+      if (!shouldPush && receivedAt - lastPushRef.current >= PUSH_INTERVAL_MS) shouldPush = true;
       if (
         !shouldPush &&
         lastPosRef.current &&
@@ -92,10 +92,15 @@ export function useDriverCloudLocation({ enabled = true, location, linked: linke
       cloudUrlRef.current = cloudUrl ?? '';
       if (!cloudUrl) return;
 
-      lastPushRef.current = at;
+      lastPushRef.current = receivedAt;
       lastPosRef.current = { lat: loc.lat, lng: loc.lng };
       const keepalive = document.visibilityState === 'hidden';
-      await sendDriverLocation(driverId, loc, cloudUrl, { keepalive });
+      await sendDriverLocation(
+        driverId,
+        { ...loc, at: receivedAt },
+        cloudUrl,
+        { keepalive }
+      );
     },
     [enabled, linked]
   );

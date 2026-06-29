@@ -1,6 +1,8 @@
+import { HIGH_ACCURACY_GEO, requestLocationAccess } from './locationPermissions.js';
+
 const HIDDEN_POLL_MS = 4000;
-const GEO_WATCH = { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 };
-const GEO_POLL = { enableHighAccuracy: true, maximumAge: 5000, timeout: 25000 };
+const GEO_WATCH = HIGH_ACCURACY_GEO;
+const GEO_POLL = HIGH_ACCURACY_GEO;
 
 function coordsFromPosition(pos) {
   const { latitude: lat, longitude: lng, accuracy, heading, speed } = pos.coords ?? pos;
@@ -10,7 +12,7 @@ function coordsFromPosition(pos) {
     accuracy: accuracy ?? null,
     heading: heading ?? null,
     speed: speed ?? null,
-    at: pos.timestamp ?? Date.now(),
+    at: Date.now(),
   };
 }
 
@@ -128,9 +130,13 @@ export function createPersistentGpsWatcher({ onFix, onError, onPermission }) {
   };
 
   return {
-    start() {
+    async start() {
       if (active) return;
       active = true;
+      const perm = await requestLocationAccess();
+      if (perm === 'denied') onPermission?.('denied');
+      else if (perm === 'granted') onPermission?.('granted');
+      else onPermission?.('prompt');
       startWeb();
     },
     stop() {

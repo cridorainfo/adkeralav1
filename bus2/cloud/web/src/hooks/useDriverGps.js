@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { distanceMetres } from '../lib/geoUtils.js';
 import { createPersistentGpsWatcher } from '../lib/persistentGps.js';
+import {
+  checkLocationPermission,
+  requestLocationAccess,
+} from '../lib/locationPermissions.js';
 
 const SAVE_INTERVAL_MS = 2000;
 const MOVE_THRESHOLD_M = 12;
@@ -15,32 +19,44 @@ export function useDriverGps(enabled = true) {
   const [trackingMode, setTrackingMode] = useState('idle');
 
   const emitIfNeeded = useCallback((next, force = false) => {
-    const at = next.at ?? Date.now();
+    const receivedAt = Date.now();
+    const fix =
+      next?.lat != null && next?.lng != null && !next.error
+        ? { ...next, at: receivedAt }
+        : { ...next, at: next?.at ?? receivedAt };
+
     let shouldEmit = force;
 
-    if (!shouldEmit && at - lastEmitRef.current >= SAVE_INTERVAL_MS) shouldEmit = true;
+    if (!shouldEmit && receivedAt - lastEmitRef.current >= SAVE_INTERVAL_MS) shouldEmit = true;
     if (
       !shouldEmit &&
       lastPosRef.current &&
-      next.lat != null &&
-      next.lng != null &&
-      distanceMetres(lastPosRef.current.lat, lastPosRef.current.lng, next.lat, next.lng) >=
+      fix.lat != null &&
+      fix.lng != null &&
+      distanceMetres(lastPosRef.current.lat, lastPosRef.current.lng, fix.lat, fix.lng) >=
         MOVE_THRESHOLD_M
     ) {
       shouldEmit = true;
     }
 
     if (shouldEmit) {
-      lastEmitRef.current = at;
-      if (next.lat != null && next.lng != null) {
-        lastPosRef.current = { lat: next.lat, lng: next.lng };
+      lastEmitRef.current = receivedAt;
+      if (fix.lat != null && fix.lng != null) {
+        lastPosRef.current = { lat: fix.lat, lng: fix.lng };
       }
-      setLocation(next);
+      setLocation(fix);
     }
   }, []);
 
-  const requestGps = useCallback(() => {
-    watcherRef.current?.requestFix?.();
+  const requestGps = useCallback(async () => {
+    const state = await requestLocationAccess();
+    setPermission(state);
+    const watcher = watcherRef.current;
+    if (watcher) {
+      await watcher.stop?.();
+      await watcher.start?.();
+    }
+    return state;
   }, []);
 
   useEffect(() => {
@@ -51,12 +67,19 @@ export function useDriverGps(enabled = true) {
       return undefined;
     }
 
+    let cancelled = false;
+    checkLocationPermission().then((state) => {
+      if (!cancelled) setPermission(state);
+    });
+
     if (navigator.permissions?.query) {
       navigator.permissions
         .query({ name: 'geolocation' })
         .then((result) => {
-          setPermission(result.state);
-          result.onchange = () => setPermission(result.state);
+          if (!cancelled) setPermission(result.state);
+          result.onchange = () => {
+            if (!cancelled) setPermission(result.state);
+          };
         })
         .catch(() => {});
     }
@@ -76,6 +99,7 @@ export function useDriverGps(enabled = true) {
     document.addEventListener('visibilitychange', onVis);
 
     return () => {
+      cancelled = true;
       document.removeEventListener('visibilitychange', onVis);
       watcher.stop();
       watcherRef.current = null;
