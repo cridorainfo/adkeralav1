@@ -8,37 +8,35 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
   const plate = busProfile?.plateDisplay || busProfile?.plate || '';
   const code = busProfile?.pairingCode ?? '';
   const controlUrlHttp = network?.controlUrlHttp ?? network?.controlUrl ?? null;
-  const lanIp = network?.primaryIp ?? network?.lan?.[0]?.address ?? null;
+  const lanIp = network?.primaryIp ?? null;
   const controlPort = network?.port ?? 5174;
   const firewallBlocked = network?.firewallOk === false;
   const lanReachable = network?.lanReachable;
-  const altUrls = (network?.controlUrls ?? []).filter(
-    (u) => u.controlUrl && u.controlUrl !== controlUrlHttp
-  );
+  const lanProbeError = network?.lanProbeError;
+  const allControlUrls = (network?.controlUrls ?? []).filter((u) => u.controlUrl);
 
   if (driverLink?.driverId) {
     return null;
   }
 
-  if (!code && !controlUrlHttp && !lanIp) return null;
+  if (!code && !controlUrlHttp && !lanIp && !allControlUrls.length) return null;
 
-  const controlLabel = controlUrlHttp
-    ? controlUrlHttp
-    : lanIp
-      ? `http://${lanIp}:${controlPort}/control`
-      : '';
+  const controlLabel =
+    controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
   const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code);
   const qrSize = compact ? 88 : 132;
+  const showBlockedWarning = lanReachable === false || firewallBlocked || lanProbeError === 'probe_failed';
+  const showNoWifiWarning = lanProbeError === 'no_lan_ip' || (!controlUrlHttp && !allControlUrls.length);
 
   return (
     <div
       className={`driver-pairing-banner${compact ? ' driver-pairing-banner--compact' : ''}`}
       role="status"
-      aria-label={`Driver control ${controlLabel}`}
+      aria-label={controlLabel ? `Driver control ${controlLabel}` : 'Driver pairing'}
     >
       <div className="driver-pairing-banner-body">
-        {joinUrl && code && (
+        {joinUrl && code && controlUrlHttp && (
           <div className="driver-pairing-qr-wrap">
             <DriverPairingQr value={joinUrl} size={qrSize} />
             {!compact && <span className="driver-pairing-qr-caption">Scan phone</span>}
@@ -54,7 +52,7 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
           )}
           {!compact && controlLabel && (
             <div className="driver-pairing-lan-row">
-              <span className="driver-pairing-label">Or type URL</span>
+              <span className="driver-pairing-label">Control URL</span>
               <strong className="driver-pairing-lan">{controlLabel}</strong>
             </div>
           )}
@@ -62,27 +60,33 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
       </div>
       {!compact && (
         <p className="driver-pairing-hint">
-          Same Wi‑Fi — scan QR or open URL, then enter <strong>admin OTP</strong> from the fleet dashboard.
+          Phone on <strong>same Wi‑Fi as this PC</strong> (turn off mobile data). Open the URL or scan
+          QR, then enter <strong>admin OTP</strong> from the fleet dashboard. Use <strong>http://</strong>
+          , not https.
         </p>
       )}
-      {lanReachable === false && !compact && (
+      {showNoWifiWarning && !compact && (
         <p className="driver-pairing-firewall-warn">
-          <strong>Phones blocked</strong> — Windows Firewall is stopping Wi‑Fi access (127.0.0.1 works
-          only on this PC). Right-click <strong>allow-firewall.bat</strong> → Run as administrator, then
+          <strong>No Wi‑Fi IP found</strong> — connect this PC to the bus router or phone hotspot, then
           restart the app.
         </p>
       )}
-      {firewallBlocked && lanReachable !== false && !compact && (
+      {showBlockedWarning && !showNoWifiWarning && !compact && (
         <p className="driver-pairing-firewall-warn">
-          Firewall may block phones — run <strong>allow-firewall.bat</strong> as Administrator in the app
-          folder.
+          <strong>Phones may be blocked</strong> — right-click <strong>allow-firewall.bat</strong> in the
+          app folder → Run as administrator, then restart. Or run <strong>Install-AdKerala.bat</strong>{' '}
+          once.
         </p>
       )}
-      {altUrls.length > 0 && !compact && (
+      {allControlUrls.length > 1 && !compact && (
         <p className="driver-pairing-hint">
-          If that IP fails, try:{' '}
-          {altUrls.map((u) => (
-            <strong key={u.ip}> {u.controlUrl}</strong>
+          If the URL above fails, try:{' '}
+          {allControlUrls.map((u, i) => (
+            <span key={u.ip}>
+              {i > 0 ? ' · ' : ''}
+              <strong>{u.controlUrl}</strong>
+              {u.name ? ` (${u.name})` : ''}
+            </span>
           ))}
         </p>
       )}

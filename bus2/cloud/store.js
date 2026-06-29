@@ -27,6 +27,7 @@ const defaultStore = () => ({
     minDriverVersion: '0.1.0',
   },
   stopCatalog: [],
+  routeCatalogUpdatedAt: 0,
   stopAudioCatalog: {},
   stopAudioSavedAt: 0,
   busAdsCatalog: {},
@@ -601,13 +602,19 @@ export async function getRouteById(routeId) {
 }
 
 export async function upsertRouteCatalog(route) {
-  if (usePostgres()) return pg.pgUpsertRoute(route, route.ownerId ?? null);
+  const stamped = { ...route, updatedAt: Date.now() };
+  if (usePostgres()) {
+    const saved = await pg.pgUpsertRoute(stamped, stamped.ownerId ?? null);
+    await pg.pgSetPlatformSetting?.('routeCatalogUpdatedAt', Date.now()).catch?.(() => {});
+    return saved;
+  }
   const store = await loadStore();
-  const idx = store.routeCatalog.findIndex((r) => r.id === route.id);
-  if (idx >= 0) store.routeCatalog[idx] = route;
-  else store.routeCatalog.push(route);
+  const idx = store.routeCatalog.findIndex((r) => r.id === stamped.id);
+  if (idx >= 0) store.routeCatalog[idx] = stamped;
+  else store.routeCatalog.push(stamped);
+  store.routeCatalogUpdatedAt = stamped.updatedAt;
   await saveStore();
-  return route;
+  return stamped;
 }
 
 export async function deleteRouteFromCatalog(routeId) {
@@ -616,8 +623,34 @@ export async function deleteRouteFromCatalog(routeId) {
   const before = store.routeCatalog.length;
   store.routeCatalog = store.routeCatalog.filter((r) => r.id !== routeId);
   if (store.routeCatalog.length === before) return false;
+  store.routeCatalogUpdatedAt = Date.now();
   await saveStore();
   return true;
+}
+
+export async function getRouteCatalogRevision() {
+  if (usePostgres()) {
+    try {
+      const row = await pg.pgGetPlatformSetting?.('routeCatalogUpdatedAt');
+      if (row?.value != null) return Number(row.value) || 0;
+    } catch {
+      /* ignore */
+    }
+  }
+  const store = await loadStore();
+  return store.routeCatalogUpdatedAt ?? 0;
+}
+
+export async function touchRouteCatalogRevision() {
+  const at = Date.now();
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting?.('routeCatalogUpdatedAt', at).catch?.(() => {});
+    return at;
+  }
+  const store = await loadStore();
+  store.routeCatalogUpdatedAt = at;
+  await saveStore();
+  return at;
 }
 
 function normalizeCatalogStop(body = {}) {

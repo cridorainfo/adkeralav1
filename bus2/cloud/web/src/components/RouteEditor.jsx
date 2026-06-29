@@ -336,7 +336,7 @@ export default function RouteEditor() {
       setRoute(withCatalogData(json.route));
       setStatus(
         andPush && pushToBus && targetBusIds.length
-          ? `Saved · queued for ${targetBusIds.join(', ')}`
+          ? `Saved · pushed to ${targetBusIds.join(', ')}`
           : 'Saved to catalog'
       );
       await loadRoutes();
@@ -366,7 +366,7 @@ export default function RouteEditor() {
         method: 'POST',
         body: JSON.stringify({ routeId: route.id }),
       });
-      setStatus(`Route ${route.id} assigned & queued for ${selectedBusId}`);
+      setStatus(`Route ${route.id} assigned & pushed to ${selectedBusId}`);
       await refreshAssigned();
     } catch (err) {
       setError(err.message ?? 'Assign failed');

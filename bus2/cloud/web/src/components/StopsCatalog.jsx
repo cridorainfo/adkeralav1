@@ -171,7 +171,11 @@ export default function StopsCatalog() {
         method: 'PATCH',
         body: JSON.stringify(body),
       });
-      setMessage(`Saved "${stopEn}" to all routes`);
+      setMessage(
+        pushOnSave && pushToBus && selectedBusId
+          ? `Saved "${stopEn}" · pushed to ${selectedBusId}`
+          : `Saved "${stopEn}" to all routes`
+      );
       if (stopEn !== selectedEn) selectStop(stopEn);
       await load();
     } catch (err) {

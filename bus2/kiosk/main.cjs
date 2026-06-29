@@ -113,6 +113,10 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.webContents.insertCSS('html, html * { cursor: none !important; }');
+  });
+
   mainWindow.loadURL(DISPLAY_URL);
 }
 

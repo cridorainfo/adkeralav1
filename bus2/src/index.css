@@ -267,6 +267,11 @@ textarea {
   font-weight: 600;
 }
 
+html.kiosk-hide-cursor,
+html.kiosk-hide-cursor * {
+  cursor: none !important;
+}
+
 .display-kiosk-control-hint {
   position: fixed;
   bottom: 0;

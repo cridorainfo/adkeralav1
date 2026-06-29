@@ -88,6 +88,12 @@ export default function DisplayApp() {
   }, [busPcLaunch]);
 
   useEffect(() => {
+    if (!kioskMode) return undefined;
+    document.documentElement.classList.add('kiosk-hide-cursor');
+    return () => document.documentElement.classList.remove('kiosk-hide-cursor');
+  }, [kioskMode]);
+
+  useEffect(() => {
     if (!serialSupported) return undefined;
 
     const onKeyDown = (e) => {

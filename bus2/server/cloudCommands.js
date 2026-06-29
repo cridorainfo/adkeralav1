@@ -205,6 +205,7 @@ export function applyCloudCommands(current, commands) {
           assignedRouteIds: assignedIds,
         };
         next.savedAt = payload.savedAt ?? Date.now();
+        next.routesSavedAt = Math.max(next.routesSavedAt ?? 0, payload.savedAt ?? 0);
         break;
       }
 

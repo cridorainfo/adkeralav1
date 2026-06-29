@@ -152,6 +152,60 @@ async function syncGlobalPhraseAudio(root, creds) {
   }
 }
 
+async function syncAssignedRoutesFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(`${creds.cloudUrl}/api/buses/${encodeURIComponent(creds.busId)}/routes`, {
+      headers: {
+        ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+        ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+      },
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const cloudSavedAt = json.routesSavedAt ?? 0;
+    const current = (await readInfoFile(root)) ?? {};
+    const localRevision = current.routesSavedAt ?? 0;
+    if (cloudSavedAt && cloudSavedAt <= localRevision) return;
+
+    const merged = applyCloudCommands(current, [
+      {
+        type: 'SYNC_ASSIGNED_ROUTES',
+        payload: {
+          routes: json.routes ?? [],
+          assignedRouteIds: json.assignedRouteIds ?? [],
+          removeLocalOrphans: true,
+          savedAt: cloudSavedAt || Date.now(),
+        },
+      },
+    ]);
+
+    const cloudCatalog = json.stopCatalog ?? [];
+    const catalogChanged =
+      JSON.stringify(current.stopCatalog ?? []) !== JSON.stringify(cloudCatalog);
+    if (catalogChanged) {
+      merged.stopCatalog = cloudCatalog;
+    }
+
+    const pushAt = Date.now();
+    merged.savedAt = Math.max(current.savedAt ?? 0, cloudSavedAt, pushAt);
+    merged.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, pushAt);
+    merged.routesSavedAt = cloudSavedAt || pushAt;
+
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-routes' });
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-routes',
+    });
+  } catch {
+    /* cloud offline */
+  }
+}
+
 async function syncStopAudioFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
 
@@ -272,13 +326,11 @@ export async function runCloudSync(root) {
       await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
       await syncCloudMedia(root, mediaPaths, creds);
       await deleteLocalMediaFiles(root, removedPaths);
-      if (mediaPaths.length || removedPaths.length) {
-        notifyStateChanged(root, {
-          savedAt: merged.savedAt,
-          lastCloudPushAt: merged.lastCloudPushAt,
-          source: 'cloud-media',
-        });
-      }
+      notifyStateChanged(root, {
+        savedAt: merged.savedAt,
+        lastCloudPushAt: merged.lastCloudPushAt,
+        source: 'cloud-commands',
+      });
     }
 
     for (const cmd of pending.commands) {
@@ -299,6 +351,7 @@ export async function runCloudSync(root) {
   }
 
   lastPushedAt = Date.now();
+  await syncAssignedRoutesFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
 

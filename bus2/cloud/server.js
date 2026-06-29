@@ -52,6 +52,7 @@ import {
   getBusAssignedRouteIds,
   listBusIdsWithAssignedRoute,
   hasPendingCommandType,
+  getRouteCatalogRevision,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -583,6 +584,15 @@ async function buildAssignedRoutesPayload(busId) {
   return { assignedIds: validIds, routes };
 }
 
+async function pushAssignedRoutesToBuses(targetBusIds = []) {
+  const commandIds = [];
+  for (const busId of [...new Set((targetBusIds ?? []).filter(Boolean))]) {
+    const cmd = await enqueueAssignedRouteSync(busId);
+    if (cmd?.id) commandIds.push({ busId, commandId: cmd.id });
+  }
+  return commandIds;
+}
+
 /** Authoritative sync — assigned routes only, drops stale copies on the bus. */
 async function enqueueAssignedRouteSync(busId) {
   if (!busId) return null;
@@ -929,6 +939,20 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   res.json({ ok: true });
 });
 
+/** Assigned routes + stop catalog for bus PC pull sync (same pattern as stop audio). */
+app.get('/api/buses/:busId/routes', authBus, async (req, res) => {
+  const busId = req.params.busId;
+  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  const store = await loadStore();
+  res.json({
+    ok: true,
+    routes,
+    assignedRouteIds: assignedIds,
+    stopCatalog: store.stopCatalog ?? [],
+    routesSavedAt: await getRouteCatalogRevision(),
+  });
+});
+
 app.get('/api/buses/:busId/commands', authBus, async (req, res) => {
   const commands = await pullPendingCommands(req.params.busId);
   res.json({ ok: true, commands });
@@ -1199,11 +1223,8 @@ app.post('/api/routes', authCatalog, async (req, res) => {
   }
   const enriched = await enrichRouteForClient(route);
   const targetBusIds = req.body?.targetBusIds ?? [];
-  for (const busId of targetBusIds) {
-    await enqueueCommand(busId, 'UPSERT_ROUTE', { route: await enrichRouteFromCatalog(route), savedAt: Date.now() });
-    await queueAudioBundleForBus(busId, { routeId: enriched.id });
-  }
-  res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
+  const commandIds = await pushAssignedRoutesToBuses(targetBusIds);
+  res.json({ ok: true, route: enriched, pushedTo: targetBusIds, commandIds });
 });
 
 app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
@@ -1215,11 +1236,13 @@ app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
     }
     const enriched = await enrichRouteForClient(route);
     const targetBusIds = req.body?.targetBusIds ?? [];
-    for (const busId of targetBusIds) {
-      await enqueueCommand(busId, 'UPSERT_ROUTE', { route: await enrichRouteFromCatalog(route), savedAt: Date.now() });
-      await queueAudioBundleForBus(busId, { routeId: enriched.id });
+    const commandIds = await pushAssignedRoutesToBuses(targetBusIds);
+    if (targetBusIds.length) {
+      for (const busId of targetBusIds) {
+        await queueAudioBundleForBus(busId, { routeId: enriched.id });
+      }
     }
-    res.json({ ok: true, route: enriched, queuedFor: targetBusIds });
+    res.json({ ok: true, route: enriched, pushedTo: targetBusIds, commandIds });
   } catch (err) {
     console.error('PUT /api/routes failed:', err);
     res.status(500).json({ ok: false, error: err.message ?? 'Could not save route' });
@@ -1321,23 +1344,15 @@ app.patch('/api/stops/:stopEn', authCatalog, async (req, res) => {
     invalidateContentGapsCache();
 
     const stopKey = String(req.params.stopEn).trim();
-    for (const busId of targetBusIds) {
-      for (const routeId of result.affectedRouteIds) {
-        await enqueueCommand(busId, 'PATCH_STOP', {
-          routeId,
-          stopEn: stopKey,
-          patch: body,
-          savedAt: Date.now(),
-        });
-      }
-    }
+    const commandIds = await pushAssignedRoutesToBuses(targetBusIds);
 
     res.json({
       ok: true,
       stop: result.stop,
       routesUpdated: result.routesUpdated,
       affectedRouteIds: result.affectedRouteIds,
-      queuedFor: targetBusIds,
+      pushedTo: targetBusIds,
+      commandIds,
     });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message ?? 'Invalid stop data' });
@@ -1385,16 +1400,9 @@ app.patch('/api/routes/:routeId/stops/:stopEn', authCatalog, async (req, res) =>
     }
     invalidateContentGapsCache();
 
-    for (const busId of targetBusIds) {
-      await enqueueCommand(busId, 'PATCH_STOP', {
-        routeId: req.params.routeId,
-        stopEn: req.params.stopEn,
-        patch: stopPatch,
-        savedAt: Date.now(),
-      });
-    }
+    const commandIds = await pushAssignedRoutesToBuses(targetBusIds);
 
-    res.json({ ok: true, route, queuedFor: targetBusIds });
+    res.json({ ok: true, route, pushedTo: targetBusIds, commandIds });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message ?? 'Invalid stop data' });
   }

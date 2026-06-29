@@ -1,0 +1,38 @@
+# AdKerala — routes, stops, settings (JSON below)
+# Edit this file in Notepad. Put media files in db/media/ subfolders.
+# Use "mediaFile" and "audioFile" for paths like "ads/promo.mp4" (relative to db/media/).
+{
+  "routes": [
+    {
+      "id": "r-test",
+      "name": "Test Route",
+      "startStop": {
+        "en": "Start",
+        "ml": "",
+        "lat": null,
+        "lng": null,
+        "radiusM": 80
+      },
+      "endStop": {
+        "en": "End",
+        "ml": "",
+        "lat": null,
+        "lng": null,
+        "radiusM": 80
+      },
+      "stops": []
+    }
+  ],
+  "activeRouteId": "r-test",
+  "savedAt": 1782755539437,
+  "serialRuntime": {
+    "status": "connected",
+    "isConnected": true,
+    "lastLine": "1",
+    "at": 1782755539438
+  },
+  "stopCatalog": [],
+  "audioFragments": {},
+  "stopAudio": {},
+  "lastCloudPushAt": 0
+}

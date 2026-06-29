@@ -144,8 +144,8 @@ export function BusSelector() {
 export function PushHint() {
   return (
     <p className="hint" style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8rem' }}>
-      Saves go to the cloud catalog immediately. With push enabled, changes queue as commands; buses apply
-      within ~5s when online. Media downloads automatically after ack.
+      Saves go to the cloud catalog immediately. With push enabled, routes and stop names sync to the bus
+      within ~5s when online — same as audio and ads.
     </p>
   );
 }

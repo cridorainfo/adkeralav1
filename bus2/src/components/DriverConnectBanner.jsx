@@ -23,7 +23,7 @@ export default function DriverConnectBanner() {
         <a href={controlUrl} className="driver-connect-link">
           {controlUrl}
         </a>{' '}
-        on the same Wi‑Fi (use <strong>http</strong>, not https).
+        on the same Wi‑Fi (turn off mobile data; use <strong>http://</strong>, not https).
       </p>
       {driverUrl && (
         <p>
@@ -35,9 +35,10 @@ export default function DriverConnectBanner() {
           HTTPS (GPS only): <code>{controlUrlHttps}</code> — accept certificate warning once.
         </p>
       )}
-      {firewallBlocked && (
+      {(firewallBlocked || network?.lanReachable === false) && (
         <p className="driver-connect-sub" style={{ color: '#b45309' }}>
-          Run <strong>allow-firewall.bat</strong> as Administrator if the phone cannot connect.
+          Run <strong>allow-firewall.bat</strong> as Administrator if the phone shows &quot;site can&apos;t be
+          reached&quot;.
         </p>
       )}
     </div>

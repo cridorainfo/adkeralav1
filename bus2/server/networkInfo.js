@@ -34,9 +34,52 @@ function scoreNic(name) {
 /** Best LAN IP for driver phones (Wi‑Fi / hotspot preferred over virtual adapters). */
 export function pickPrimaryLanAddress(lan = getLanAddresses()) {
   if (!lan.length) return '127.0.0.1';
+  const hotspotHost = lan.find((n) => n.address === '192.168.137.1');
+  if (hotspotHost) return hotspotHost.address;
   const hotspot = lan.find((n) => n.address.startsWith('192.168.137.'));
   if (hotspot) return hotspot.address;
   return lan[0].address;
+}
+
+/** Never advertise 127.0.0.1 to driver phones — they cannot reach loopback. */
+export function controlIpForPhones(ip) {
+  if (!ip || ip === '127.0.0.1') return null;
+  return ip;
+}
+
+/**
+ * Probe each LAN adapter and return the first IP phones can reach on this PC.
+ * Falls back to scored primary if probes fail (firewall may still block phones).
+ */
+export async function findBestControlIp(port, lan = getLanAddresses()) {
+  if (!lan.length) {
+    return { ip: null, name: null, ok: false, error: 'no_lan_ip' };
+  }
+
+  const ordered = [...lan].sort((a, b) => {
+    if (a.address === '192.168.137.1') return -1;
+    if (b.address === '192.168.137.1') return 1;
+    return scoreNic(a.name) - scoreNic(b.name);
+  });
+
+  for (const n of ordered) {
+    const result = await probeLanHttp(n.address, port);
+    if (result.ok) {
+      return { ip: n.address, name: n.name, ok: true, error: null };
+    }
+  }
+
+  const fallback = controlIpForPhones(pickPrimaryLanAddress(lan));
+  if (!fallback) {
+    return { ip: null, name: null, ok: false, error: 'no_lan_ip' };
+  }
+
+  return {
+    ip: fallback,
+    name: lan.find((n) => n.address === fallback)?.name ?? null,
+    ok: false,
+    error: 'probe_failed',
+  };
 }
 
 /** Can phones on the LAN reach this PC? (same test the bus PC runs on its Wi‑Fi IP) */
@@ -66,11 +109,11 @@ export function probeLanHttp(ip, port, probePath = '/api/network', timeoutMs = 4
 
 export function buildNetworkUrls(port, host = '0.0.0.0', options = {}) {
   const lan = getLanAddresses();
-  const primary = pickPrimaryLanAddress(lan);
-  const httpBase = `http://${primary}:${port}`;
+  const primary = controlIpForPhones(options.primaryIp ?? pickPrimaryLanAddress(lan));
+  const httpBase = primary ? `http://${primary}:${port}` : null;
   const httpsEnabled = Boolean(options.httpsEnabled);
   const httpsPort = options.httpsPort ?? port + 1;
-  const httpsBase = `https://${primary}:${httpsPort}`;
+  const httpsBase = primary && httpsEnabled ? `https://${primary}:${httpsPort}` : null;
 
   return {
     port,
@@ -79,19 +122,25 @@ export function buildNetworkUrls(port, host = '0.0.0.0', options = {}) {
     host,
     lan,
     primaryIp: primary,
-    displayUrl: `${httpBase}/display?autofs=1`,
-    driverUrl: `${httpBase}/driver`,
+    displayUrl: httpBase ? `${httpBase}/display?autofs=1` : null,
+    driverUrl: httpBase ? `${httpBase}/driver` : null,
     /** Phones should open HTTP first — no certificate required. */
-    controlUrl: `${httpBase}/control`,
-    controlUrlHttp: `${httpBase}/control`,
-    controlUrlHttps: httpsEnabled ? `${httpsBase}/control` : null,
-    homeUrl: `${httpBase}/`,
-    controlUrls: lan.map((n) => ({
-      ip: n.address,
-      name: n.name,
-      controlUrl: `http://${n.address}:${port}/control`,
-      driverUrl: `http://${n.address}:${port}/driver`,
-    })),
+    controlUrl: httpBase ? `${httpBase}/control` : null,
+    controlUrlHttp: httpBase ? `${httpBase}/control` : null,
+    controlUrlHttps: httpsBase ? `${httpsBase}/control` : null,
+    homeUrl: httpBase ? `${httpBase}/` : null,
+    controlUrls: lan
+      .map((n) => controlIpForPhones(n.address))
+      .filter(Boolean)
+      .map((ip) => {
+        const entry = lan.find((n) => n.address === ip);
+        return {
+          ip,
+          name: entry?.name ?? '',
+          controlUrl: `http://${ip}:${port}/control`,
+          driverUrl: `http://${ip}:${port}/driver`,
+        };
+      }),
     lanReachable: options.lanReachable ?? null,
     lanProbeError: options.lanProbeError ?? null,
   };

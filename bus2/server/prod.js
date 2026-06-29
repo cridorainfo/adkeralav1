@@ -2,7 +2,7 @@ import { createServer as createHttpServer } from 'http';
 import express from 'express';
 import path from 'path';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
-import { buildNetworkUrls, logNetworkStartup, probeLanHttp, pickPrimaryLanAddress } from './networkInfo.js';
+import { buildNetworkUrls, logNetworkStartup, findBestControlIp } from './networkInfo.js';
 import { startCloudSyncLoop } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
@@ -49,14 +49,8 @@ export async function startBusServer(options = {}) {
   let lanProbe = { ok: null, error: null, ip: null };
 
   const refreshLanProbe = async () => {
-    const ip = pickPrimaryLanAddress();
-    lanProbe.ip = ip;
-    if (ip === '127.0.0.1') {
-      lanProbe = { ok: false, error: 'no_wifi', ip };
-      return lanProbe;
-    }
-    const result = await probeLanHttp(ip, PORT);
-    lanProbe = { ...result, ip };
+    const best = await findBestControlIp(PORT);
+    lanProbe = { ok: best.ok, error: best.error ?? null, ip: best.ip };
     return lanProbe;
   };
 
@@ -64,6 +58,7 @@ export async function startBusServer(options = {}) {
     if (lanProbe.ok === null) await refreshLanProbe();
     const urls = buildNetworkUrls(PORT, HOST, {
       ...httpsInfo,
+      primaryIp: lanProbe.ip,
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
     });
@@ -106,7 +101,12 @@ export async function startBusServer(options = {}) {
     httpServer.listen(PORT, HOST, resolve);
   });
 
-  const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+  const urls = buildNetworkUrls(PORT, HOST, {
+    ...httpsInfo,
+    primaryIp: lanProbe.ip,
+    lanReachable: lanProbe.ok,
+    lanProbeError: lanProbe.error ?? null,
+  });
   const firewallPorts = [PORT];
   if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
     firewallPorts.push(httpsInfo.httpsPort);
@@ -153,6 +153,7 @@ export async function startBusServer(options = {}) {
     appRoot,
     urls: buildNetworkUrls(PORT, HOST, {
       ...httpsInfo,
+      primaryIp: lanProbe.ip,
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
     }),
