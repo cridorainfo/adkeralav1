@@ -14,6 +14,7 @@
     "build:kiosk": "vite build && electron-builder --win nsis dir",
     "build:kiosk:dir": "vite build && electron-builder --win dir",
     "build:release": "vite build && electron-builder --win nsis --publish never",
+    "ship": "node scripts/ship-release.mjs",
     "preview": "vite preview",
     "cloud": "cd cloud && npm install && npm run build:web && npm start",
     "cloud:web": "cd cloud/web && npm install && npm run dev",

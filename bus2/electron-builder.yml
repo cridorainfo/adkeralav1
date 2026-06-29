@@ -67,4 +67,4 @@ asar: true
 
 publish:
   provider: generic
-  url: https://example.com/api/releases/pc
+  url: https://adkerala.com/api/releases/pc

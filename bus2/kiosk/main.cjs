@@ -4,7 +4,8 @@ const http = require('http');
 const { execSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { ensureFirewallOnce } = require('./firewall.cjs');
-const { setupAutoUpdater } = require('./updater.cjs');
+const { setupAutoUpdater, handleKioskCommand } = require('./updater.cjs');
+const { setKioskCommandHandler } = require('./kioskBridge.cjs');
 const { applyPackagedDefaults } = require('./installEnv.cjs');
 
 const PORT = Number(process.env.PORT ?? 5174);
@@ -126,7 +127,13 @@ app.whenReady().then(async () => {
     await waitForServer(`http://127.0.0.1:${PORT}/`);
     createWindow();
     if (app.isPackaged) {
-      setupAutoUpdater();
+      setKioskCommandHandler(handleKioskCommand);
+      setupAutoUpdater({
+        getMainWindow: () => mainWindow,
+        setAllowQuit: (value = true) => {
+          allowQuit = value;
+        },
+      });
     }
 
     globalShortcut.register('Control+Shift+Q', () => {

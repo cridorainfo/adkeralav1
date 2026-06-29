@@ -171,7 +171,8 @@ jobs:
             --version "$VERSION" \
             --pc-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${PC_NAME}" \
             --driver-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DRIVER_NAME}" \
-            --sha512 "$SHA512"
+            --sha512 "$SHA512" \
+            --set-min
 
   deploy-cloud:
     name: Deploy cloud to Railway

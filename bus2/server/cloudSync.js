@@ -11,8 +11,14 @@ import {
   isDeviceClaimed,
 } from './deviceConfig.js';
 import { mergeAudioMap } from './audioMerge.js';
+import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
 import { DEFAULT_CLOUD_URLS, resolveCloudUrl } from '../shared/cloudUrls.js';
+
+const require = createRequire(import.meta.url);
+const { dispatchKioskCommand } = require('../kiosk/kioskBridge.cjs');
+
+const KIOSK_COMMAND_TYPES = new Set(['APPLY_UPDATE']);
 
 const BUS_KEY = process.env.ADKERALA_BUS_KEY ?? '';
 const SYNC_INTERVAL_MS = Number(process.env.ADKERALA_CLOUD_INTERVAL_MS ?? 5000);
@@ -176,29 +182,39 @@ export async function runCloudSync(root) {
 
   const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
   if (pending?.ok && Array.isArray(pending.commands) && pending.commands.length) {
+    const kioskCommands = pending.commands.filter((cmd) => KIOSK_COMMAND_TYPES.has(cmd.type));
+    const stateCommands = pending.commands.filter((cmd) => !KIOSK_COMMAND_TYPES.has(cmd.type));
+
+    for (const cmd of kioskCommands) {
+      dispatchKioskCommand(cmd.type, cmd.payload ?? {});
+    }
+
     const current = (await readInfoFile(root)) ?? {};
-    const oldAdPaths = new Set(collectAdMediaFromState(current));
-    const merged = applyCloudCommands(current, pending.commands);
-    const newAdPaths = new Set(collectAdMediaFromState(merged));
-    const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
-    const mediaPaths = [
-      ...new Set([
-        ...collectMediaDownloads(pending.commands),
-        ...collectAdMediaFromState(merged),
-      ]),
-    ];
-    const pushAt = Date.now();
-    merged.savedAt = pushAt;
-    merged.lastCloudPushAt = pushAt;
-    await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
-    await syncCloudMedia(root, mediaPaths, creds);
-    await deleteLocalMediaFiles(root, removedAdPaths);
-    if (mediaPaths.length) {
-      notifyStateChanged(root, {
-        savedAt: merged.savedAt,
-        lastCloudPushAt: merged.lastCloudPushAt,
-        source: 'cloud-media',
-      });
+
+    if (stateCommands.length) {
+      const oldAdPaths = new Set(collectAdMediaFromState(current));
+      const merged = applyCloudCommands(current, stateCommands);
+      const newAdPaths = new Set(collectAdMediaFromState(merged));
+      const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
+      const mediaPaths = [
+        ...new Set([
+          ...collectMediaDownloads(stateCommands),
+          ...collectAdMediaFromState(merged),
+        ]),
+      ];
+      const pushAt = Date.now();
+      merged.savedAt = pushAt;
+      merged.lastCloudPushAt = pushAt;
+      await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
+      await syncCloudMedia(root, mediaPaths, creds);
+      await deleteLocalMediaFiles(root, removedAdPaths);
+      if (mediaPaths.length) {
+        notifyStateChanged(root, {
+          savedAt: merged.savedAt,
+          lastCloudPushAt: merged.lastCloudPushAt,
+          source: 'cloud-media',
+        });
+      }
     }
 
     for (const cmd of pending.commands) {
@@ -208,9 +224,14 @@ export async function runCloudSync(root) {
         { method: 'POST', body: '{}' }
       );
     }
-    console.log(
-      `AdKerala cloud sync: applied ${pending.commands.length} command(s) — routes/audio updated in db/info.txt`
-    );
+    const parts = [];
+    if (stateCommands.length) {
+      parts.push(`${stateCommands.length} content command(s)`);
+    }
+    if (kioskCommands.length) {
+      parts.push(`${kioskCommands.length} system command(s)`);
+    }
+    console.log(`AdKerala cloud sync: applied ${parts.join(', ') || pending.commands.length + ' command(s)'}`);
   }
 
   lastPushedAt = Date.now();

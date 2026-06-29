@@ -1419,6 +1419,26 @@ app.put('/api/releases/min-versions', authAdminOnly, async (req, res) => {
   res.json({ ok: true, releases });
 });
 
+/** Queue APPLY_UPDATE on buses so they restart and install a downloaded update. */
+app.post('/api/releases/push-update', authAdminOnly, async (req, res) => {
+  const { targetBusIds, delaySec = 120 } = req.body ?? {};
+  const busIds = await resolveTargetBusIds(req, targetBusIds ?? 'all');
+  if (!busIds.length) {
+    res.status(400).json({ ok: false, error: 'No buses selected' });
+    return;
+  }
+  const commandIds = [];
+  for (const busId of busIds) {
+    const cmd = await enqueueCommand(busId, 'APPLY_UPDATE', {
+      delaySec: Number(delaySec) || 120,
+      source: 'admin',
+      requestedAt: Date.now(),
+    });
+    commandIds.push({ busId, commandId: cmd.id });
+  }
+  res.json({ ok: true, queuedFor: busIds.length, commandIds });
+});
+
 /** electron-updater generic feed — public read */
 app.get('/api/releases/pc/latest.yml', async (_req, res) => {
   const config = await getReleaseConfig();

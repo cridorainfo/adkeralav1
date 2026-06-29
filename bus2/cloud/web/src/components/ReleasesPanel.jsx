@@ -8,6 +8,26 @@ export default function ReleasesPanel() {
   const [pcRelease, setPcRelease] = useState({ version: '', downloadUrl: '', sha512: '', releaseNotes: '' });
   const [driverRelease, setDriverReleaseForm] = useState({ version: '', downloadUrl: '', releaseNotes: '' });
   const [message, setMessage] = useState('');
+  const [pushing, setPushing] = useState(false);
+
+  async function pushUpdateToFleet() {
+    if (!window.confirm('Restart all buses to install the latest PC app? Buses restart in ~2 minutes.')) {
+      return;
+    }
+    setPushing(true);
+    setMessage('');
+    try {
+      const json = await api('/api/releases/push-update', {
+        method: 'POST',
+        body: JSON.stringify({ targetBusIds: 'all', delaySec: 120 }),
+      });
+      setMessage(`Update restart queued for ${json.queuedFor ?? 0} bus(es).`);
+    } catch (err) {
+      setMessage(err.message ?? 'Push failed');
+    } finally {
+      setPushing(false);
+    }
+  }
 
   async function load() {
     const json = await api('/api/releases/fleet');
@@ -43,6 +63,22 @@ export default function ReleasesPanel() {
 
   return (
     <>
+      <div className="card">
+        <h2>Ship updates to fleet</h2>
+        <p className="hint">
+          Buses check for updates every 15 minutes and download automatically. After you ship with{' '}
+          <code>npm run ship</code>, use this to restart buses and install immediately.
+        </p>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={pushUpdateToFleet}
+          disabled={pushing}
+        >
+          {pushing ? 'Queuing…' : 'Push update to all buses now'}
+        </button>
+      </div>
+
       <div className="card">
         <h2>Fleet versions</h2>
         {fleet && (
