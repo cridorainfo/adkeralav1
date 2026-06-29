@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAllStops, getStopEn, normalizeStop } from '../store/busStore';
+import { mergeStopWithCatalog } from '../lib/stopCatalog';
 import { formatRouteEndpoints, isCloudRouteOnBus } from '../lib/routeMatch';
 import { useRouteEndpointSuggestions } from '../hooks/useRouteEndpointSuggestions';
 import { useStopSearch } from '../hooks/useStopSearch';
@@ -73,7 +74,9 @@ export default function RouteManager({
   }, [startStop, endStop, scheduleRefresh]);
 
   const activeRoute = routes.find((r) => r.id === activeRouteId);
-  const allStops = activeRoute ? getAllStops(activeRoute) : [];
+  const allStops = activeRoute
+    ? getAllStops(activeRoute).map((stop) => mergeStopWithCatalog(stop, stopCatalog))
+    : [];
   const middleCount = activeRoute?.stops?.length ?? 0;
   const hasGps = driverLocation?.lat != null && driverLocation?.lng != null && !driverLocation?.error;
   const isSharedReadOnly = Boolean(driverMode && activeRoute?.sharedFromCloud);

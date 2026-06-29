@@ -4,6 +4,7 @@ import { basename, pushAudioMergeToBuses } from '../lib/audioCatalogPush.js';
 import { useSelectedBus } from './BusContext.jsx';
 import { useBusAssignedRoutes } from '../hooks/useBusAssignedRoutes.js';
 import { createRouteId, routeSelectLabel } from '../lib/routeLabels.js';
+import { attachCatalogGpsToRoute } from '../lib/stopCatalog.js';
 
 const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
@@ -96,11 +97,21 @@ export default function RouteEditor() {
   const [routes, setRoutes] = useState([]);
   const [route, setRoute] = useState(null);
   const [stopAudioCatalog, setStopAudioCatalog] = useState({});
+  const [stopGpsCatalog, setStopGpsCatalog] = useState([]);
   const [uploadingStopKey, setUploadingStopKey] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  const loadStopCatalog = useCallback(async () => {
+    try {
+      const json = await api('/api/stops');
+      setStopGpsCatalog(json.stops ?? []);
+    } catch {
+      setStopGpsCatalog([]);
+    }
+  }, []);
 
   const loadStopAudio = useCallback(async () => {
     try {
@@ -129,11 +140,20 @@ export default function RouteEditor() {
   useEffect(() => {
     loadRoutes();
     loadStopAudio();
-  }, [loadRoutes, loadStopAudio]);
+    loadStopCatalog();
+  }, [loadRoutes, loadStopAudio, loadStopCatalog]);
 
   useEffect(() => {
-    setRoute((prev) => (prev ? attachSavedAudio(prev, stopAudioCatalog) : null));
-  }, [stopAudioCatalog]);
+    setRoute((prev) => {
+      if (!prev) return null;
+      return attachSavedAudio(attachCatalogGpsToRoute(prev, stopGpsCatalog), stopAudioCatalog);
+    });
+  }, [stopAudioCatalog, stopGpsCatalog]);
+
+  const withCatalogData = useCallback(
+    (r) => attachSavedAudio(attachCatalogGpsToRoute(r, stopGpsCatalog), stopAudioCatalog),
+    [stopAudioCatalog, stopGpsCatalog]
+  );
 
   const persistStopAudioEntry = useCallback(async (stopEn, file) => {
     const key = String(stopEn ?? '').trim().toLowerCase();
@@ -215,7 +235,7 @@ export default function RouteEditor() {
     const found = routes.find((r) => r.id === id);
     if (found) {
       setError('');
-      setRoute(attachSavedAudio(JSON.parse(JSON.stringify(found)), stopAudioCatalog));
+      setRoute(withCatalogData(JSON.parse(JSON.stringify(found))));
     }
   }
 
@@ -267,12 +287,13 @@ export default function RouteEditor() {
     setError('');
     setStatus('Saving…');
     try {
+      const mergedRoute = withCatalogData(route);
       const payload = {
-        ...route,
+        ...mergedRoute,
         name: route.name.trim(),
-        startStop: normalizeStop(route.startStop),
-        endStop: normalizeStop(route.endStop),
-        stops: route.stops.map(normalizeStop),
+        startStop: normalizeStop(mergedRoute.startStop),
+        endStop: normalizeStop(mergedRoute.endStop),
+        stops: mergedRoute.stops.map(normalizeStop),
         targetBusIds: andPush && pushToBus ? targetBusIds : [],
       };
 
@@ -312,13 +333,14 @@ export default function RouteEditor() {
         }
       }
 
-      setRoute(attachSavedAudio(json.route, audioResult.catalog ?? stopAudioCatalog));
+      setRoute(withCatalogData(json.route));
       setStatus(
         andPush && pushToBus && targetBusIds.length
           ? `Saved · queued for ${targetBusIds.join(', ')}`
           : 'Saved to catalog'
       );
       await loadRoutes();
+      await loadStopCatalog();
     } catch (err) {
       setError(err.message ?? 'Save failed');
       setStatus('');

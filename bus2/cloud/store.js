@@ -662,10 +662,13 @@ export async function upsertStopCatalog(entry) {
   const key = stopCatalogKey(next.en);
   const idx = store.stopCatalog.findIndex((s) => stopCatalogKey(s.en) === key);
   if (idx >= 0) {
+    const prev = store.stopCatalog[idx];
     store.stopCatalog[idx] = {
-      ...store.stopCatalog[idx],
+      ...prev,
       ...next,
-      en: store.stopCatalog[idx].en || next.en,
+      en: prev.en || next.en,
+      lat: next.lat ?? prev.lat ?? null,
+      lng: next.lng ?? prev.lng ?? null,
     };
   } else {
     store.stopCatalog.push(next);

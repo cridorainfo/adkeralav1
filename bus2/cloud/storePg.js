@@ -457,16 +457,30 @@ export async function pgSearchStopCatalog(queryStr = '') {
 }
 
 export async function pgUpsertStopCatalog(entry) {
+  const existing = await pgGetStopFromCatalog(entry.en);
+  const merged = existing
+    ? {
+        ...existing,
+        ...entry,
+        en: existing.en || entry.en,
+        lat: entry.lat ?? existing.lat ?? null,
+        lng: entry.lng ?? existing.lng ?? null,
+      }
+    : entry;
   await query(
     `INSERT INTO stop_catalog (en, data) VALUES ($1, $2)
      ON CONFLICT (en) DO UPDATE SET data = EXCLUDED.data`,
-    [entry.en, JSON.stringify(entry)]
+    [merged.en, JSON.stringify(merged)]
   );
-  return entry;
+  return merged;
 }
 
 export async function pgGetStopFromCatalog(en) {
-  const { rows } = await query('SELECT data FROM stop_catalog WHERE en = $1', [en]);
+  const key = String(en ?? '')
+    .trim()
+    .toLowerCase();
+  if (!key) return null;
+  const { rows } = await query('SELECT data FROM stop_catalog WHERE LOWER(TRIM(en)) = $1', [key]);
   return rows.length ? rows[0].data : null;
 }
 
