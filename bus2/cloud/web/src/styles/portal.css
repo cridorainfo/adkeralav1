@@ -984,9 +984,6 @@ body.dashboard-nav-open {
     min-height: 280px;
   }
 
-  .stops-table-desktop { display: none; }
-  .stops-list { display: flex; }
-  .stops-field-bar-mobile { display: flex; }
   .stops-hub { padding-bottom: 5rem; }
 }
 
@@ -1649,11 +1646,16 @@ tr.route-row-assigned {
 }
 
 .stops-list {
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-height: 60vh;
+  max-height: min(60vh, 520px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stops-table-desktop {
+  display: none;
 }
 
 .stops-list-item {
@@ -1690,6 +1692,27 @@ tr.route-row-assigned {
   font-size: 0.78rem;
   color: var(--kerala-muted);
   margin-bottom: 0.35rem;
+}
+
+.stops-list-item-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+}
+
+.stops-list-gps-btn {
+  margin-left: auto;
+}
+
+.stops-mobile-list-hint {
+  display: block;
+}
+
+@media (min-width: 901px) {
+  .stops-mobile-list-hint {
+    display: none;
+  }
 }
 
 .stops-missing-badges {
@@ -1761,7 +1784,7 @@ tr.route-row-assigned {
 }
 
 .stops-field-bar-mobile {
-  display: none;
+  display: flex;
   position: fixed;
   left: 0;
   right: 0;
@@ -1800,6 +1823,29 @@ tr.route-row-assigned {
 
   .stops-edit-panel {
     position: static;
+  }
+
+  .stops-field-capture {
+    display: block;
+  }
+}
+
+/* Desktop / large tablet: table view, hide mobile list + GPS bar */
+@media (min-width: 901px) {
+  .stops-list {
+    display: none;
+  }
+
+  .stops-table-desktop {
+    display: table;
+  }
+
+  .stops-field-bar-mobile {
+    display: none;
+  }
+
+  .stops-hub {
+    padding-bottom: 0;
   }
 }
 

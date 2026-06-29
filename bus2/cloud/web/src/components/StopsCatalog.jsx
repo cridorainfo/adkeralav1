@@ -157,8 +157,8 @@ export default function StopsCatalog() {
     setMessage(`Voice audio removed for "${selectedEn}"`);
   }
 
-  async function saveStop(patch) {
-    if (!selectedEn) return;
+  async function saveStop(patch, stopEn = selectedEn) {
+    if (!stopEn) return;
     setBusy(true);
     setMessage('');
     setError('');
@@ -167,11 +167,12 @@ export default function StopsCatalog() {
       if (pushOnSave && pushToBus && selectedBusId) {
         body.targetBusIds = [selectedBusId];
       }
-      await api(`/api/stops/${encodeURIComponent(selectedEn)}`, {
+      await api(`/api/stops/${encodeURIComponent(stopEn)}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       });
-      setMessage(`Saved "${selectedEn}" to all routes`);
+      setMessage(`Saved "${stopEn}" to all routes`);
+      if (stopEn !== selectedEn) selectStop(stopEn);
       await load();
     } catch (err) {
       setError(err.message ?? 'Save failed');
@@ -208,13 +209,14 @@ export default function StopsCatalog() {
     }
   }
 
-  async function handleSaveGpsToStop() {
-    if (!gpsPreview && edit.lat && edit.lng) {
+  async function handleSaveGpsToStop(stopEn = selectedEn) {
+    if (!stopEn) return;
+    if (!gpsPreview && edit.lat && edit.lng && stopEn === selectedEn) {
       await saveStop({
         lat: Number(edit.lat),
         lng: Number(edit.lng),
         radiusM: Number(edit.radiusM) || 80,
-      });
+      }, stopEn);
       return;
     }
     if (!gpsPreview) {
@@ -225,7 +227,32 @@ export default function StopsCatalog() {
       lat: gpsPreview.lat,
       lng: gpsPreview.lng,
       radiusM: Number(edit.radiusM) || 80,
-    });
+    }, stopEn);
+  }
+
+  async function handleQuickMobileGps(stop) {
+    setSelectedEn(stop.en);
+    setMessage('');
+    setError('');
+    setGpsBusy(true);
+    try {
+      const fix = await captureCurrentPosition();
+      setGpsPreview(fix);
+      setEdit((prev) => ({
+        ...prev,
+        lat: String(fix.lat),
+        lng: String(fix.lng),
+      }));
+      await saveStop({
+        lat: fix.lat,
+        lng: fix.lng,
+        radiusM: Number(edit.radiusM) || 80,
+      }, stop.en);
+    } catch (err) {
+      setError(err.message ?? 'Could not get GPS — allow location permission');
+    } finally {
+      setGpsBusy(false);
+    }
   }
 
   return (
@@ -270,17 +297,28 @@ export default function StopsCatalog() {
 
         <div className="stops-hub-layout">
           <div className="stops-list-panel">
+            <p className="hint stops-mobile-list-hint">
+              Tap a stop to edit. On phone, use <strong>📍 GPS here</strong> on each row or the bar at the bottom
+              after selecting a stop.
+            </p>
             <p className="hint">{stops.length} stop{stops.length === 1 ? '' : 's'}</p>
             <div className="stops-list">
               {stops.map((s) => {
                 const gps = formatGps(s);
                 const missing = s.missing ?? getStopMissingTags(s);
                 return (
-                  <button
+                  <div
                     key={s.en}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     className={`stops-list-item${selectedEn === s.en ? ' selected' : ''}`}
                     onClick={() => selectStop(s.en)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectStop(s.en);
+                      }
+                    }}
                   >
                     <div className="stops-list-item-main">
                       <strong>{s.en}</strong>
@@ -290,8 +328,25 @@ export default function StopsCatalog() {
                       <span>{gps ? `${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)}` : 'No GPS'}</span>
                       <span>{s.routes?.length ?? 0} route(s)</span>
                     </div>
-                    <MissingBadges missing={missing} />
-                  </button>
+                    <div className="stops-list-item-footer">
+                      <MissingBadges missing={missing} />
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm stops-list-gps-btn"
+                        disabled={gpsBusy || busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleQuickMobileGps(s);
+                        }}
+                      >
+                        {gpsBusy && selectedEn === s.en
+                          ? 'GPS…'
+                          : gps
+                            ? '📍 Update GPS'
+                            : '📍 GPS here'}
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
               {!stops.length && <p className="hint">No stops match this filter.</p>}
@@ -489,15 +544,15 @@ export default function StopsCatalog() {
               onClick={handleUseLocation}
               disabled={gpsBusy}
             >
-              GPS
+              {gpsBusy ? 'Getting location…' : '📍 Capture GPS'}
             </button>
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              onClick={handleSaveGpsToStop}
-              disabled={busy}
+              onClick={() => handleSaveGpsToStop()}
+              disabled={busy || !gpsPreview}
             >
-              Save
+              Save GPS
             </button>
           </div>
         </div>
