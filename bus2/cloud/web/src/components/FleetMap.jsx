@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { api } from '../lib/api.js';
 import { busDisplayLabel } from './BusContext.jsx';
 
 const TRAIL_COLORS = ['#0b5c4a', '#2563eb', '#c2410c', '#7c3aed', '#b45309', '#be123c'];
+const ROUTE_COLORS = ['#e8b923', '#1a8a7a', '#d45d3a', '#5a7268', '#147a63', '#8b5cf6'];
 const TOMTOM_KEY = import.meta.env.VITE_TOMTOM_API_KEY ?? '';
 const GPS_LIVE_MS = 45000;
 
@@ -81,6 +82,29 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function routeStopPoints(route) {
+  if (!route) return [];
+  const ordered = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
+  return ordered
+    .filter((s) => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)))
+    .map((s) => ({
+      lat: Number(s.lat),
+      lng: Number(s.lng),
+      en: s.en,
+      ml: s.ml,
+    }));
+}
+
+function routePolylinePositions(route) {
+  return routeStopPoints(route).map((s) => [s.lat, s.lng]);
+}
+
+function routeColor(routeId, index) {
+  let hash = 0;
+  for (let i = 0; i < routeId.length; i += 1) hash = (hash * 31 + routeId.charCodeAt(i)) | 0;
+  return ROUTE_COLORS[Math.abs(hash + index) % ROUTE_COLORS.length];
+}
+
 function busTrailColor(busId, index) {
   let hash = 0;
   for (let i = 0; i < busId.length; i += 1) hash = (hash * 31 + busId.charCodeAt(i)) | 0;
@@ -132,7 +156,7 @@ function mergeTrailPoints(...lists) {
   return [...byKey.values()].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
 }
 
-function FitBounds({ buses, trails }) {
+function FitBounds({ buses, trails, assignedRoutes }) {
   const map = useMap();
   const done = useRef(false);
 
@@ -147,11 +171,16 @@ function FitBounds({ buses, trails }) {
         if (p?.lat != null) points.push([p.lat, p.lng]);
       }
     }
+    for (const route of assignedRoutes ?? []) {
+      for (const stop of routeStopPoints(route)) {
+        points.push([stop.lat, stop.lng]);
+      }
+    }
     if (points.length && !done.current) {
       map.fitBounds(points, { padding: [48, 48] });
       done.current = true;
     }
-  }, [buses, trails, map]);
+  }, [buses, trails, assignedRoutes, map]);
 
   return null;
 }
@@ -247,9 +276,42 @@ function useBusTrails(buses, selectedBusId) {
   return trails;
 }
 
+function useAssignedRoutes(selectedBusId) {
+  const [routes, setRoutes] = useState([]);
+  const [activeRouteId, setActiveRouteId] = useState(null);
+
+  useEffect(() => {
+    if (!selectedBusId) {
+      setRoutes([]);
+      setActiveRouteId(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/routes`);
+        if (cancelled) return;
+        setRoutes(json.routes ?? []);
+        setActiveRouteId(json.activeRouteId ?? null);
+      } catch {
+        if (!cancelled) {
+          setRoutes([]);
+          setActiveRouteId(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBusId]);
+
+  return { assignedRoutes: routes, activeRouteId };
+}
+
 export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
   const [mapStyle, setMapStyle] = useState('standard');
   const trails = useBusTrails(buses, selectedBusId);
+  const { assignedRoutes, activeRouteId } = useAssignedRoutes(selectedBusId);
   const mapMarkers = useMemo(
     () =>
       (buses ?? [])
@@ -275,7 +337,58 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
             zIndex={i}
           />
         ))}
-        <FitBounds buses={buses} trails={trails} />
+        <FitBounds buses={buses} trails={trails} assignedRoutes={assignedRoutes} />
+        {selectedBusId &&
+          assignedRoutes.map((route, routeIndex) => {
+            const positions = routePolylinePositions(route);
+            if (positions.length < 2) return null;
+            const isActive = route.id === activeRouteId;
+            const color = routeColor(route.id, routeIndex);
+            return (
+              <Polyline
+                key={`route-${route.id}`}
+                positions={positions}
+                pathOptions={{
+                  color,
+                  weight: isActive ? 5 : 3,
+                  opacity: isActive ? 0.9 : 0.45,
+                  dashArray: isActive ? undefined : '10 8',
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                }}
+              />
+            );
+          })}
+        {selectedBusId &&
+          assignedRoutes.flatMap((route, routeIndex) => {
+            const color = routeColor(route.id, routeIndex);
+            const isActive = route.id === activeRouteId;
+            return routeStopPoints(route).map((stop) => (
+              <CircleMarker
+                key={`stop-${route.id}-${stop.en}`}
+                center={[stop.lat, stop.lng]}
+                radius={isActive ? 8 : 6}
+                pathOptions={{
+                  color: isActive ? '#063d32' : '#5a7268',
+                  fillColor: color,
+                  fillOpacity: isActive ? 0.95 : 0.7,
+                  weight: 2,
+                }}
+              >
+                <Popup>
+                  <strong>{stop.en}</strong>
+                  {stop.ml ? (
+                    <>
+                      <br />
+                      <small>{stop.ml}</small>
+                    </>
+                  ) : null}
+                  <br />
+                  <small>{route.name}</small>
+                </Popup>
+              </CircleMarker>
+            ));
+          })}
         {mapMarkers.map(({ bus, gpsLive }, index) => {
           const trail = trails[bus.busId] ?? [];
           const positions = trail.map((p) => [p.lat, p.lng]);

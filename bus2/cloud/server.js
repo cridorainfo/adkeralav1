@@ -16,6 +16,8 @@ import {
   matchRoutesByEndpoints,
   getRouteById,
   patchStopInCatalog,
+  patchStopGlobally,
+  listAllStopsFromRoutes,
   upsertRouteCatalog,
   deleteRouteFromCatalog,
   listAllRoutes,
@@ -1245,10 +1247,57 @@ app.get('/api/stops/search', authCatalog, async (req, res) => {
   res.json({ ok: true, stops });
 });
 
-app.get('/api/stops', authCatalog, async (_req, res) => {
+app.get('/api/stops', authCatalog, async (req, res) => {
   await ensureStopCatalogFromRoutes();
+  const view = String(req.query.view ?? '');
+  if (view === 'all') {
+    const missing = String(req.query.missing ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const stops = await listAllStopsFromRoutes({
+      query: String(req.query.q ?? ''),
+      missing,
+    });
+    res.json({ ok: true, stops, view: 'all' });
+    return;
+  }
   const store = await loadStore();
   res.json({ ok: true, stops: store.stopCatalog ?? [] });
+});
+
+app.patch('/api/stops/:stopEn', authCatalog, async (req, res) => {
+  const { targetBusIds = [], ...body } = req.body ?? {};
+  try {
+    const result = await patchStopGlobally(req.params.stopEn, body);
+    if (!result) {
+      res.status(404).json({ ok: false, error: 'Stop not found' });
+      return;
+    }
+    invalidateContentGapsCache();
+
+    const stopKey = String(req.params.stopEn).trim();
+    for (const busId of targetBusIds) {
+      for (const routeId of result.affectedRouteIds) {
+        await enqueueCommand(busId, 'PATCH_STOP', {
+          routeId,
+          stopEn: stopKey,
+          patch: body,
+          savedAt: Date.now(),
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      stop: result.stop,
+      routesUpdated: result.routesUpdated,
+      affectedRouteIds: result.affectedRouteIds,
+      queuedFor: targetBusIds,
+    });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message ?? 'Invalid stop data' });
+  }
 });
 
 app.post('/api/stops', authCatalog, async (req, res) => {
@@ -1257,11 +1306,16 @@ app.post('/api/stops', authCatalog, async (req, res) => {
     res.status(400).json({ ok: false, error: 'Stop name required' });
     return;
   }
+  invalidateContentGapsCache();
   res.json({ ok: true, stop });
 });
 
 let contentGapsCache = { at: 0, gaps: [] };
 const CONTENT_GAPS_TTL_MS = 5 * 60 * 1000;
+
+function invalidateContentGapsCache() {
+  contentGapsCache = { at: 0, gaps: [] };
+}
 
 app.get('/api/content-gaps', authCatalog, async (_req, res) => {
   const now = Date.now();
@@ -1279,22 +1333,27 @@ app.get('/api/content-gaps', authCatalog, async (_req, res) => {
 
 app.patch('/api/routes/:routeId/stops/:stopEn', authCatalog, async (req, res) => {
   const { targetBusIds = [], ...stopPatch } = req.body ?? {};
-  const route = await patchStopInCatalog(req.params.routeId, req.params.stopEn, stopPatch);
-  if (!route) {
-    res.status(404).json({ ok: false, error: 'Route or stop not found' });
-    return;
-  }
+  try {
+    const route = await patchStopInCatalog(req.params.routeId, req.params.stopEn, stopPatch);
+    if (!route) {
+      res.status(404).json({ ok: false, error: 'Route or stop not found' });
+      return;
+    }
+    invalidateContentGapsCache();
 
-  for (const busId of targetBusIds) {
-    await enqueueCommand(busId, 'PATCH_STOP', {
-      routeId: req.params.routeId,
-      stopEn: req.params.stopEn,
-      patch: stopPatch,
-      savedAt: Date.now(),
-    });
-  }
+    for (const busId of targetBusIds) {
+      await enqueueCommand(busId, 'PATCH_STOP', {
+        routeId: req.params.routeId,
+        stopEn: req.params.stopEn,
+        patch: stopPatch,
+        savedAt: Date.now(),
+      });
+    }
 
-  res.json({ ok: true, route, queuedFor: targetBusIds });
+    res.json({ ok: true, route, queuedFor: targetBusIds });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message ?? 'Invalid stop data' });
+  }
 });
 
 /** Admin upload voice/audio — stored on cloud, bus downloads when online. */

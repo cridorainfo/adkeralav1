@@ -674,21 +674,214 @@ export async function ensureStopCatalogFromRoutes() {
   return refreshed.stopCatalog ?? [];
 }
 
-export async function patchStopInCatalog(routeId, stopKey, patch) {
-  const store = await loadStore();
-  const route = store.routeCatalog.find((r) => r.id === routeId);
-  if (!route) return null;
+export function getStopMissingTags(stop) {
+  const missing = [];
+  const en = String(stop?.en ?? '').trim();
+  if (!en) missing.push('english_name');
+  if (!String(stop?.ml ?? '').trim()) missing.push('malayalam_text');
+  const lat = stop?.lat != null && stop.lat !== '' ? Number(stop.lat) : null;
+  const lng = stop?.lng != null && stop.lng !== '' ? Number(stop.lng) : null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) missing.push('gps_coords');
+  return missing;
+}
 
-  const apply = (stop) => {
-    if (stop.en?.toLowerCase() !== stopKey.toLowerCase()) return stop;
-    return { ...stop, ...patch };
+function mergeStopFields(...sources) {
+  let en = '';
+  let ml = '';
+  let lat = null;
+  let lng = null;
+  let radiusM = 80;
+
+  for (const s of sources) {
+    if (!s) continue;
+    const name = String(s.en ?? '').trim();
+    if (name) en = name;
+    const mal = String(s.ml ?? '').trim();
+    if (mal) ml = mal;
+    const slat = s.lat != null && s.lat !== '' ? Number(s.lat) : null;
+    const slng = s.lng != null && s.lng !== '' ? Number(s.lng) : null;
+    if (Number.isFinite(slat) && Number.isFinite(slng)) {
+      lat = slat;
+      lng = slng;
+    }
+    if (Number.isFinite(Number(s.radiusM))) radiusM = Number(s.radiusM);
+  }
+
+  return { en, ml, lat, lng, radiusM };
+}
+
+async function loadCatalogMap() {
+  if (usePostgres()) {
+    const { rows } = await query('SELECT en, data FROM stop_catalog');
+    const map = new Map();
+    for (const row of rows) {
+      const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      if (data?.en) map.set(stopCatalogKey(data.en), data);
+    }
+    return map;
+  }
+  const store = await loadStore();
+  const map = new Map();
+  for (const s of store.stopCatalog ?? []) {
+    if (s?.en) map.set(stopCatalogKey(s.en), s);
+  }
+  return map;
+}
+
+/** All unique stops from every route, merged with catalog + route refs. */
+export async function listAllStopsFromRoutes({ query = '', missing = [] } = {}) {
+  await ensureStopCatalogFromRoutes();
+  const routes = await listAllRoutes();
+  const catalogMap = await loadCatalogMap();
+  const byKey = new Map();
+
+  for (const route of routes) {
+    const entries = [
+      { stop: route.startStop, role: 'start' },
+      ...(route.stops ?? []).map((stop) => ({ stop, role: 'middle' })),
+      { stop: route.endStop, role: 'end' },
+    ].filter((e) => e.stop?.en);
+
+    for (const { stop, role } of entries) {
+      const key = stopCatalogKey(stop.en);
+      if (!key) continue;
+      const catalog = catalogMap.get(key) ?? null;
+
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          ...mergeStopFields(catalog, stop),
+          routes: [],
+        });
+      } else {
+        const existing = byKey.get(key);
+        Object.assign(existing, mergeStopFields(existing, catalog, stop));
+      }
+
+      const row = byKey.get(key);
+      const routeRef = { routeId: route.id, routeName: route.name, role };
+      const dup = row.routes.some((r) => r.routeId === route.id && r.role === role);
+      if (!dup) row.routes.push(routeRef);
+    }
+  }
+
+  let stops = [...byKey.values()].map((s) => ({
+    ...s,
+    missing: getStopMissingTags(s),
+  }));
+
+  const q = query.trim().toLowerCase();
+  if (q) {
+    stops = stops.filter(
+      (s) => s.en.toLowerCase().includes(q) || s.ml.toLowerCase().includes(q)
+    );
+  }
+
+  const missingFilters = (missing ?? []).filter(Boolean);
+  if (missingFilters.length) {
+    stops = stops.filter((s) => missingFilters.some((m) => s.missing.includes(m)));
+  }
+
+  return stops.sort((a, b) => a.en.localeCompare(b.en));
+}
+
+export function normalizeStopPatch(patch = {}) {
+  const next = {};
+  if (patch.ml !== undefined) next.ml = String(patch.ml ?? '').trim();
+  if (patch.lat !== undefined) {
+    const lat = patch.lat === null || patch.lat === '' ? null : Number(patch.lat);
+    if (lat !== null && !Number.isFinite(lat)) throw new Error('Invalid latitude');
+    next.lat = lat;
+  }
+  if (patch.lng !== undefined) {
+    const lng = patch.lng === null || patch.lng === '' ? null : Number(patch.lng);
+    if (lng !== null && !Number.isFinite(lng)) throw new Error('Invalid longitude');
+    next.lng = lng;
+  }
+  if (patch.radiusM !== undefined) {
+    let r = Number(patch.radiusM);
+    if (!Number.isFinite(r)) r = 80;
+    next.radiusM = Math.min(500, Math.max(20, r));
+  }
+  return next;
+}
+
+/** Patch a stop everywhere it appears (all routes + shared catalog). */
+export async function patchStopGlobally(stopEn, patch) {
+  const key = stopCatalogKey(stopEn);
+  if (!key) return null;
+
+  let normalizedPatch;
+  try {
+    normalizedPatch = normalizeStopPatch(patch);
+  } catch (err) {
+    throw err;
+  }
+
+  const applyToStop = (stop) => {
+    if (!stop?.en || stopCatalogKey(stop.en) !== key) return stop;
+    return { ...stop, ...normalizedPatch };
   };
 
-  route.startStop = apply(route.startStop ?? {});
-  route.endStop = apply(route.endStop ?? {});
-  route.stops = (route.stops ?? []).map(apply);
-  await saveStore();
-  return route;
+  const routes = await listAllRoutes();
+  let routesUpdated = 0;
+  const affectedRouteIds = [];
+  let foundAny = false;
+
+  for (const route of routes) {
+    let changed = false;
+    const next = { ...route };
+
+    const newStart = applyToStop(route.startStop ?? {});
+    if (newStart !== route.startStop) changed = true;
+    if (stopCatalogKey(route.startStop?.en) === key) foundAny = true;
+    next.startStop = newStart;
+
+    const newEnd = applyToStop(route.endStop ?? {});
+    if (newEnd !== route.endStop) changed = true;
+    if (stopCatalogKey(route.endStop?.en) === key) foundAny = true;
+    next.endStop = newEnd;
+
+    const newStops = (route.stops ?? []).map((s) => {
+      const applied = applyToStop(s);
+      if (applied !== s) changed = true;
+      if (stopCatalogKey(s?.en) === key) foundAny = true;
+      return applied;
+    });
+    next.stops = newStops;
+
+    if (changed) {
+      await upsertRouteCatalog(next);
+      routesUpdated += 1;
+      affectedRouteIds.push(route.id);
+    }
+  }
+
+  const catalogExisting = (await getStopFromCatalog(stopEn)) ?? null;
+  if (!foundAny && !catalogExisting) return null;
+
+  const merged = {
+    ...(catalogExisting ?? { en: String(stopEn).trim() }),
+    en: catalogExisting?.en || String(stopEn).trim(),
+    ...normalizedPatch,
+  };
+  const stop = await upsertStopCatalog(merged);
+
+  return { stop, routesUpdated, affectedRouteIds };
+}
+
+export async function patchStopInCatalog(routeId, stopKey, patch) {
+  const route = await getRouteById(routeId);
+  if (!route) return null;
+
+  const key = stopCatalogKey(stopKey);
+  const hasStop = [route.startStop, ...(route.stops ?? []), route.endStop].some(
+    (s) => stopCatalogKey(s?.en) === key
+  );
+  if (!hasStop) return null;
+
+  const result = await patchStopGlobally(stopKey, patch);
+  if (!result) return null;
+  return getRouteById(routeId);
 }
 
 export function scanCatalogGaps(routeCatalog, busStates = {}, stopAudioCatalog = {}) {
