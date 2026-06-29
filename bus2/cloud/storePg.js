@@ -223,6 +223,16 @@ export async function pgClearDriverLink(driverId) {
   );
 }
 
+/** Bus IDs with routeId in assigned_route_ids (catalog delete cleanup). */
+export async function pgListBusIdsWithAssignedRoute(routeId) {
+  const { rows } = await query(
+    `SELECT bus_id FROM bus_profiles
+     WHERE assigned_route_ids @> $1::jsonb`,
+    [JSON.stringify([routeId])]
+  );
+  return rows.map((r) => r.bus_id);
+}
+
 export async function pgGetBusProfile(busId) {
   const { rows } = await query('SELECT * FROM bus_profiles WHERE bus_id = $1', [busId]);
   if (!rows.length) return null;

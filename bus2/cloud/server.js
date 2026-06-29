@@ -50,6 +50,7 @@ import {
   addBusAssignedRoute,
   removeBusAssignedRoute,
   getBusAssignedRouteIds,
+  listBusIdsWithAssignedRoute,
   hasPendingCommandType,
 } from './store.js';
 import {
@@ -555,14 +556,16 @@ async function enrichRouteForClient(route) {
 }
 
 const routeSyncDebounce = new Map();
-const ROUTE_SYNC_DEBOUNCE_MS = 30000;
+const ROUTE_SYNC_DEBOUNCE_MS = 5000;
 
 async function buildAssignedRoutesPayload(busId) {
-  const assignedIds = await getBusAssignedRouteIds(busId);
+  const rawIds = await getBusAssignedRouteIds(busId);
   const routes = [];
-  for (const id of assignedIds) {
+  const validIds = [];
+  for (const id of rawIds) {
     const route = await getRouteById(id);
     if (!route) continue;
+    validIds.push(id);
     const enriched = await enrichRouteForClient(route);
     routes.push({
       id: enriched.id,
@@ -574,12 +577,44 @@ async function buildAssignedRoutesPayload(busId) {
       cloudRouteId: enriched.id,
     });
   }
-  return { assignedIds, routes };
+  if (validIds.length !== rawIds.length) {
+    await upsertBusProfile(busId, { assignedRouteIds: validIds });
+  }
+  return { assignedIds: validIds, routes };
+}
+
+/** Authoritative sync — assigned routes only, drops stale copies on the bus. */
+async function enqueueAssignedRouteSync(busId) {
+  if (!busId) return null;
+  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  routeSyncDebounce.set(busId, Date.now());
+  return enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
+    routes,
+    assignedRouteIds: assignedIds,
+    removeLocalOrphans: true,
+    savedAt: Date.now(),
+  });
 }
 
 async function maybeEnqueueAssignedRouteSync(busId, busState = {}) {
   if (!busId) return null;
   const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+
+  const busAssigned = busState?.busProfile?.assignedRouteIds;
+  if (!Array.isArray(busAssigned)) {
+    return enqueueAssignedRouteSync(busId);
+  }
+
+  const busSet = new Set(busAssigned);
+  const cloudSet = new Set(assignedIds);
+  const idsMismatch =
+    busAssigned.length !== assignedIds.length ||
+    busAssigned.some((id) => !cloudSet.has(id)) ||
+    assignedIds.some((id) => !busSet.has(id));
+  if (idsMismatch) {
+    return enqueueAssignedRouteSync(busId);
+  }
+
   const busRoutes = busState?.routes ?? [];
   const busIds = busRoutes.map((r) => r.id);
   const localOrphans = busRoutes.filter((r) => !r.sharedFromCloud && !r.cloudRouteId);
@@ -593,13 +628,7 @@ async function maybeEnqueueAssignedRouteSync(busId, busState = {}) {
   if (Date.now() - last < ROUTE_SYNC_DEBOUNCE_MS) return null;
   if (await hasPendingCommandType(busId, 'SYNC_ASSIGNED_ROUTES')) return null;
 
-  routeSyncDebounce.set(busId, Date.now());
-  return enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
-    routes,
-    assignedRouteIds: assignedIds,
-    removeLocalOrphans: true,
-    savedAt: Date.now(),
-  });
+  return enqueueAssignedRouteSync(busId);
 }
 
 /** Queue global phrase clips + stop audio from catalog for the bus route. */
@@ -1035,14 +1064,9 @@ app.delete('/api/buses/:busId/assigned-routes/:routeId', authFleet, async (req, 
   const busId = req.params.busId;
   const routeId = req.params.routeId;
   await removeBusAssignedRoute(busId, routeId);
-  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
-  const cmd = await enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
-    routes,
-    assignedRouteIds: assignedIds,
-    removeLocalOrphans: true,
-    savedAt: Date.now(),
-  });
-  res.json({ ok: true, commandId: cmd.id, assignedRouteIds: assignedIds, removed: routeId });
+  const cmd = await enqueueAssignedRouteSync(busId);
+  const assignedRouteIds = (await buildAssignedRoutesPayload(busId)).assignedIds;
+  res.json({ ok: true, commandId: cmd?.id ?? null, assignedRouteIds, removed: routeId });
 });
 
 /** Push route to bus without resetting trip (merge into routes list). */
@@ -1203,21 +1227,24 @@ app.put('/api/routes/:routeId', authCatalog, async (req, res) => {
 });
 
 app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
-  const ok = await deleteRouteFromCatalog(req.params.routeId);
+  const routeId = req.params.routeId;
+  const ok = await deleteRouteFromCatalog(routeId);
   if (!ok) {
     res.status(404).json({ ok: false, error: 'Route not found' });
     return;
   }
   const targetBusIds = req.body?.targetBusIds ?? [];
-  for (const busId of targetBusIds) {
-    await removeBusAssignedRoute(busId, req.params.routeId);
+  const assignedBusIds = await listBusIdsWithAssignedRoute(routeId);
+  const busIds = [...new Set([...targetBusIds, ...assignedBusIds])];
+  for (const busId of busIds) {
+    await removeBusAssignedRoute(busId, routeId);
     await enqueueCommand(busId, 'DELETE_ROUTE', {
-      routeId: req.params.routeId,
+      routeId,
       savedAt: Date.now(),
     });
-    await maybeEnqueueAssignedRouteSync(busId, (await getBus(busId))?.state ?? {});
+    await enqueueAssignedRouteSync(busId);
   }
-  res.json({ ok: true, deleted: req.params.routeId, queuedFor: targetBusIds });
+  res.json({ ok: true, deleted: routeId, queuedFor: busIds });
 });
 
 app.get('/api/routes', authCatalog, async (_req, res) => {

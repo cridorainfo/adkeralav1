@@ -77,7 +77,13 @@ export function applyCloudCommands(current, commands) {
             const existing = byId.get(r.id);
             byId.set(r.id, existing ? mergeRouteById(existing, r) : r);
           }
-          next.routes = dedupeRoutes([...byId.values()]);
+          let mergedRoutes = dedupeRoutes([...byId.values()]);
+          const assignedIds = next.busProfile?.assignedRouteIds;
+          if (Array.isArray(assignedIds) && assignedIds.length) {
+            const idSet = new Set(assignedIds);
+            mergedRoutes = mergedRoutes.filter((r) => idSet.has(r.id));
+          }
+          next.routes = mergedRoutes;
         }
         next = {
           ...next,
@@ -167,7 +173,9 @@ export function applyCloudCommands(current, commands) {
         const payloadRoutes = (payload.routes ?? [])
           .map((r) => normalizeRouteMiddleStops(r))
           .filter((r) => r?.id);
-        const assignedIds = payload.assignedRouteIds ?? payloadRoutes.map((r) => r.id);
+        const routeIdSet = new Set(payloadRoutes.map((r) => r.id));
+        const rawAssignedIds = payload.assignedRouteIds ?? payloadRoutes.map((r) => r.id);
+        const assignedIds = [...new Set(rawAssignedIds.filter((id) => routeIdSet.has(id)))];
         const assignedSet = new Set(assignedIds);
         const mergedRoutes = payloadRoutes.map((r) => {
           const existing = (next.routes ?? []).find((x) => x.id === r.id);
@@ -177,7 +185,14 @@ export function applyCloudCommands(current, commands) {
             cloudRouteId: r.id,
           };
         });
-        next.routes = dedupeRoutes(mergedRoutes);
+        let finalRoutes = dedupeRoutes(mergedRoutes);
+        if (!payload.removeLocalOrphans) {
+          const localOnly = (next.routes ?? []).filter(
+            (r) => r?.id && !r.sharedFromCloud && !r.cloudRouteId && !assignedSet.has(r.id)
+          );
+          finalRoutes = dedupeRoutes([...finalRoutes, ...localOnly]);
+        }
+        next.routes = finalRoutes;
         if (next.activeRouteId && !assignedSet.has(next.activeRouteId)) {
           next.activeRouteId = next.routes[0]?.id ?? null;
           next.tripStarted = false;
@@ -187,7 +202,7 @@ export function applyCloudCommands(current, commands) {
         }
         next.busProfile = {
           ...(next.busProfile ?? {}),
-          assignedRouteIds: [...assignedSet],
+          assignedRouteIds: assignedIds,
         };
         next.savedAt = payload.savedAt ?? Date.now();
         break;

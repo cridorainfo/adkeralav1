@@ -1043,6 +1043,19 @@ export async function getBusAssignedRouteIds(busId) {
   return profile?.assignedRouteIds ?? [];
 }
 
+/** Bus IDs that have routeId in fleet assignment (for catalog delete cleanup). */
+export async function listBusIdsWithAssignedRoute(routeId) {
+  const id = String(routeId ?? '').trim();
+  if (!id) return [];
+  if (usePostgres()) return pg.pgListBusIdsWithAssignedRoute(id);
+  const store = await loadStore();
+  const out = [];
+  for (const [busId, profile] of Object.entries(store.busProfiles ?? {})) {
+    if ((profile?.assignedRouteIds ?? []).includes(id)) out.push(busId);
+  }
+  return out;
+}
+
 export async function hasPendingCommandType(busId, type) {
   if (usePostgres()) return pg.pgHasPendingCommandType(busId, type);
   const store = await loadStore();
