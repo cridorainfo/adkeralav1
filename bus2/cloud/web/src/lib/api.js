@@ -21,19 +21,26 @@ export async function uploadMedia(file, category = 'stops') {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-  const contentType = file.type || guessAudioContentType(file.name);
+  const contentType = file.type || guessMediaContentType(file.name);
   return api('/api/media/upload', {
     method: 'POST',
     body: JSON.stringify({ data, filename: file.name, category, contentType }),
   });
 }
 
-function guessAudioContentType(filename = '') {
+function guessMediaContentType(filename = '') {
   const lower = String(filename).toLowerCase();
   if (lower.endsWith('.mp3') || lower.endsWith('.mpeg') || lower.endsWith('.mpga')) return 'audio/mpeg';
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.ogg')) return 'audio/ogg';
   if (lower.endsWith('.m4a')) return 'audio/mp4';
+  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
   return 'application/octet-stream';
 }
 

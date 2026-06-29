@@ -1,6 +1,6 @@
 import { getAdSpec } from './adSpecs';
 
-const MAX_VIDEO_BYTES = 3 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
 const IMAGE_JPEG_QUALITY = 0.85;
 
 export function readFileAsDataUrl(file) {

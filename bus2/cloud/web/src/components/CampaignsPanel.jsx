@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { uploadMedia } from '../lib/api.js';
+import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
 
 export default function CampaignsPanel({ adminMode = false }) {
   const { user } = useAuth();
@@ -48,13 +49,19 @@ export default function CampaignsPanel({ adminMode = false }) {
   }
 
   async function uploadAd(file, isBanner) {
+    if (!file) return;
+    const validationError = validateAdMediaFile(file);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
     const category = isBanner ? 'banners' : 'ads';
     const up = await uploadMedia(file, category);
     const key = isBanner ? 'bannerAds' : 'ads';
     const item = {
       id: `${isBanner ? 'banner' : 'ad'}-${Date.now()}`,
       name: file.name,
-      type: file.type.startsWith('video') ? 'video' : 'image',
+      type: adMediaTypeFromFile(file),
       mediaFile: up.path,
       durationSec: isBanner ? 8 : 12,
     };
@@ -97,11 +104,11 @@ export default function CampaignsPanel({ adminMode = false }) {
                 </div>
                 <div className="form-group">
                   <label>Fullscreen ad media</label>
-                  <input type="file" accept="image/*,video/*" onChange={(e) => uploadAd(e.target.files?.[0], false)} />
+                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
                 </div>
                 <div className="form-group">
-                  <label>Banner ad media</label>
-                  <input type="file" accept="image/*" onChange={(e) => uploadAd(e.target.files?.[0], true)} />
+                  <label>Banner ad media (image or video)</label>
+                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />
                 </div>
                 <button type="submit" className="btn btn-primary btn-sm">
                   Create campaign

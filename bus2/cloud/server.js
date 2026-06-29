@@ -137,7 +137,7 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '55mb' }));
 app.use(cookieParser());
 app.use(requestLogger);
 
@@ -1424,6 +1424,15 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   const buffer = Buffer.from(base64, 'base64');
   if (!buffer.length) {
     res.status(400).json({ ok: false, error: 'Empty file data' });
+    return;
+  }
+  const maxBytes =
+    category === 'ads' || category === 'banners' ? 25 * 1024 * 1024 : 12 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    res.status(400).json({
+      ok: false,
+      error: `File too large (${(buffer.length / 1024 / 1024).toFixed(1)} MB). Max ${maxBytes / 1024 / 1024} MB for ${category}.`,
+    });
     return;
   }
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);

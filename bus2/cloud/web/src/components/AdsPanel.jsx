@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, uploadMedia } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
+import {
+  AD_MEDIA_ACCEPT,
+  AD_UPLOAD_HINTS,
+  adMediaTypeFromFile,
+  validateAdMediaFile,
+} from '../lib/adMedia.js';
 
 const emptyAd = () => ({
   id: `ad-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -116,6 +122,11 @@ export default function AdsPanel() {
 
   async function handleMediaUpload(i, file, isBanner) {
     if (!file) return;
+    const validationError = validateAdMediaFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -125,7 +136,7 @@ export default function AdsPanel() {
       const up = await uploadMedia(file, category);
       const patch = {
         mediaFile: up.path ?? up.audioFile,
-        type: file.type.startsWith('video') ? 'video' : 'image',
+        type: adMediaTypeFromFile(file),
       };
       let nextAds = ads;
       let nextBanners = bannerAds;
@@ -246,6 +257,7 @@ export default function AdsPanel() {
       </div>
 
       <h3>Fullscreen ads ({ads.length})</h3>
+      <p className="hint">{AD_UPLOAD_HINTS.fullscreen}</p>
       {ads.length === 0 && <p className="hint">No fullscreen ads yet — click Add below.</p>}
       {ads.map((ad, i) => (
         <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
@@ -265,7 +277,7 @@ export default function AdsPanel() {
             <label>Media</label>
             <input
               type="file"
-              accept="image/*,video/*"
+              accept={AD_MEDIA_ACCEPT}
               disabled={busy}
               onChange={(e) => {
                 handleMediaUpload(i, e.target.files?.[0], false);
@@ -273,7 +285,9 @@ export default function AdsPanel() {
               }}
             />
             {ad.mediaFile ? (
-              <small>Saved: {ad.mediaFile.split('/').pop()}</small>
+              <small>
+                {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
+              </small>
             ) : (
               <small className="hint">No file yet</small>
             )}
@@ -298,6 +312,7 @@ export default function AdsPanel() {
       </button>
 
       <h3>Banner ads ({bannerAds.length})</h3>
+      <p className="hint">{AD_UPLOAD_HINTS.banner}</p>
       {bannerAds.length === 0 && <p className="hint">No banner ads yet — click Add below.</p>}
       {bannerAds.map((ad, i) => (
         <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
@@ -317,7 +332,7 @@ export default function AdsPanel() {
             <label>Media</label>
             <input
               type="file"
-              accept="image/*"
+              accept={AD_MEDIA_ACCEPT}
               disabled={busy}
               onChange={(e) => {
                 handleMediaUpload(i, e.target.files?.[0], true);
@@ -325,7 +340,9 @@ export default function AdsPanel() {
               }}
             />
             {ad.mediaFile ? (
-              <small>Saved: {ad.mediaFile.split('/').pop()}</small>
+              <small>
+                {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
+              </small>
             ) : (
               <small className="hint">No file yet</small>
             )}
