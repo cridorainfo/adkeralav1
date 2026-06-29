@@ -10,7 +10,7 @@ import {
   applyClaimCredentials,
   isDeviceClaimed,
 } from './deviceConfig.js';
-import { mergeAudioMap } from './audioMerge.js';
+import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
 import { DEFAULT_CLOUD_URLS, resolveCloudUrl } from '../shared/cloudUrls.js';
@@ -116,27 +116,81 @@ async function syncGlobalPhraseAudio(root, creds) {
     });
     if (!res.ok) return;
     const json = await res.json();
-    if (!json?.ok || !json.audioFragments) return;
-    if (!Object.keys(json.audioFragments).length && !(json.mediaFiles?.length)) return;
+    if (!json?.ok) return;
 
+    const cloudFragments = json.audioFragments ?? {};
     const current = (await readInfoFile(root)) ?? {};
+    const oldPaths = new Set(collectAudioMediaFromState({ audioFragments: current.audioFragments }));
+    const newPaths = new Set(collectAudioMediaFromState({ audioFragments: cloudFragments }));
+    const removedPaths = [...oldPaths].filter((p) => !newPaths.has(p));
     const pushAt = Date.now();
     const merged = {
       ...current,
-      audioFragments: mergeAudioMap(current.audioFragments, json.audioFragments),
+      audioFragments: cloudFragments,
       savedAt: Math.max(current.savedAt ?? 0, json.savedAt ?? 0, pushAt),
       lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
     };
-    await writeInfoFileSerialized(root, merged, { source: 'cloud-phrases' });
+    const changed =
+      removedPaths.length > 0 ||
+      JSON.stringify(current.audioFragments ?? {}) !== JSON.stringify(cloudFragments);
+    if (!changed && !(json.mediaFiles?.length)) return;
 
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-phrases' });
     if (Array.isArray(json.mediaFiles) && json.mediaFiles.length) {
       await syncCloudMedia(root, json.mediaFiles, creds);
+    }
+    await deleteLocalMediaFiles(root, removedPaths);
+    if (removedPaths.length || json.mediaFiles?.length) {
       notifyStateChanged(root, {
         savedAt: merged.savedAt,
         lastCloudPushAt: merged.lastCloudPushAt,
         source: 'cloud-media',
       });
     }
+  } catch {
+    /* cloud offline */
+  }
+}
+
+async function syncStopAudioFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(`${creds.cloudUrl}/api/stops/audio`, {
+      headers: {
+        ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+        ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+      },
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const cloudCatalog = json.stopAudio ?? {};
+    const current = (await readInfoFile(root)) ?? {};
+    const oldPaths = new Set(collectAudioMediaFromState({ stopAudio: current.stopAudio }));
+    const nextStopAudio = syncStopAudioWithCatalog(current.stopAudio, cloudCatalog);
+    const newPaths = new Set(collectAudioMediaFromState({ stopAudio: nextStopAudio }));
+    const removedPaths = [...oldPaths].filter((p) => !newPaths.has(p));
+    const changed =
+      removedPaths.length > 0 ||
+      JSON.stringify(current.stopAudio ?? {}) !== JSON.stringify(nextStopAudio);
+    if (!changed) return;
+
+    const pushAt = Date.now();
+    const merged = {
+      ...current,
+      stopAudio: nextStopAudio,
+      savedAt: Math.max(current.savedAt ?? 0, json.savedAt ?? 0, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    };
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-stop-audio' });
+    await deleteLocalMediaFiles(root, removedPaths);
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-media',
+    });
   } catch {
     /* cloud offline */
   }
@@ -218,7 +272,7 @@ export async function runCloudSync(root) {
       await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
       await syncCloudMedia(root, mediaPaths, creds);
       await deleteLocalMediaFiles(root, removedPaths);
-      if (mediaPaths.length) {
+      if (mediaPaths.length || removedPaths.length) {
         notifyStateChanged(root, {
           savedAt: merged.savedAt,
           lastCloudPushAt: merged.lastCloudPushAt,
@@ -246,6 +300,7 @@ export async function runCloudSync(root) {
 
   lastPushedAt = Date.now();
   await syncGlobalPhraseAudio(root, creds);
+  await syncStopAudioFromCloud(root, creds);
 
   // Catch up any ad/banner media referenced in state but not yet on disk.
   try {

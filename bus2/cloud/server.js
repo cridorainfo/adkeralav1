@@ -1149,6 +1149,11 @@ app.put('/api/announcements/phrases', authCatalog, async (req, res) => {
 });
 
 /** Per-stop voice clips keyed by English stop name (shared catalog). */
+app.get('/api/stops/audio', authBus, async (_req, res) => {
+  const payload = await getStopAudioCatalog();
+  res.json({ ok: true, ...payload });
+});
+
 app.get('/api/stops/audio/catalog', authCatalog, async (_req, res) => {
   const payload = await getStopAudioCatalog();
   res.json({ ok: true, ...payload });
