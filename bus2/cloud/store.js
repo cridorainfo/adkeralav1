@@ -685,7 +685,9 @@ export async function upsertStopCatalog(entry) {
   if (usePostgres()) {
     const next = normalizeCatalogStop(entry);
     if (!next.en) return null;
-    return pg.pgUpsertStopCatalog(next);
+    const saved = await pg.pgUpsertStopCatalog(next);
+    await touchRouteCatalogRevision();
+    return saved;
   }
   const store = await loadStore();
   if (!store.stopCatalog) store.stopCatalog = [];
@@ -706,6 +708,7 @@ export async function upsertStopCatalog(entry) {
   } else {
     store.stopCatalog.push(next);
   }
+  store.routeCatalogUpdatedAt = Date.now();
   await saveStore();
   return store.stopCatalog.find((s) => stopCatalogKey(s.en) === key);
 }

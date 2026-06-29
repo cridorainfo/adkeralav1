@@ -177,7 +177,15 @@ export function applyCloudCommands(current, commands) {
         const rawAssignedIds = payload.assignedRouteIds ?? payloadRoutes.map((r) => r.id);
         const assignedIds = [...new Set(rawAssignedIds.filter((id) => routeIdSet.has(id)))];
         const assignedSet = new Set(assignedIds);
+        const authoritative = payload.removeLocalOrphans !== false;
         const mergedRoutes = payloadRoutes.map((r) => {
+          if (authoritative) {
+            return {
+              ...r,
+              sharedFromCloud: true,
+              cloudRouteId: r.id,
+            };
+          }
           const existing = (next.routes ?? []).find((x) => x.id === r.id);
           return {
             ...(existing ? mergeRouteById(existing, r) : r),
@@ -186,13 +194,16 @@ export function applyCloudCommands(current, commands) {
           };
         });
         let finalRoutes = dedupeRoutes(mergedRoutes);
-        if (!payload.removeLocalOrphans) {
+        if (!authoritative) {
           const localOnly = (next.routes ?? []).filter(
             (r) => r?.id && !r.sharedFromCloud && !r.cloudRouteId && !assignedSet.has(r.id)
           );
           finalRoutes = dedupeRoutes([...finalRoutes, ...localOnly]);
         }
         next.routes = finalRoutes;
+        if (Array.isArray(payload.stopCatalog)) {
+          next.stopCatalog = payload.stopCatalog;
+        }
         if (next.activeRouteId && !assignedSet.has(next.activeRouteId)) {
           next.activeRouteId = next.routes[0]?.id ?? null;
           next.tripStarted = false;

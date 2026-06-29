@@ -515,7 +515,8 @@ async function mergeStopWithCatalog(stop) {
   if (!catalog) return stop;
   return {
     ...stop,
-    ml: stop.ml || catalog.ml || '',
+    en: stop.en || catalog.en || '',
+    ml: catalog.ml || stop.ml || '',
     lat: stop.lat ?? catalog.lat ?? null,
     lng: stop.lng ?? catalog.lng ?? null,
     radiusM: stop.radiusM ?? catalog.radiusM ?? 80,
@@ -597,12 +598,15 @@ async function pushAssignedRoutesToBuses(targetBusIds = []) {
 async function enqueueAssignedRouteSync(busId) {
   if (!busId) return null;
   const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+  const store = await loadStore();
+  const savedAt = Date.now();
   routeSyncDebounce.set(busId, Date.now());
   return enqueueCommand(busId, 'SYNC_ASSIGNED_ROUTES', {
     routes,
     assignedRouteIds: assignedIds,
+    stopCatalog: store.stopCatalog ?? [],
     removeLocalOrphans: true,
-    savedAt: Date.now(),
+    savedAt,
   });
 }
 

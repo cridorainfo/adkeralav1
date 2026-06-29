@@ -169,31 +169,33 @@ async function syncAssignedRoutesFromCloud(root, creds) {
     const cloudSavedAt = json.routesSavedAt ?? 0;
     const current = (await readInfoFile(root)) ?? {};
     const localRevision = current.routesSavedAt ?? 0;
-    if (cloudSavedAt && cloudSavedAt <= localRevision) return;
+    const assignedIds = json.assignedRouteIds ?? [];
+    const assignedSet = new Set(assignedIds);
+    const localAssigned = (current.routes ?? []).filter((r) => assignedSet.has(r.id));
+    const catalogChanged =
+      JSON.stringify(current.stopCatalog ?? []) !== JSON.stringify(json.stopCatalog ?? []);
+    const routesChanged =
+      JSON.stringify(localAssigned) !== JSON.stringify(json.routes ?? []);
+    const revisionAdvanced = cloudSavedAt > localRevision;
+    if (!revisionAdvanced && !catalogChanged && !routesChanged) return;
 
     const merged = applyCloudCommands(current, [
       {
         type: 'SYNC_ASSIGNED_ROUTES',
         payload: {
           routes: json.routes ?? [],
-          assignedRouteIds: json.assignedRouteIds ?? [],
+          assignedRouteIds: assignedIds,
+          stopCatalog: json.stopCatalog ?? [],
           removeLocalOrphans: true,
           savedAt: cloudSavedAt || Date.now(),
         },
       },
     ]);
 
-    const cloudCatalog = json.stopCatalog ?? [];
-    const catalogChanged =
-      JSON.stringify(current.stopCatalog ?? []) !== JSON.stringify(cloudCatalog);
-    if (catalogChanged) {
-      merged.stopCatalog = cloudCatalog;
-    }
-
     const pushAt = Date.now();
     merged.savedAt = Math.max(current.savedAt ?? 0, cloudSavedAt, pushAt);
     merged.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, pushAt);
-    merged.routesSavedAt = cloudSavedAt || pushAt;
+    merged.routesSavedAt = Math.max(localRevision, cloudSavedAt || pushAt);
 
     await writeInfoFileSerialized(root, merged, { source: 'cloud-routes' });
     notifyStateChanged(root, {

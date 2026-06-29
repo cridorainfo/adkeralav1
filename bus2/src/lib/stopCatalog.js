@@ -19,7 +19,7 @@ export function mergeStopWithCatalog(stop, catalog = []) {
   if (!hit) return base;
   return normalizeStop({
     ...base,
-    ml: base.ml || hit.ml || '',
+    ml: hit.ml || base.ml || '',
     lat: base.lat ?? hit.lat ?? null,
     lng: base.lng ?? hit.lng ?? null,
     radiusM: base.radiusM ?? hit.radiusM ?? 80,
