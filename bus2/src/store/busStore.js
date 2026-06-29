@@ -342,7 +342,8 @@ function mergeStoredIntoPrev(prev, parsed) {
     const audioFragments = mergeHydratedAudioMap(prev?.audioFragments, stored.audioFragments);
     const stopCatalog = mergeStopCatalogs(prev?.stopCatalog, stored.stopCatalog);
 
-    const liveBase = remoteIsNewer ? { ...prev, ...stored } : { ...stored, ...prev };
+    const serverAuthoritative = remoteIsNewer || cloudPushAdvanced;
+    const liveBase = serverAuthoritative ? { ...prev, ...stored } : { ...stored, ...prev };
     const remoteAdsNewer = (stored.adsSavedAt ?? 0) >= (prev?.adsSavedAt ?? 0);
     const merged = {
       ...liveBase,
@@ -355,6 +356,15 @@ function mergeStoredIntoPrev(prev, parsed) {
       adsSavedAt: remoteAdsNewer ? (stored.adsSavedAt ?? 0) : (prev?.adsSavedAt ?? 0),
       lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
     };
+
+    const remoteDriverId = stored.driverLink?.driverId ?? null;
+    const prevDriverId = prev?.driverLink?.driverId ?? null;
+    if (serverAuthoritative || remoteDriverId !== prevDriverId) {
+      merged.driverLink = stored.driverLink ?? null;
+    }
+    if (cloudPushAdvanced && stored.busProfile && typeof stored.busProfile === 'object') {
+      merged.busProfile = { ...(merged.busProfile ?? {}), ...stored.busProfile };
+    }
 
     const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
     const storedRuntimeAt = stored?.serialRuntime?.at ?? 0;

@@ -108,11 +108,17 @@ function isLocalPhoneDriverId(driverId) {
 
 async function setDriverLink(dataRoot, driverLink) {
   const current = (await readInfoFile(dataRoot)) ?? {};
-  await writeInfoFileSerialized(dataRoot, {
-    ...current,
-    driverLink,
-    savedAt: Date.now(),
-  });
+  const pushAt = Date.now();
+  await writeInfoFileSerialized(
+    dataRoot,
+    {
+      ...current,
+      driverLink,
+      savedAt: pushAt,
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    },
+    { source: 'driver-link' }
+  );
 }
 
 async function clearLocalDriverLinkIfIdle(dataRoot) {
@@ -173,7 +179,7 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud }) {
     const token = getDriverTokenFromRequest(req);
     if (token) sessions.delete(token);
     await saveSessionsToDisk(dataRoot);
-    await clearLocalDriverLinkIfIdle(dataRoot);
+    await setDriverLink(dataRoot, null);
     res.json({ ok: true });
   });
 

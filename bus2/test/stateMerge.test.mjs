@@ -56,3 +56,23 @@ test('mergeIncomingState preserves ad playback on bus display during driver GPS 
   assert.equal(merged.displayView, 'ad');
   assert.equal(merged.currentAdIndex, 1);
 });
+
+test('mergeRemoteState clears driverLink when cloud push is newer even if savedAt is older', () => {
+  const prev = {
+    savedAt: 9000,
+    lastCloudPushAt: 1000,
+    driverLink: { driverId: 'phone-abc', linkedAt: 5000 },
+    busProfile: { pairingCode: '1111' },
+  };
+  const remote = {
+    savedAt: 8000,
+    lastCloudPushAt: 9500,
+    driverLink: null,
+    busProfile: { pairingCode: '4829' },
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.driverLink, null);
+  assert.equal(merged.busProfile.pairingCode, '4829');
+  assert.equal(merged.lastCloudPushAt, 9500);
+});

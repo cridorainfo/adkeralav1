@@ -1219,9 +1219,11 @@ export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state =
 }
 
 async function queueDriverLinkMerge(busId, payload) {
+  const pushAt = Date.now();
   return enqueueCommand(busId, 'MERGE_STATE', {
     ...payload,
-    savedAt: Date.now(),
+    savedAt: pushAt,
+    lastCloudPushAt: pushAt,
   });
 }
 

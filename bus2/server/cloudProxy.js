@@ -283,6 +283,26 @@ export function setupCloudProxy(app, root) {
         res.status(400).json(json);
         return;
       }
+      try {
+        const current = (await readInfoFile(root)) ?? {};
+        const pushAt = Date.now();
+        await writeInfoFileSerialized(
+          root,
+          {
+            ...current,
+            driverLink: null,
+            busProfile: {
+              ...(current.busProfile ?? {}),
+              ...(json.pairingCode ? { pairingCode: json.pairingCode } : {}),
+            },
+            savedAt: pushAt,
+            lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+          },
+          { source: 'driver-unlink' }
+        );
+      } catch (err) {
+        console.warn('AdKerala: local driver unlink apply failed:', err.message);
+      }
       res.json(json);
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
