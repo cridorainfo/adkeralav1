@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, Menu, globalShortcut, dialog, session } = require('electron');
 const path = require('path');
 const http = require('http');
 const { execSync } = require('child_process');
@@ -7,6 +7,7 @@ const { ensureFirewallOnce } = require('./firewall.cjs');
 const { setupAutoUpdater, handleKioskCommand } = require('./updater.cjs');
 const { setKioskCommandHandler } = require('./kioskBridge.cjs');
 const { applyPackagedDefaults } = require('./installEnv.cjs');
+const { setupWebSerial } = require('./serialPort.cjs');
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HTTPS_PORT = Number(process.env.ADKERALA_HTTPS_PORT ?? PORT + 1);
@@ -123,6 +124,7 @@ app.whenReady().then(async () => {
       freePort(HTTPS_PORT);
     }
     await ensureFirewallOnce(PORT);
+    setupWebSerial(session.defaultSession);
     await startServer();
     await waitForServer(`http://127.0.0.1:${PORT}/`);
     createWindow();

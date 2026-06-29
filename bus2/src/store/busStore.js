@@ -356,6 +356,14 @@ function mergeStoredIntoPrev(prev, parsed) {
       lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
     };
 
+    const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
+    const storedRuntimeAt = stored?.serialRuntime?.at ?? 0;
+    if (storedRuntimeAt >= prevRuntimeAt && stored.serialRuntime) {
+      merged.serialRuntime = stored.serialRuntime;
+    } else if (prev?.serialRuntime) {
+      merged.serialRuntime = prev.serialRuntime;
+    }
+
     if (prev?.announcementRequest?.id && !stored.announcementRequest?.id) {
       merged.announcementRequest = prev.announcementRequest;
     }

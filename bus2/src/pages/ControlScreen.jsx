@@ -266,9 +266,10 @@ export default function ControlScreen({
                     ? (state.serialRuntime.isConnected ? 'Connected' : state.serialRuntime.status)
                     : 'No status yet'}
                   {state.serialRuntime?.portLabel ? ` · ${state.serialRuntime.portLabel}` : ''}
+                  {state.serialRuntime?.lastLine ? ` · last: ${state.serialRuntime.lastLine}` : ''}
                 </span>
                 <span className="serial-status-text serial-status-text--hint">
-                  Fix in Settings → ESP32
+                  Serial runs on bus display PC — not this phone
                 </span>
               </div>
             )}

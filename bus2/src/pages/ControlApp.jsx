@@ -1,7 +1,4 @@
 import { useBusStore } from '../hooks/useBusStore';
-import { useSerialPort, isWebSerialSupported } from '../hooks/useSerialPort';
-import { useEspSerialControl } from '../hooks/useEspSerialControl';
-import { useAppViewHotkeys } from '../hooks/useAppViewHotkeys';
 import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useDriverGps } from '../hooks/useDriverGps';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
@@ -12,13 +9,7 @@ import DriverControlGate from '../components/DriverControlGate';
 function ControlAppInner() {
   const {
     state,
-    startTrip,
-    endTrip,
     moveForward,
-    undoForward,
-    requestAnnouncement,
-    enterDisplayMode,
-    exitToControl,
   } = useBusStore();
 
   useRemoteStateSync(true);
@@ -31,38 +22,11 @@ function ControlAppInner() {
     moveForward,
   });
 
-  const { handleValueChange } = useEspSerialControl({
-    state,
-    startTrip,
-    endTrip,
-    moveForward,
-    undoForward,
-    requestAnnouncement,
-    enterDisplayMode,
-    exitToControl,
-  });
-
-  const serialSettings = state.serialSettings ?? {};
-  const serialTextCommands = [
-    serialSettings.fullscreenCommand ?? 'fullscreen',
-    serialSettings.exitCommand ?? 'exit',
-  ];
-  const serial = useSerialPort({
-    enabled: serialSettings.enabled ?? Boolean(serialSettings.savedPortInfo),
-    locked: serialSettings.portLocked ?? Boolean(serialSettings.savedPortInfo),
-    baudRate: serialSettings.baudRate,
-    savedPortInfo: serialSettings.savedPortInfo,
-    onValueChange: handleValueChange,
-    textCommands: serialTextCommands,
-  });
-
-  useAppViewHotkeys({ enterDisplayMode, exitToControl });
-
   return (
     <ControlScreen
       driverMode
-      serial={serial}
-      isSerialSupported={isWebSerialSupported()}
+      serial={null}
+      isSerialSupported={false}
       gpsPermission={gpsPermission}
       onRequestGps={requestGps}
       gpsDriveStatus={gpsDriveStatus}

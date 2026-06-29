@@ -29,6 +29,7 @@ export default function DisplayApp() {
 
   const kioskMode = isKioskMode();
   const busPcLaunch = isLaunchedByRunScript() || kioskMode;
+  const serialSupported = isWebSerialSupported();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useRemoteStateSync(true);
@@ -47,18 +48,18 @@ export default function DisplayApp() {
   });
 
   const serialSettings = state.serialSettings ?? {};
+  const serialTextCommands = [
+    serialSettings.fullscreenCommand ?? 'fullscreen',
+    serialSettings.exitCommand ?? 'exit',
+  ];
   const serial = useSerialPort({
     enabled:
-      (serialSettings.enabled ?? Boolean(serialSettings.savedPortInfo)) &&
-      isWebSerialSupported(),
+      (serialSettings.enabled ?? Boolean(serialSettings.savedPortInfo)) && serialSupported,
     locked: serialSettings.portLocked ?? Boolean(serialSettings.savedPortInfo),
     baudRate: serialSettings.baudRate,
     savedPortInfo: serialSettings.savedPortInfo,
     onValueChange: handleValueChange,
-    textCommands: [
-      serialSettings.fullscreenCommand ?? 'fullscreen',
-      serialSettings.exitCommand ?? 'exit',
-    ],
+    textCommands: serialTextCommands,
   });
 
   useEffect(() => {
@@ -67,12 +68,14 @@ export default function DisplayApp() {
       portLabel: serial.portLabel || '',
       error: serial.error || '',
       isConnected: serial.isConnected,
+      lastLine: serial.lastLine || '',
     });
   }, [
     serial.status,
     serial.portLabel,
     serial.error,
     serial.isConnected,
+    serial.lastLine,
     updateSerialRuntime,
   ]);
 
@@ -84,6 +87,20 @@ export default function DisplayApp() {
     });
   }, [busPcLaunch]);
 
+  useEffect(() => {
+    if (!serialSupported) return undefined;
+
+    const onKeyDown = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        setSettingsOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [serialSupported]);
+
   return (
     <>
       <FleetSetupOverlay />
@@ -94,13 +111,13 @@ export default function DisplayApp() {
           <DriverConnectBanner />
         </div>
       )}
-      {!kioskMode && isWebSerialSupported() && (
+      {serialSupported && (
         <>
           <button
             type="button"
-            className="display-settings-fab"
+            className={`display-settings-fab ${kioskMode ? 'display-settings-fab--kiosk' : ''}`}
             onClick={() => setSettingsOpen((v) => !v)}
-            title="ESP32 serial settings"
+            title="ESP32 serial settings (Ctrl+Shift+S)"
             aria-label="ESP32 settings"
           >
             ⚙️
@@ -109,7 +126,7 @@ export default function DisplayApp() {
             <div className="display-settings-overlay" role="dialog" aria-label="ESP32 settings">
               <div className="display-settings-panel">
                 <div className="display-settings-header">
-                  <h3>Bus PC settings</h3>
+                  <h3>Bus PC — ESP32 settings</h3>
                   <button
                     type="button"
                     className="btn btn-ghost"
@@ -118,6 +135,12 @@ export default function DisplayApp() {
                     ✕
                   </button>
                 </div>
+                {kioskMode && (
+                  <p className="serial-hint" style={{ marginTop: 0 }}>
+                    Connect the ESP32 USB cable to this PC, click <strong>Select COM Port</strong>,
+                    then press buttons to verify <strong>Received:</strong> updates below.
+                  </p>
+                )}
                 <SerialSettings
                   serialSettings={serialSettings}
                   onUpdateSettings={updateSerialSettings}

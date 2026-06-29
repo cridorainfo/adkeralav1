@@ -10,6 +10,20 @@ $Root = Split-Path $PSScriptRoot -Parent
 $ReleaseDir = Join-Path $Root 'release\win-unpacked'
 $Target = [System.IO.Path]::GetFullPath($Target)
 
+function Remove-CapacitorAndroidJunk {
+  param([string]$Base)
+  $junk = @(
+    (Join-Path $Base 'resources\app.asar.unpacked\node_modules\@capacitor'),
+    (Join-Path $Base 'resources\app.asar.unpacked\node_modules\@capawesome-team'),
+    (Join-Path $Base 'resources\app.asar.unpacked\node_modules')
+  )
+  foreach ($path in $junk) {
+    if (Test-Path $path) {
+      Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 Write-Host "Building portable app..." -ForegroundColor Cyan
 Push-Location $Root
 try {
@@ -22,6 +36,8 @@ try {
 if (-not (Test-Path (Join-Path $ReleaseDir 'AdKeralaDisplay.exe'))) {
   throw "Build output not found at $ReleaseDir"
 }
+
+Remove-CapacitorAndroidJunk $ReleaseDir
 
 Write-Host "Stopping AdKerala if running..." -ForegroundColor Cyan
 Get-Process -Name 'AdKeralaDisplay' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -48,6 +64,8 @@ foreach ($item in $wipe) {
 Write-Host "Copying build files..." -ForegroundColor Cyan
 robocopy $ReleaseDir $Target /MIR /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed (exit $LASTEXITCODE)" }
+
+Remove-CapacitorAndroidJunk $Target
 
 # Ensure no leftover user data beside the exe (fresh = unclaimed, empty db)
 foreach ($item in $wipe) {

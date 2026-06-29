@@ -21,6 +21,12 @@ files:
   - "!node_modules/electron/**/*"
   - "!node_modules/electron-builder/**/*"
   - "!node_modules/.cache/**/*"
+  # Capacitor / Android — driver APK only; not used by bus PC Electron app
+  - "!node_modules/@capacitor/**/*"
+  - "!node_modules/@capawesome-team/**/*"
+  - "!android/**/*"
+  - "!node_modules/**/android/**/*"
+  - "!node_modules/**/.gradle/**/*"
 
 extraResources:
   - from: portable-template/db

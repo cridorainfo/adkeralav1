@@ -71,8 +71,8 @@ export default function SerialSettings({
         <h4 className="settings-section-title">ESP32 serial control</h4>
         <p className="serial-panel-desc">
           The ESP32 USB cable connects to the <strong>bus display PC</strong> (/display). Settings
-          you change here sync to that screen. Use this if buttons stop working or values need
-          correcting on the road.
+          you change here sync to that screen. Scroll down for button mappings (1/2/3) and text
+          commands (<code>fullscreen</code> / <code>exit</code>).
         </p>
 
         <div className="serial-status-row">
@@ -80,6 +80,9 @@ export default function SerialSettings({
           <strong>Bus PC: {runtimeLabel}</strong>
           {serialRuntime?.portLabel && (
             <span className="serial-port-label">{serialRuntime.portLabel}</span>
+          )}
+          {serialRuntime?.lastLine && (
+            <span className="serial-last-value">Last: {serialRuntime.lastLine}</span>
           )}
         </div>
 

@@ -160,7 +160,14 @@ function useBusStoreLogic() {
         !cloudPushAdvanced &&
         Date.now() - lastWriteAtRef.current < 4000 &&
         lastWriteAtRef.current > (remoteHydrated?.savedAt ?? 0);
-      if (blockedByRecentLocalWrite) return prev;
+      if (blockedByRecentLocalWrite) {
+        const remoteRuntimeAt = remoteHydrated?.serialRuntime?.at ?? 0;
+        const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
+        if (remoteRuntimeAt > prevRuntimeAt && remoteHydrated?.serialRuntime) {
+          return { ...prev, serialRuntime: remoteHydrated.serialRuntime };
+        }
+        return prev;
+      }
 
       const merged = mergeRemoteState(prev, remoteHydrated);
       delete merged._cloudPushAdvanced;
@@ -941,7 +948,8 @@ function useBusStoreLogic() {
           prev.status === next.status &&
           prev.portLabel === next.portLabel &&
           prev.error === next.error &&
-          prev.isConnected === next.isConnected
+          prev.isConnected === next.isConnected &&
+          prev.lastLine === next.lastLine
         ) {
           return s;
         }

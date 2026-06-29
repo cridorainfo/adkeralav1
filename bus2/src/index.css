@@ -863,6 +863,15 @@ textarea {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
+.display-settings-fab--kiosk {
+  opacity: 0.55;
+}
+
+.display-settings-fab--kiosk:hover,
+.display-settings-fab--kiosk:focus-visible {
+  opacity: 1;
+}
+
 .display-settings-overlay {
   position: fixed;
   inset: 0;
