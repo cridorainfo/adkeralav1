@@ -82,11 +82,19 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function hasStopCoords(stop) {
+  return (
+    stop &&
+    Number.isFinite(Number(stop.lat)) &&
+    Number.isFinite(Number(stop.lng))
+  );
+}
+
 function routeStopPoints(route) {
   if (!route) return [];
   const ordered = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
   return ordered
-    .filter((s) => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)))
+    .filter((s) => hasStopCoords(s))
     .map((s) => ({
       lat: Number(s.lat),
       lng: Number(s.lng),
@@ -95,8 +103,26 @@ function routeStopPoints(route) {
     }));
 }
 
-function routePolylinePositions(route) {
-  return routeStopPoints(route).map((s) => [s.lat, s.lng]);
+/** Only connect consecutive stops that both have GPS — never jump over missing stops. */
+function routePolylineSegments(route) {
+  if (!route) return [];
+  const ordered = [route.startStop, ...(route.stops ?? []), route.endStop].filter(Boolean);
+  const segments = [];
+  let current = [];
+
+  for (const stop of ordered) {
+    if (hasStopCoords(stop)) {
+      current.push([Number(stop.lat), Number(stop.lng)]);
+    } else if (current.length >= 2) {
+      segments.push(current);
+      current = [];
+    } else {
+      current = [];
+    }
+  }
+  if (current.length >= 2) segments.push(current);
+
+  return segments;
 }
 
 function routeColor(routeId, index) {
@@ -339,14 +365,13 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
         ))}
         <FitBounds buses={buses} trails={trails} assignedRoutes={assignedRoutes} />
         {selectedBusId &&
-          assignedRoutes.map((route, routeIndex) => {
-            const positions = routePolylinePositions(route);
-            if (positions.length < 2) return null;
+          assignedRoutes.flatMap((route, routeIndex) => {
+            const segments = routePolylineSegments(route);
             const isActive = route.id === activeRouteId;
             const color = routeColor(route.id, routeIndex);
-            return (
+            return segments.map((positions, segIndex) => (
               <Polyline
-                key={`route-${route.id}`}
+                key={`route-${route.id}-seg-${segIndex}`}
                 positions={positions}
                 pathOptions={{
                   color,
@@ -357,7 +382,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
                   lineJoin: 'round',
                 }}
               />
-            );
+            ));
           })}
         {selectedBusId &&
           assignedRoutes.flatMap((route, routeIndex) => {
