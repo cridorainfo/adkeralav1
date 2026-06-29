@@ -120,6 +120,16 @@ const ADMIN_KEY = process.env.ADKERALA_ADMIN_KEY ?? 'change-me-in-production';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 
+async function purgeRemovedMediaFiles(removedFiles = []) {
+  for (const relPath of removedFiles) {
+    try {
+      await deleteMediaFile(relPath, MEDIA_DIR);
+    } catch (err) {
+      console.warn('Media delete failed:', relPath, err.message);
+    }
+  }
+}
+
 if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'production') {
   console.warn('WARNING: Set ADKERALA_ADMIN_KEY in production!');
 }
@@ -1134,6 +1144,7 @@ app.get('/api/announcements/phrases/catalog', authCatalog, async (_req, res) => 
 app.put('/api/announcements/phrases', authCatalog, async (req, res) => {
   const { audioFragments, mediaFiles } = req.body ?? {};
   const payload = await setGlobalPhraseAudio(audioFragments, mediaFiles);
+  await purgeRemovedMediaFiles(payload.removedFiles ?? []);
   res.json({ ok: true, ...payload });
 });
 
@@ -1146,6 +1157,7 @@ app.get('/api/stops/audio/catalog', authCatalog, async (_req, res) => {
 app.put('/api/stops/audio', authCatalog, async (req, res) => {
   const { stopAudio, mediaFiles } = req.body ?? {};
   const payload = await mergeStopAudioCatalog(stopAudio ?? {}, mediaFiles);
+  await purgeRemovedMediaFiles(payload.removedFiles ?? []);
   res.json({ ok: true, ...payload });
 });
 

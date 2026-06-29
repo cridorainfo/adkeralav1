@@ -262,6 +262,21 @@ export function collectAdMediaFromState(state = {}) {
   ];
 }
 
+/** Collect stop + phrase audio paths from bus state. */
+export function collectAudioMediaFromState(state = {}) {
+  const paths = new Set();
+  for (const map of [state.stopAudio, state.audioFragments]) {
+    if (!map) continue;
+    for (const entry of Object.values(map)) {
+      for (const lang of Object.values(entry ?? {})) {
+        const file = lang?.audioFile;
+        if (file && typeof file === 'string') paths.add(file);
+      }
+    }
+  }
+  return [...paths];
+}
+
 /** Collect relative media paths referenced in command payloads for cloud download. */
 export function collectMediaDownloads(commands) {
   const paths = new Set();
@@ -269,6 +284,11 @@ export function collectMediaDownloads(commands) {
     const payload = cmd.payload ?? {};
     if (Array.isArray(payload.mediaFiles)) {
       for (const rel of payload.mediaFiles) {
+        if (typeof rel === 'string' && rel) paths.add(rel);
+      }
+    }
+    if (Array.isArray(payload.removedMediaFiles)) {
+      for (const rel of payload.removedMediaFiles) {
         if (typeof rel === 'string' && rel) paths.add(rel);
       }
     }

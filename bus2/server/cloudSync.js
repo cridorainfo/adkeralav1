@@ -1,6 +1,6 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState } from './cloudCommands.js';
+import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia, deleteLocalMediaFiles } from './cloudMediaSync.js';
 import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
 import { getLanAddresses } from './networkInfo.js';
@@ -193,13 +193,23 @@ export async function runCloudSync(root) {
 
     if (stateCommands.length) {
       const oldAdPaths = new Set(collectAdMediaFromState(current));
+      const oldAudioPaths = new Set(collectAudioMediaFromState(current));
       const merged = applyCloudCommands(current, stateCommands);
       const newAdPaths = new Set(collectAdMediaFromState(merged));
+      const newAudioPaths = new Set(collectAudioMediaFromState(merged));
       const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
+      const removedAudioPaths = [...oldAudioPaths].filter((p) => !newAudioPaths.has(p));
+      const explicitRemoved = stateCommands.flatMap((cmd) =>
+        Array.isArray(cmd.payload?.removedMediaFiles) ? cmd.payload.removedMediaFiles : []
+      );
+      const removedPaths = [
+        ...new Set([...removedAdPaths, ...removedAudioPaths, ...explicitRemoved].filter(Boolean)),
+      ];
       const mediaPaths = [
         ...new Set([
           ...collectMediaDownloads(stateCommands),
           ...collectAdMediaFromState(merged),
+          ...collectAudioMediaFromState(merged),
         ]),
       ];
       const pushAt = Date.now();
@@ -207,7 +217,7 @@ export async function runCloudSync(root) {
       merged.lastCloudPushAt = pushAt;
       await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
       await syncCloudMedia(root, mediaPaths, creds);
-      await deleteLocalMediaFiles(root, removedAdPaths);
+      await deleteLocalMediaFiles(root, removedPaths);
       if (mediaPaths.length) {
         notifyStateChanged(root, {
           savedAt: merged.savedAt,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, uploadMedia, fleetBroadcast } from '../lib/api.js';
+import { basename, pushAudioMergeToBuses } from '../lib/audioCatalogPush.js';
 import { useSelectedBus } from './BusContext.jsx';
 import { useBusAssignedRoutes } from '../hooks/useBusAssignedRoutes.js';
 import { createRouteId, routeSelectLabel } from '../lib/routeLabels.js';
@@ -7,13 +8,16 @@ import { createRouteId, routeSelectLabel } from '../lib/routeLabels.js';
 const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
 
-function basename(path) {
-  if (!path) return '';
-  const parts = String(path).split('/');
-  return parts[parts.length - 1] || path;
-}
-
-function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile, onUploadFile, uploading }) {
+function StopRow({
+  stop,
+  onChange,
+  onRemove,
+  showRemove,
+  savedAudioFile,
+  onUploadFile,
+  onDeleteAudio,
+  uploading,
+}) {
   const fields = ['en', 'ml', 'lat', 'lng', 'radiusM'];
   const labels = { en: 'English', ml: 'Malayalam', lat: 'Lat', lng: 'Lng', radiusM: 'Radius' };
 
@@ -46,6 +50,16 @@ function StopRow({ stop, onChange, onRemove, showRemove, savedAudioFile, onUploa
         ) : (
           <small className="hint">No audio — pick MP3/MPEG</small>
         )}
+        {savedAudioFile && onDeleteAudio ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={uploading}
+            onClick={onDeleteAudio}
+          >
+            Remove audio
+          </button>
+        ) : null}
       </div>
       {showRemove && (
         <button type="button" className="btn btn-secondary btn-sm" onClick={onRemove}>
@@ -135,14 +149,54 @@ export default function RouteEditor() {
         method: 'PUT',
         body: JSON.stringify({ stopAudio, mediaFiles: [relPath] }),
       });
-      const merged = saved.stopAudio ?? { ...stopAudioCatalog, ...stopAudio };
+      const merged = saved.stopAudio ?? stopAudioCatalog;
       setStopAudioCatalog(merged);
       setStatus(`Audio saved for "${stopEn}"`);
+      if (pushToBus && targetBusIds.length) {
+        await pushAudioMergeToBuses({
+          targetBusIds,
+          stopAudio,
+          mediaFiles: [relPath],
+          removedMediaFiles: saved.removedFiles ?? [],
+        });
+      }
       return relPath;
     } finally {
       setUploadingStopKey(null);
     }
-  }, [stopAudioCatalog]);
+  }, [stopAudioCatalog, pushToBus, targetBusIds]);
+
+  const deleteStopAudioEntry = useCallback(async (stopEn, applyStop, stop) => {
+    const key = String(stopEn ?? '').trim().toLowerCase();
+    if (!key) throw new Error('Enter the English stop name before removing audio.');
+    const current = stopAudioCatalog[key]?.en?.audioFile;
+    if (!current) return;
+    if (!confirm(`Remove voice audio for "${stopEn}"?`)) return;
+    setUploadingStopKey(key);
+    setError('');
+    try {
+      const stopAudio = { [key]: { en: { audioFile: null } } };
+      const saved = await api('/api/stops/audio', {
+        method: 'PUT',
+        body: JSON.stringify({ stopAudio }),
+      });
+      setStopAudioCatalog(saved.stopAudio ?? {});
+      applyStop({ ...stop, _savedAudioFile: null, audioEn: null, _voiceFile: null });
+      setStatus(`Audio removed for "${stopEn}"`);
+      if (pushToBus && targetBusIds.length) {
+        await pushAudioMergeToBuses({
+          targetBusIds,
+          stopAudio,
+          removedMediaFiles: saved.removedFiles ?? [current],
+        });
+      }
+    } catch (err) {
+      setError(err.message ?? 'Could not remove audio');
+      setStatus('');
+    } finally {
+      setUploadingStopKey(null);
+    }
+  }, [stopAudioCatalog, pushToBus, targetBusIds]);
 
   function newRoute() {
     setError('');
@@ -409,6 +463,9 @@ export default function RouteEditor() {
         savedAudioFile={savedAudioForStop(route.startStop)}
         uploading={isStopUploading(route.startStop)}
         onUploadFile={(file) => handleStopAudioUpload(route.startStop, file, (s) => setRoute({ ...route, startStop: s }))}
+        onDeleteAudio={() =>
+          deleteStopAudioEntry(route.startStop.en, (s) => setRoute({ ...route, startStop: s }), route.startStop)
+        }
         onChange={(s) => setRoute({ ...route, startStop: s })}
       />
       <h3>Middle stops</h3>
@@ -425,6 +482,13 @@ export default function RouteEditor() {
               stops[i] = updated;
               setRoute({ ...route, stops });
             })
+          }
+          onDeleteAudio={() =>
+            deleteStopAudioEntry(s.en, (updated) => {
+              const stops = [...route.stops];
+              stops[i] = updated;
+              setRoute({ ...route, stops });
+            }, s)
           }
           onChange={(updated) => {
             const stops = [...route.stops];
@@ -443,6 +507,9 @@ export default function RouteEditor() {
         savedAudioFile={savedAudioForStop(route.endStop)}
         uploading={isStopUploading(route.endStop)}
         onUploadFile={(file) => handleStopAudioUpload(route.endStop, file, (s) => setRoute({ ...route, endStop: s }))}
+        onDeleteAudio={() =>
+          deleteStopAudioEntry(route.endStop.en, (s) => setRoute({ ...route, endStop: s }), route.endStop)
+        }
         onChange={(s) => setRoute({ ...route, endStop: s })}
       />
       <div className="editor-actions">

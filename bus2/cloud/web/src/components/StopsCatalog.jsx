@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { api, uploadMedia } from '../lib/api.js';
+import { basename, pushAudioMergeToBuses } from '../lib/audioCatalogPush.js';
 import { useSelectedBus } from './BusContext.jsx';
 import {
   MISSING_LABELS,
@@ -15,6 +16,8 @@ const FILTER_CHIPS = [
   { id: 'malayalam_text', label: 'Missing Malayalam' },
   { id: 'english_name', label: 'Missing English' },
 ];
+
+const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 
 function MissingBadges({ missing }) {
   if (!missing?.length) return <span className="stops-missing-ok">Complete</span>;
@@ -31,8 +34,10 @@ function MissingBadges({ missing }) {
 
 export default function StopsCatalog() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { selectedBusId, pushToBus } = useSelectedBus();
+  const { selectedBusId, pushToBus, targetBusIds } = useSelectedBus();
   const [stops, setStops] = useState([]);
+  const [stopAudioCatalog, setStopAudioCatalog] = useState({});
+  const [audioBusy, setAudioBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState(searchParams.get('missing') || 'all');
   const [selectedEn, setSelectedEn] = useState(searchParams.get('highlight') || '');
@@ -58,9 +63,19 @@ export default function StopsCatalog() {
     setStops(json.stops ?? []);
   }, [query, filter]);
 
+  const loadStopAudio = useCallback(async () => {
+    try {
+      const json = await api('/api/stops/audio/catalog');
+      setStopAudioCatalog(json.stopAudio ?? {});
+    } catch {
+      setStopAudioCatalog({});
+    }
+  }, []);
+
   useEffect(() => {
     load().catch((err) => setError(err.message ?? 'Could not load stops'));
-  }, [load]);
+    loadStopAudio();
+  }, [load, loadStopAudio]);
 
   useEffect(() => {
     const highlight = searchParams.get('highlight');
@@ -92,6 +107,54 @@ export default function StopsCatalog() {
     if (en) next.set('highlight', en);
     else next.delete('highlight');
     setSearchParams(next, { replace: true });
+  }
+
+  const selectedAudioFile = useMemo(() => {
+    if (!selectedEn) return null;
+    return stopAudioCatalog[selectedEn.trim().toLowerCase()]?.en?.audioFile ?? null;
+  }, [selectedEn, stopAudioCatalog]);
+
+  async function persistStopAudioPatch(stopEn, patch, mediaFiles = []) {
+    setAudioBusy(true);
+    setError('');
+    try {
+      const saved = await api('/api/stops/audio', {
+        method: 'PUT',
+        body: JSON.stringify({ stopAudio: patch, mediaFiles }),
+      });
+      setStopAudioCatalog(saved.stopAudio ?? {});
+      if (pushOnSave && pushToBus && targetBusIds.length) {
+        await pushAudioMergeToBuses({
+          targetBusIds,
+          stopAudio: patch,
+          mediaFiles,
+          removedMediaFiles: saved.removedFiles ?? [],
+        });
+      }
+      return saved;
+    } finally {
+      setAudioBusy(false);
+    }
+  }
+
+  async function handleStopAudioUpload(file) {
+    if (!selectedEn || !file) return;
+    const key = selectedEn.trim().toLowerCase();
+    const up = await uploadMedia(file, 'stops');
+    const relPath = up.path ?? up.audioFile;
+    if (!relPath) throw new Error('Upload did not return a file path.');
+    const patch = { [key]: { en: { audioFile: relPath } } };
+    await persistStopAudioPatch(selectedEn, patch, [relPath]);
+    setMessage(`Voice audio updated for "${selectedEn}"`);
+  }
+
+  async function handleStopAudioDelete() {
+    if (!selectedEn || !selectedAudioFile) return;
+    if (!confirm(`Remove voice audio for "${selectedEn}"?`)) return;
+    const key = selectedEn.trim().toLowerCase();
+    const patch = { [key]: { en: { audioFile: null } } };
+    await persistStopAudioPatch(selectedEn, patch);
+    setMessage(`Voice audio removed for "${selectedEn}"`);
   }
 
   async function saveStop(patch) {
@@ -334,6 +397,44 @@ export default function StopsCatalog() {
                     {busy ? 'Saving…' : 'Save stop'}
                   </button>
                 </form>
+
+                <div className="stops-audio-section">
+                  <h4>Stop voice (English)</h4>
+                  <p className="hint">One audio file per stop. Uploading replaces the previous clip.</p>
+                  <p className="hint">
+                    Current: {selectedAudioFile ? basename(selectedAudioFile) : 'No audio'}
+                  </p>
+                  <div className="toolbar">
+                    <input
+                      type="file"
+                      accept={AUDIO_ACCEPT}
+                      disabled={audioBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (file) {
+                          handleStopAudioUpload(file).catch((err) =>
+                            setError(err.message ?? 'Audio upload failed')
+                          );
+                        }
+                      }}
+                    />
+                    {selectedAudioFile ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={audioBusy}
+                        onClick={() =>
+                          handleStopAudioDelete().catch((err) =>
+                            setError(err.message ?? 'Could not remove audio')
+                          )
+                        }
+                      >
+                        Remove audio
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
 
                 <div className="stops-field-capture">
                   <h4>Field GPS capture</h4>

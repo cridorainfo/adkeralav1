@@ -408,23 +408,29 @@ export async function getGlobalPhraseAudio() {
 
 export async function setGlobalPhraseAudio(audioFragments, mediaFiles = []) {
   const savedAt = Date.now();
+  const current = await getGlobalPhraseAudio();
+  const { catalog, removedFiles } = deepMergeAudioCatalog(
+    current.audioFragments ?? {},
+    audioFragments ?? {}
+  );
   if (usePostgres()) {
-    const payload = { audioFragments: audioFragments ?? {}, savedAt };
-    await pg.pgSetPlatformSetting(PG_KEY_GLOBAL_AUDIO, payload);
+    await pg.pgSetPlatformSetting(PG_KEY_GLOBAL_AUDIO, { audioFragments: catalog, savedAt });
     return {
-      audioFragments: payload.audioFragments,
+      audioFragments: catalog,
       savedAt,
-      mediaFiles: mediaFiles.length ? mediaFiles : collectGlobalPhraseMediaPaths(payload.audioFragments),
+      mediaFiles: mediaFiles.length ? mediaFiles : collectGlobalPhraseMediaPaths(catalog),
+      removedFiles,
     };
   }
   const store = await loadStore();
-  store.globalAudioFragments = audioFragments ?? {};
+  store.globalAudioFragments = catalog;
   store.globalAudioSavedAt = savedAt;
   await saveStore();
   return {
-    audioFragments: store.globalAudioFragments,
+    audioFragments: catalog,
     savedAt: store.globalAudioSavedAt,
-    mediaFiles: mediaFiles.length ? mediaFiles : collectGlobalPhraseMediaPaths(store.globalAudioFragments),
+    mediaFiles: mediaFiles.length ? mediaFiles : collectGlobalPhraseMediaPaths(catalog),
+    removedFiles,
   };
 }
 
@@ -441,6 +447,35 @@ function collectAudioMediaPathsFromMap(map = {}) {
 
 function collectGlobalPhraseMediaPaths(map = {}) {
   return collectAudioMediaPathsFromMap(map);
+}
+
+/** Deep-merge audio maps; null audioFile removes a lang clip and tracks replaced files. */
+export function deepMergeAudioCatalog(catalog = {}, entries = {}) {
+  const next = { ...(catalog ?? {}) };
+  const removedFiles = [];
+
+  for (const [key, langs] of Object.entries(entries ?? {})) {
+    if (!key) continue;
+    next[key] = { ...(next[key] ?? {}) };
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      const oldFile = next[key][lang]?.audioFile ?? null;
+      const shouldRemove =
+        val === null || val?.remove === true || val?.audioFile === null || val?.audioFile === '';
+      if (shouldRemove) {
+        if (oldFile) removedFiles.push(oldFile);
+        delete next[key][lang];
+        continue;
+      }
+      if (val && typeof val === 'object') {
+        const newFile = val.audioFile ?? oldFile;
+        if (oldFile && newFile && oldFile !== newFile) removedFiles.push(oldFile);
+        next[key][lang] = { ...(next[key][lang] ?? {}), ...val };
+      }
+    }
+    if (!Object.keys(next[key]).length) delete next[key];
+  }
+
+  return { catalog: next, removedFiles: [...new Set(removedFiles)] };
 }
 
 export async function getStopAudioCatalog() {
@@ -464,24 +499,26 @@ export async function getStopAudioCatalog() {
 
 export async function mergeStopAudioCatalog(entries = {}, mediaFiles = []) {
   const savedAt = Date.now();
+  const current = await getStopAudioCatalog();
+  const { catalog, removedFiles } = deepMergeAudioCatalog(current.stopAudio ?? {}, entries ?? {});
   if (usePostgres()) {
-    const current = await getStopAudioCatalog();
-    const stopAudio = { ...(current.stopAudio ?? {}), ...entries };
-    await pg.pgSetPlatformSetting(PG_KEY_STOP_AUDIO, { stopAudio, savedAt });
+    await pg.pgSetPlatformSetting(PG_KEY_STOP_AUDIO, { stopAudio: catalog, savedAt });
     return {
-      stopAudio,
+      stopAudio: catalog,
       savedAt,
-      mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(stopAudio),
+      mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(catalog),
+      removedFiles,
     };
   }
   const store = await loadStore();
-  store.stopAudioCatalog = { ...(store.stopAudioCatalog ?? {}), ...entries };
+  store.stopAudioCatalog = catalog;
   store.stopAudioSavedAt = savedAt;
   await saveStore();
   return {
-    stopAudio: store.stopAudioCatalog,
+    stopAudio: catalog,
     savedAt: store.stopAudioSavedAt,
-    mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(store.stopAudioCatalog),
+    mediaFiles: mediaFiles.length ? mediaFiles : collectAudioMediaPathsFromMap(catalog),
+    removedFiles,
   };
 }
 

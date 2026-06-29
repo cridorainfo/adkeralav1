@@ -61,6 +61,7 @@ export function verifyR2Config() {
 }
 
 const AD_MEDIA_CATEGORIES = new Set(['ads', 'banners']);
+const CATALOG_MEDIA_CATEGORIES = new Set(['ads', 'banners', 'stops', 'announcements']);
 
 export function isDeletableAdMediaPath(relativePath) {
   if (!relativePath || typeof relativePath !== 'string') return false;
@@ -69,9 +70,16 @@ export function isDeletableAdMediaPath(relativePath) {
   return AD_MEDIA_CATEGORIES.has(category);
 }
 
+export function isDeletableCatalogMediaPath(relativePath) {
+  if (!relativePath || typeof relativePath !== 'string') return false;
+  if (relativePath.includes('..')) return false;
+  const category = relativePath.split('/')[0];
+  return CATALOG_MEDIA_CATEGORIES.has(category);
+}
+
 /** Remove a relative media file from local disk and R2 (best-effort). */
 export async function deleteMediaFile(relativePath, mediaDir) {
-  if (!isDeletableAdMediaPath(relativePath)) {
+  if (!isDeletableCatalogMediaPath(relativePath)) {
     return { ok: false, error: 'Path not allowed for deletion' };
   }
 
