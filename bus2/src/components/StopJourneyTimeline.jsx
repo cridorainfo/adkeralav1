@@ -162,11 +162,22 @@ function getRailSegments(currentIndex, nextIndex, window, total, isReverse) {
   return { doneWidth, flowStart, flowWidth };
 }
 
+function BusMarkerIcon() {
+  return (
+    <svg className="metro-line__bus-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 16c0 .88.39 1.67 1 2.22V20a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h8v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1.78c.61-.55 1-1.34 1-2.22V6c0-2.21-1.79-4-4-4H8C5.79 2 4 3.79 4 6v10zm3-6.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm10 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM6 6h12v7H6V6z"
+      />
+    </svg>
+  );
+}
+
 function StopDot({ status }) {
   if (status === 'completed') {
     return (
       <span className="metro-line__dot metro-line__dot--done" aria-hidden="true">
-        <span className="metro-line__check">✓</span>
+        <BusMarkerIcon />
       </span>
     );
   }

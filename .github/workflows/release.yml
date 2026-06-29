@@ -195,4 +195,4 @@ jobs:
             exit 0
           fi
           npm install -g @railway/cli
-          cd bus2/cloud && railway up --service adkerala-cloud
+          cd bus2/cloud && railway up --service adkeralav1

@@ -2529,10 +2529,9 @@ textarea {
   box-shadow: 0 0 12px rgba(232, 185, 35, 0.4);
 }
 
-.metro-line__check {
-  font-size: 0.85rem;
-  font-weight: 800;
-  line-height: 1;
+.metro-line__bus-icon {
+  width: 0.95rem;
+  height: 0.95rem;
   color: var(--kerala-green-dark);
   animation: metroCheckPop 0.45s ease;
 }
