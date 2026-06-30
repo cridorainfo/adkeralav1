@@ -172,6 +172,25 @@ function normalizeDriverOtp(value) {
     .slice(0, 6);
 }
 
+/** Offline LAN unlock for a driver already cloud-paired to this bus (driverLink in info.txt). */
+function verifyLinkedDriverLocally(state, driverId) {
+  const id = String(driverId ?? '').trim();
+  if (!id) {
+    return { ok: false, error: 'Missing driverId' };
+  }
+
+  const linked = state.driverLink?.driverId;
+  if (!linked || linked !== id) {
+    return { ok: false, error: 'Driver not linked to this bus' };
+  }
+
+  return {
+    ok: true,
+    offline: true,
+    plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
+  };
+}
+
 /** Offline LAN unlock when bus has cached admin OTP from a prior cloud sync. */
 function verifyDriverControlLocally(state, pairingCode, otp) {
   const localCode = normalizePairingCode(state.busProfile?.pairingCode);
@@ -364,18 +383,20 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
         return;
       }
 
-      if (!verifyLinkedWithCloud) {
-        res.status(503).json({ ok: false, error: 'Cloud pairing not available' });
-        return;
-      }
-
-      const cloud = await verifyLinkedWithCloud(driverId);
-      if (!cloud?.ok) {
-        res.status(403).json({ ok: false, error: cloud?.error ?? 'Not linked to this bus' });
-        return;
-      }
-
       const state = (await readInfoFile(dataRoot)) ?? {};
+      let cloud = { ok: false };
+      if (verifyLinkedWithCloud) {
+        cloud = await verifyLinkedWithCloud(driverId);
+      }
+      const verified = cloud?.ok ? cloud : verifyLinkedDriverLocally(state, driverId);
+      if (!verified?.ok) {
+        res.status(403).json({
+          ok: false,
+          error: verified?.error ?? cloud?.error ?? 'Not linked to this bus',
+        });
+        return;
+      }
+
       const session = createDriverSession(driverId);
       await saveSessionsToDisk(dataRoot);
       await setDriverLink(dataRoot, {
@@ -387,7 +408,13 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
         ok: true,
         token: session.token,
         expiresAt: session.expiresAt,
-        plate: cloud.plate ?? state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
+        plate:
+          verified.plate ??
+          cloud?.plate ??
+          state.busProfile?.plateDisplay ??
+          state.busProfile?.plate ??
+          null,
+        offline: Boolean(verified.offline),
       });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { readPairingCodeFromLocation } from '../lib/driverJoinUrl';
 import {
   clearDriverCredentials,
+  getStoredDriverId,
   getStoredDriverPlate,
   getStoredDriverToken,
   saveDriverCredentials,
@@ -51,9 +52,10 @@ export default function DriverControlGate({ children }) {
     }
   }, []);
 
-  const tryCloudPairedUnlock = useCallback(async () => {
+  const tryCloudPairedUnlock = useCallback(async (driverIdOverride) => {
     const params = new URLSearchParams(location.search);
-    const driverId = params.get('driverId')?.trim();
+    const driverId =
+      String(driverIdOverride ?? params.get('driverId') ?? getStoredDriverId() ?? '').trim();
     if (!driverId) return false;
 
     try {
@@ -64,7 +66,7 @@ export default function DriverControlGate({ children }) {
       });
       const json = await res.json();
       if (!json.ok) return false;
-      saveDriverCredentials({ token: json.token, plate: json.plate ?? '' });
+      saveDriverCredentials({ token: json.token, plate: json.plate ?? '', driverId });
       setPlate(json.plate ?? '');
       setUnlocked(true);
       setChecking(false);

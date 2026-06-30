@@ -1,5 +1,55 @@
 const DRIVER_ID_KEY = 'adkerala_driver_id';
 const CLOUD_URL_KEY = 'adkerala_cloud_url';
+const LAN_LINK_KEY = 'adkerala_lan_link';
+
+function readJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(key, value) {
+  try {
+    if (value == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Persist last bus LAN info so drivers can reopen control offline on bus Wi‑Fi. */
+export function saveLanLink(entry) {
+  if (!entry?.driverId) return;
+  writeJson(LAN_LINK_KEY, {
+    linked: true,
+    driverId: entry.driverId,
+    busId: entry.busId ?? null,
+    lanIp: entry.lanIp ?? null,
+    controlPort: entry.controlPort ?? 5174,
+    pairingCode: entry.pairingCode ?? null,
+    plate: entry.plate ?? '',
+    linkedAt: entry.linkedAt ?? Date.now(),
+  });
+}
+
+export function loadLanLink() {
+  const entry = readJson(LAN_LINK_KEY);
+  if (!entry?.driverId || !entry.linked) return null;
+  return entry;
+}
+
+export function clearLanLink() {
+  writeJson(LAN_LINK_KEY, null);
+}
+
+export function lanLinkForDriver(driverId) {
+  const entry = loadLanLink();
+  if (!entry || entry.driverId !== driverId) return null;
+  return entry;
+}
 
 export function defaultCloudUrl() {
   if (typeof window === 'undefined') return '';
@@ -136,7 +186,7 @@ export function fullControlUrlForSession(session, driverId) {
   return url.toString();
 }
 
-/** Try cloud-paired unlock on bus LAN (no OTP). */
+/** Try cloud-paired unlock on bus LAN (no OTP). Works offline when bus has driverLink. */
 export async function unlockLanWithDriverId(driverId, session) {
   const base = controlUrlForSession(session);
   if (!base || !driverId) return { ok: false, error: 'Join bus Wi‑Fi first' };
@@ -147,7 +197,19 @@ export async function unlockLanWithDriverId(driverId, session) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ driverId }),
     });
-    return res.json();
+    const json = await res.json();
+    if (json.ok) {
+      saveLanLink({
+        driverId,
+        busId: session?.busId,
+        lanIp: session?.lanIp,
+        controlPort: session?.controlPort ?? 5174,
+        pairingCode: session?.pairingCode,
+        plate: json.plate ?? session?.plate,
+        linkedAt: session?.linkedAt ?? Date.now(),
+      });
+    }
+    return json;
   } catch {
     return { ok: false, error: 'Could not reach bus on Wi‑Fi' };
   }
