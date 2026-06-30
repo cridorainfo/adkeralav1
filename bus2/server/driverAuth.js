@@ -1,7 +1,15 @@
-import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
+import { getActiveRoute, getAllStops, getTripStartIndex } from '../src/store/busStore.js';
+import { nextDriveRevision } from '../src/store/tripMerge.js';
+import {
+  atomicWriteTextFile,
+  backupPathFor,
+  durableWriteTextFile,
+  readBestRecoverableFile,
+} from './safeFileWrite.js';
+import { archiveJsonContent, archiveRelativeLabel, readArchivedJson } from './stateArchive.js';
 
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 45 * 1000;
@@ -31,11 +39,60 @@ function sessionsPath(dataRoot) {
   return path.join(dataRoot, SESSIONS_FILE);
 }
 
-async function loadSessionsFromDisk(dataRoot) {
+function isValidSessionsRaw(raw) {
   try {
-    const raw = await fs.readFile(sessionsPath(dataRoot), 'utf8');
     const json = JSON.parse(raw);
+    return json && typeof json.sessions === 'object';
+  } catch {
+    return false;
+  }
+}
+
+function sessionsScore(raw) {
+  try {
+    const json = JSON.parse(raw);
+    const entries = Object.values(json.sessions ?? {});
+    return entries.reduce((max, session) => Math.max(max, session?.lastSeenAt ?? 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function loadSessionsFromDisk(dataRoot) {
+  const file = sessionsPath(dataRoot);
+  try {
+    const localBest = await readBestRecoverableFile(file, {
+      validate: isValidSessionsRaw,
+      score: sessionsScore,
+    });
+    const archiveBest = await readArchivedJson(dataRoot, 'sessions', {
+      validate: isValidSessionsRaw,
+    });
+
+    let best = localBest;
+    if (archiveBest) {
+      const archiveScore = sessionsScore(archiveBest.raw);
+      if (!best || archiveScore >= best.score) {
+        best = { raw: archiveBest.raw, sourcePath: archiveBest.sourcePath, score: archiveScore };
+      }
+    }
+
+    if (!best) {
+      sessions = new Map();
+      pruneExpiredSessions();
+      return;
+    }
+
+    const json = JSON.parse(best.raw);
     sessions = new Map(Object.entries(json.sessions ?? {}));
+
+    if (best.sourcePath !== file) {
+      console.warn(
+        `AdKerala: recovered driver sessions from ${archiveRelativeLabel(best.sourcePath, dataRoot)} after unexpected shutdown`
+      );
+      await durableWriteTextFile(file, best.raw);
+      await atomicWriteTextFile(backupPathFor(file), best.raw).catch(() => {});
+    }
   } catch {
     sessions = new Map();
   }
@@ -44,8 +101,12 @@ async function loadSessionsFromDisk(dataRoot) {
 
 async function saveSessionsToDisk(dataRoot) {
   try {
+    const file = sessionsPath(dataRoot);
     const obj = { sessions: Object.fromEntries(sessions) };
-    await fs.writeFile(sessionsPath(dataRoot), JSON.stringify(obj), 'utf8');
+    const content = JSON.stringify(obj);
+    await archiveJsonContent(dataRoot, 'sessions', content);
+    await durableWriteTextFile(file, content);
+    await atomicWriteTextFile(backupPathFor(file), content).catch(() => {});
   } catch {
     /* ignore */
   }
@@ -74,9 +135,12 @@ export function isDriverSessionValid(token) {
   return true;
 }
 
-function createDriverSession() {
+function createDriverSession(driverIdOverride = null) {
   const token = randomBytes(24).toString('hex');
-  const driverId = `phone-${token.slice(0, 12)}`;
+  const driverId =
+    driverIdOverride && String(driverIdOverride).trim()
+      ? String(driverIdOverride).trim()
+      : `phone-${token.slice(0, 12)}`;
   const expiresAt = Date.now() + SESSION_MS;
   sessions.set(token, { expiresAt, driverId, lastSeenAt: Date.now() });
   return { token, expiresAt, driverId };
@@ -109,24 +173,43 @@ function isLocalPhoneDriverId(driverId) {
 async function setDriverLink(dataRoot, driverLink) {
   const current = (await readInfoFile(dataRoot)) ?? {};
   const pushAt = Date.now();
-  await writeInfoFileSerialized(
-    dataRoot,
-    {
-      ...current,
-      driverLink,
-      savedAt: pushAt,
-      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
-    },
-    { source: 'driver-link' }
-  );
+  let next = {
+    ...current,
+    driverLink,
+    savedAt: pushAt,
+    lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+  };
+
+  if (!driverLink?.driverId) {
+    const route = getActiveRoute(current);
+    const dir = current.routeDirection ?? 'forward';
+    const stops = route ? getAllStops(route) : [];
+    next = {
+      ...next,
+      tripStarted: false,
+      tripEnded: false,
+      tripDeparted: false,
+      currentStopIndex: route ? getTripStartIndex(stops, dir) : 0,
+      displayView: 'route',
+      announcementRequest: null,
+      driveRevision: nextDriveRevision(current),
+    };
+  }
+
+  await writeInfoFileSerialized(dataRoot, next, { source: 'driver-link' });
 }
 
 async function clearLocalDriverLinkIfIdle(dataRoot) {
   if (hasActiveDriverSession()) return;
   const state = (await readInfoFile(dataRoot)) ?? {};
-  if (isLocalPhoneDriverId(state.driverLink?.driverId)) {
-    await setDriverLink(dataRoot, null);
+  if (!isLocalPhoneDriverId(state.driverLink?.driverId)) return;
+
+  const linkedAt = state.driverLink?.linkedAt ?? 0;
+  if (!linkedAt || Date.now() - linkedAt < SESSION_MS) {
+    // Session file may be empty after reboot — keep link until expiry or explicit disconnect.
+    return;
   }
+  await setDriverLink(dataRoot, null);
 }
 
 function startSessionCleanup(dataRoot) {
@@ -140,7 +223,7 @@ function startSessionCleanup(dataRoot) {
 /**
  * Driver phone unlock — pairing code (display) + admin OTP (cloud).
  */
-export function setupDriverAuth(app, { dataRoot, verifyWithCloud }) {
+export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWithCloud }) {
   dataRootRef = dataRoot;
   loadSessionsFromDisk(dataRoot).then(() => {
     startSessionCleanup(dataRoot);
@@ -168,7 +251,7 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud }) {
     const session = sessions.get(token);
     if (session?.driverId) {
       const state = (await readInfoFile(dataRoot)) ?? {};
-      if (!state.driverLink?.driverId) {
+      if (state.driverLink?.driverId !== session.driverId) {
         await setDriverLink(dataRoot, { driverId: session.driverId, linkedAt: Date.now() });
       }
     }
@@ -207,6 +290,44 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud }) {
       }
 
       const session = createDriverSession();
+      await saveSessionsToDisk(dataRoot);
+      await setDriverLink(dataRoot, {
+        driverId: session.driverId,
+        linkedAt: Date.now(),
+      });
+
+      res.json({
+        ok: true,
+        token: session.token,
+        expiresAt: session.expiresAt,
+        plate: cloud.plate ?? state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.post('/api/driver/unlock-paired', async (req, res) => {
+    try {
+      const driverId = String(req.body?.driverId ?? '').trim();
+      if (!driverId) {
+        res.status(400).json({ ok: false, error: 'Missing driverId' });
+        return;
+      }
+
+      if (!verifyLinkedWithCloud) {
+        res.status(503).json({ ok: false, error: 'Cloud pairing not available' });
+        return;
+      }
+
+      const cloud = await verifyLinkedWithCloud(driverId);
+      if (!cloud?.ok) {
+        res.status(403).json({ ok: false, error: cloud?.error ?? 'Not linked to this bus' });
+        return;
+      }
+
+      const state = (await readInfoFile(dataRoot)) ?? {};
+      const session = createDriverSession(driverId);
       await saveSessionsToDisk(dataRoot);
       await setDriverLink(dataRoot, {
         driverId: session.driverId,

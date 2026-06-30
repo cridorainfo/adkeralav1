@@ -432,4 +432,24 @@ export async function verifyDriverControlOnCloud(dataRoot, pairingCode, otp) {
   return json ?? { ok: false, error: 'Cloud unreachable' };
 }
 
+/** Cloud-paired driver unlock on bus LAN — no OTP when phone already linked in cloud. */
+export async function verifyDriverLinkedOnCloud(dataRoot, driverId) {
+  const creds = getDeviceCredentials(dataRoot ?? dataRootRef);
+  if (!creds.cloudUrl) {
+    return { ok: false, error: 'Cloud not configured on this bus' };
+  }
+  if (!creds.busId) {
+    return { ok: false, error: 'Bus not claimed' };
+  }
+  const json = await cloudFetch(
+    creds,
+    `/api/buses/${encodeURIComponent(creds.busId)}/verify-linked-driver`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ driverId: String(driverId ?? '').trim() }),
+    }
+  );
+  return json ?? { ok: false, error: 'Cloud unreachable' };
+}
+
 export { ENROLL_POLL_MS };

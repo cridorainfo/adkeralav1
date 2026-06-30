@@ -124,3 +124,31 @@ export function controlUrlForSession(session) {
   const port = session.controlPort ?? 5174;
   return `http://${session.lanIp}:${port}/control`;
 }
+
+export function fullControlUrlForSession(session, driverId) {
+  const base = controlUrlForSession(session);
+  if (!base || !driverId) return base;
+  const url = new URL(base);
+  url.searchParams.set('driverId', driverId);
+  if (session?.pairingCode) {
+    url.searchParams.set('code', String(session.pairingCode).replace(/\D/g, '').slice(0, 4));
+  }
+  return url.toString();
+}
+
+/** Try cloud-paired unlock on bus LAN (no OTP). */
+export async function unlockLanWithDriverId(driverId, session) {
+  const base = controlUrlForSession(session);
+  if (!base || !driverId) return { ok: false, error: 'Join bus Wi‑Fi first' };
+  const origin = base.replace(/\/control\/?$/, '');
+  try {
+    const res = await fetch(`${origin}/api/driver/unlock-paired`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverId }),
+    });
+    return res.json();
+  } catch {
+    return { ok: false, error: 'Could not reach bus on Wi‑Fi' };
+  }
+}

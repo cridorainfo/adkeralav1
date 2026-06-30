@@ -12,11 +12,9 @@ import {
   unlinkDriver,
 } from '../lib/driverCloud';
 import { downloadAndInstallApk } from '../lib/driverUpdate';
-import { useBusStore } from '../hooks/useBusStore';
-import { useDriverGps } from '../hooks/useDriverGps';
-import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
 import DriverBusInfo from '../components/DriverBusInfo';
-import GpsPermissionBanner from '../components/GpsPermissionBanner';
+import DriverEspSettingsPanel from '../components/DriverEspSettingsPanel';
+import { useRemoteBusSerial } from '../hooks/useRemoteBusSerial';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,11 +31,7 @@ export default function DriverConnect() {
   const [needsCloudUrl, setNeedsCloudUrl] = useState(false);
   const [ready, setReady] = useState(false);
   const [driverUpdate, setDriverUpdate] = useState(null);
-  const { state } = useBusStore();
   const linked = Boolean(session?.linked);
-
-  const { permission: gpsPermission, requestGps } = useDriverGps(ready);
-  useDriverCloudLocation({ enabled: linked, location: state.driverLocation, linked });
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +165,13 @@ export default function DriverConnect() {
   };
 
   const controlReady = linked && session?.lanIp;
+  const busLan = session?.lanIp;
+  const busPort = session?.controlPort ?? 5174;
+  const remoteSerial = useRemoteBusSerial({
+    lanIp: busLan,
+    port: busPort,
+    enabled: linked && Boolean(busLan),
+  });
 
   return (
     <div className="driver-connect-page">
@@ -225,16 +226,6 @@ export default function DriverConnect() {
           {status}
         </p>
 
-        <GpsPermissionBanner permission={gpsPermission} onEnable={requestGps} />
-
-        {gpsPermission === 'granted' && state.driverLocation?.lat != null && !state.driverLocation?.error && (
-          <p className="hint driver-gps-fix">
-            GPS: {state.driverLocation.lat.toFixed(5)}, {state.driverLocation.lng.toFixed(5)}
-            {state.driverLocation.accuracy != null &&
-              ` · ±${Math.round(state.driverLocation.accuracy)} m`}
-          </p>
-        )}
-
         {linked ? (
           <div className="driver-connect-section">
             <DriverBusInfo session={session} />
@@ -256,9 +247,18 @@ export default function DriverConnect() {
                 Unlink
               </button>
             </div>
+
+            {controlReady && (
+              <DriverEspSettingsPanel
+                compact
+                serialSettings={remoteSerial.serialSettings}
+                serialRuntime={remoteSerial.serialRuntime}
+                onUpdateSerialSettings={remoteSerial.updateSerialSettings}
+              />
+            )}
+
             <p className="driver-connect-foot">
-              Live GPS streams to the fleet map while this app is open. For best accuracy, allow
-              location &quot;All the time&quot; in phone settings.
+              On bus Wi‑Fi, tap Open control — or scan the QR on the bus display.
             </p>
           </div>
         ) : (

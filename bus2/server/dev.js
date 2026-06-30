@@ -5,13 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
 import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
-import { startCloudSyncLoop } from './cloudSync.js';
-import { setupCloudProxy } from './cloudProxy.js';
-import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
-import { startHttpsMirror } from './tls.js';
-import { ensureWindowsFirewallPorts } from './firewall.js';
-import { setupDriverAuth } from './driverAuth.js';
-import { verifyDriverControlOnCloud } from './cloudSync.js';
+import { startCloudSyncLoop, getCloudConfig, verifyDriverControlOnCloud, verifyDriverLinkedOnCloud } from './cloudSync.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -32,16 +26,22 @@ setupDbApi(app, root);
 setupDriverAuth(app, {
   dataRoot: root,
   verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(root, pairingCode, otp),
+  verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(root, driverId),
 });
+setupDriveApi(app, root);
 setupCloudProxy(app, root);
 
 let httpsInfo = { httpsEnabled: false, httpsPort: null };
 
 app.get('/api/network', (_req, res) => {
   const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+  const cloudCfg = getCloudConfig(root);
   res.json({
     ok: true,
     ...urls,
+    cloudDriverUrl: cloudCfg.publicUrl
+      ? `${String(cloudCfg.publicUrl).replace(/\/$/, '')}/driver`
+      : null,
     adminUrl: localAdmin?.adminUrl ?? null,
     adminKeyHint: localAdmin?.adminKey ?? null,
   });

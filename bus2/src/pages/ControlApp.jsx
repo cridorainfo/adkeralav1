@@ -1,45 +1,26 @@
-import { useBusStore } from '../hooks/useBusStore';
 import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
-import { useDriverGps } from '../hooks/useDriverGps';
-import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation';
-import { useGpsAutoDrive } from '../hooks/useGpsAutoDrive';
-import ControlScreen from './ControlScreen';
+import { useBusStore } from '../hooks/useBusStore';
+import DriverControlScreen from './DriverControlScreen';
 import DriverControlGate from '../components/DriverControlGate';
 
-function ControlAppInner() {
-  const {
-    state,
-    moveForward,
-  } = useBusStore();
-
-  useRemoteStateSync(true);
-  const { permission: gpsPermission, requestGps } = useDriverGps(true);
-  useDriverCloudLocation({ enabled: true, location: state.driverLocation });
-  const { status: gpsDriveStatus, isGpsMode } = useGpsAutoDrive({
-    enabled: true,
-    state,
-    driveSettings: state.driveSettings,
-    moveForward,
-  });
-
-  return (
-    <ControlScreen
-      driverMode
-      serial={null}
-      isSerialSupported={false}
-      gpsPermission={gpsPermission}
-      onRequestGps={requestGps}
-      gpsDriveStatus={gpsDriveStatus}
-      isGpsDriveMode={isGpsMode}
-    />
-  );
-}
-
-/** Driver / conductor panel — open on phone at /control */
+/** Driver control at /control — driver phone (Wi‑Fi). ESP32 USB runs on bus PC /display. */
 export default function ControlApp() {
   return (
     <DriverControlGate>
       <ControlAppInner />
     </DriverControlGate>
+  );
+}
+
+function ControlAppInner() {
+  const { state, updateSerialSettings } = useBusStore();
+  useRemoteStateSync(true);
+
+  return (
+    <DriverControlScreen
+      serialSettings={state.serialSettings ?? {}}
+      serialRuntime={state.serialRuntime}
+      onUpdateSerialSettings={updateSerialSettings}
+    />
   );
 }

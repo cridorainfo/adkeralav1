@@ -1254,10 +1254,6 @@ export async function pairDriver(driverId, plateOrCode) {
 
   const profileFromDb = await getBusProfile(busId);
   const profile = profileFromDb ?? ensureBusProfile(store, busId);
-  if (profile.linkedDriverId && profile.linkedDriverId !== driverId) {
-    return { ok: false, error: 'Bus already linked to another driver.' };
-  }
-
   const linkedAt = Date.now();
   profile.linkedDriverId = driverId;
   profile.linkedAt = linkedAt;
@@ -1378,6 +1374,25 @@ export async function deleteBus(busId) {
   }
   await saveStore();
   return { ok: true, busId };
+}
+
+/** Bus device confirms a cloud-paired phone may unlock LAN control (no OTP). */
+export async function verifyLinkedDriverForBus(busId, driverId) {
+  const id = String(driverId ?? '').trim();
+  if (!id) return { ok: false, error: 'Missing driverId' };
+
+  const link = await getDriverLinkRecord(id);
+  if (!link?.linkedBusId || link.linkedBusId !== busId) {
+    return { ok: false, error: 'Driver not linked to this bus' };
+  }
+
+  const profile = (await getBusProfile(busId)) ?? {};
+  return {
+    ok: true,
+    busId,
+    driverId: id,
+    plate: profile.plateDisplay || profile.plate || busId,
+  };
 }
 
 export async function getDriverSession(driverId) {

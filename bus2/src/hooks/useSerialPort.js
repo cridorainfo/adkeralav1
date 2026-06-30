@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createSerialValueParser } from '../lib/serialValueParser';
 
 export function isWebSerialSupported() {
-  return typeof navigator !== 'undefined' && 'serial' in navigator;
+  if (typeof navigator === 'undefined' || !('serial' in navigator)) return false;
+  if (typeof window !== 'undefined' && !window.isSecureContext) return false;
+  return true;
 }
 
 function portMatchesInfo(port, savedInfo) {

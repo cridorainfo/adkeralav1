@@ -34,8 +34,8 @@ export default function Home() {
           <span className="home-card-icon">🎛️</span>
           <h2>Control — Driver Phone</h2>
           <p>
-            Routes, drive controls, and settings. Open on the driver&apos;s phone while the bus PC
-            runs the passenger display.
+            Minimal LAN controls: route, direction, forward, undo, and announce. Open on the
+            driver&apos;s phone on bus Wi‑Fi (scan QR on the display).
           </p>
           <Link to="/control" className="home-card-btn control">
             Open Control →

@@ -22,3 +22,13 @@ export function isKioskMode() {
   if (typeof window === 'undefined') return false;
   return new URLSearchParams(window.location.search).get('kiosk') === '1';
 }
+
+/** Bus PC running /control — USB serial works here (127.0.0.1 / Electron), not on driver phones. */
+export function isBusPcForSerial() {
+  if (typeof window === 'undefined') return false;
+  if (window.adKeralaKiosk?.kiosk || window.adKeralaKiosk?.busControl) return true;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('buspc') === '1') return true;
+  const host = window.location.hostname;
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+}

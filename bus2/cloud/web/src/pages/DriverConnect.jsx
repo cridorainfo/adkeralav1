@@ -1,22 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { APP_NAME } from '../lib/brand.js';
 import {
   controlUrlForSession,
   ensureDriverId,
   fetchDriverSession,
+  fullControlUrlForSession,
   loadCloudUrl,
   pairDriver,
   sendDriverHeartbeat,
   unlinkDriver,
+  unlockLanWithDriverId,
 } from '../lib/driverPhone.js';
+import { readPairCodeFromLocation } from '../lib/driverPairing.js';
 import { useDriverGps } from '../hooks/useDriverGps.js';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation.js';
 import DriverBusInfo from '../components/DriverBusInfo.jsx';
 import DriverRemoteControl from '../components/DriverRemoteControl.jsx';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
+import DriverQrScanner from '../components/DriverQrScanner.jsx';
 
-/** Public mobile driver page — pair, drive, GPS. No login. */
+/** PWA driver — scan QR, stay linked until disconnect, drive via cloud or bus Wi‑Fi. */
 export default function DriverConnect() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [driverId, setDriverId] = useState('');
   const [cloudUrl, setCloudUrlState] = useState('');
   const [session, setSession] = useState(null);
@@ -25,10 +32,11 @@ export default function DriverConnect() {
   const [statusError, setStatusError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const linked = Boolean(session?.linked);
 
-  const { location, permission, requestGps, trackingMode } = useDriverGps(ready);
-  useDriverCloudLocation({ enabled: linked, location, linked, driverId });
+  const { location: gpsLocation, permission, requestGps, trackingMode } = useDriverGps(ready);
+  useDriverCloudLocation({ enabled: linked, location: gpsLocation, linked, driverId });
 
   useEffect(() => {
     const id = ensureDriverId();
@@ -36,7 +44,10 @@ export default function DriverConnect() {
     setDriverId(id);
     setCloudUrlState(url);
     setReady(true);
-  }, []);
+
+    const fromUrl = readPairCodeFromLocation(location.search);
+    if (fromUrl) setPlateOrCode(fromUrl);
+  }, [location.search]);
 
   const refreshSession = useCallback(async () => {
     if (!driverId) return null;
@@ -52,13 +63,13 @@ export default function DriverConnect() {
       setSession(json);
       setStatusError(false);
       if (json.linked) {
-        setStatus(json.online ? 'Linked — bus online' : 'Linked — bus offline');
+        setStatus(json.online ? 'Connected — bus online' : 'Connected — bus offline');
       } else {
-        setStatus('Enter plate or 4-digit code from the bus display');
+        setStatus('Scan the bus QR or enter the pair code below');
       }
       return json;
     } catch {
-      setStatus('Cloud unreachable. Check network.');
+      setStatus('Cloud unreachable. Check mobile data or Wi‑Fi.');
       setSession(null);
       return null;
     }
@@ -75,32 +86,55 @@ export default function DriverConnect() {
     return () => clearInterval(id);
   }, [ready, driverId, refreshSession, cloudUrl]);
 
-  const handlePair = async (e) => {
-    e.preventDefault();
-    if (!plateOrCode.trim() || !driverId) return;
-    setBusy(true);
-    setStatus('Pairing…');
-    setStatusError(false);
-    try {
-      const json = await pairDriver(driverId, plateOrCode, cloudUrl);
-      if (!json.ok) {
-        setStatus(json.error ?? 'Pair failed');
-        setStatusError(true);
-        return;
+  const runPair = useCallback(
+    async (code) => {
+      const value = String(code ?? plateOrCode ?? '').trim();
+      if (!value || !driverId) return false;
+      setBusy(true);
+      setStatus('Connecting to bus…');
+      setStatusError(false);
+      try {
+        const json = await pairDriver(driverId, value, cloudUrl);
+        if (!json.ok) {
+          setStatus(json.error ?? 'Could not connect');
+          setStatusError(true);
+          return false;
+        }
+        await refreshSession();
+        setStatus('Connected — ready to drive');
+        setPlateOrCode('');
+        if (location.search) navigate('/driver', { replace: true });
+        return true;
+      } finally {
+        setBusy(false);
       }
-      await refreshSession();
-      setStatus('Linked — use drive controls below');
-    } finally {
-      setBusy(false);
-    }
+    },
+    [plateOrCode, driverId, cloudUrl, refreshSession, location.search, navigate]
+  );
+
+  useEffect(() => {
+    if (!ready || !driverId || linked) return;
+    const fromUrl = readPairCodeFromLocation(location.search);
+    if (fromUrl && fromUrl.length >= 4) runPair(fromUrl);
+  }, [ready, driverId, linked, location.search, runPair]);
+
+  const handlePair = (e) => {
+    e.preventDefault();
+    runPair(plateOrCode);
   };
 
-  const handleUnlink = async () => {
+  const handleScanResult = (code) => {
+    setPlateOrCode(code);
+    runPair(code);
+  };
+
+  const handleDisconnect = async () => {
     if (!driverId) return;
+    if (!window.confirm('Disconnect from this bus? The display will show the QR code again.')) return;
     setBusy(true);
     try {
       const json = await unlinkDriver(driverId, cloudUrl);
-      setStatus(json.ok ? 'Unlinked' : (json.error ?? 'Unlink failed'));
+      setStatus(json.ok ? 'Disconnected' : (json.error ?? 'Disconnect failed'));
       setStatusError(!json.ok);
       await refreshSession();
     } finally {
@@ -108,28 +142,54 @@ export default function DriverConnect() {
     }
   };
 
-  const openFullControl = () => {
-    const url = controlUrlForSession(session);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
-    else {
-      setStatus('Full control needs bus Wi‑Fi — LAN address not available yet.');
+  const openFullControl = async () => {
+    if (!session?.lanIp) {
+      setStatus('Join the bus Wi‑Fi first — full control needs the local network.');
       setStatusError(false);
+      return;
+    }
+    setBusy(true);
+    setStatus('Opening bus control…');
+    try {
+      const unlocked = await unlockLanWithDriverId(driverId, session);
+      const url = fullControlUrlForSession(session, driverId);
+      if (unlocked.ok && url) {
+        window.location.href = url;
+        return;
+      }
+      if (url) {
+        window.location.href = url;
+        return;
+      }
+      setStatus(unlocked.error ?? 'Could not open bus control');
+      setStatusError(true);
+    } finally {
+      setBusy(false);
     }
   };
 
   const controlReady = linked && session?.lanIp;
-  const gpsOk = location?.lat != null && !location?.error;
+  const gpsOk = gpsLocation?.lat != null && !gpsLocation?.error;
 
   return (
     <div className="driver-connect-page">
+      <DriverQrScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleScanResult}
+      />
+
       <div className="driver-connect-card driver-connect-card-wide">
         <div className="driver-connect-header">
           <span className="driver-connect-logo">🌴</span>
           <h1>{APP_NAME} Driver</h1>
-          <p>Pair, drive, and send live GPS — all on this page.</p>
+          <p>{linked ? 'You are connected to this bus' : 'Scan the QR on the bus display to start'}</p>
         </div>
 
-        <p className={`driver-connect-status${statusError ? ' driver-connect-status-error' : ''}`} role="status">
+        <p
+          className={`driver-connect-status${statusError ? ' driver-connect-status-error' : ''}`}
+          role="status"
+        >
           {status}
         </p>
 
@@ -148,92 +208,98 @@ export default function DriverConnect() {
             />
 
             <div className="driver-connect-section driver-connect-extras">
-              <h3 className="driver-section-subtitle">Location &amp; full control</h3>
+              <h3 className="driver-section-subtitle">Location</h3>
               {gpsOk ? (
                 <p className="hint">
-                  GPS: {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                  GPS: {gpsLocation.lat.toFixed(5)}, {gpsLocation.lng.toFixed(5)}
                 </p>
               ) : (
                 <p className="hint">
                   {permission === 'denied'
-                    ? 'Location blocked — open Settings → Apps → browser or AdKerala Driver → Location → Allow.'
-                    : 'Waiting for GPS… Allow location when prompted.'}
+                    ? 'Location blocked — allow location in phone settings.'
+                    : 'Waiting for GPS…'}
                   {permission !== 'granted' && (
                     <button
                       type="button"
-                      className="btn btn-outline btn-sm"
+                      className="btn btn-outline btn-sm driver-inline-btn"
                       onClick={requestGps}
-                      style={{ marginLeft: 8 }}
                     >
-                      Allow location access
+                      Allow location
                     </button>
                   )}
                 </p>
               )}
               <p className="hint">
                 {trackingMode === 'background'
-                  ? 'GPS running in background — keep app installed for best results.'
-                  : 'Live GPS streams to the fleet map. Screen wake lock active while linked.'}
+                  ? 'GPS runs in the installed app even when the screen is off.'
+                  : 'Install the app for better background GPS on Android.'}
               </p>
 
               <div className="driver-connect-actions">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
+                  className="btn btn-primary"
                   disabled={!controlReady || busy}
                   onClick={openFullControl}
-                  title={controlReady ? 'Routes, ads, GPS auto-drive on bus Wi‑Fi' : 'Join bus Wi‑Fi first'}
                 >
                   Full control (bus Wi‑Fi)
-                </button>
-                <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={handleUnlink}>
-                  Unlink
                 </button>
               </div>
               {session.lanIp && (
                 <p className="driver-connect-foot">
-                  Bus LAN: {session.lanIp}:{session.controlPort ?? 5174}
+                  On bus Wi‑Fi: routes, ESP32, and instant buttons — no OTP needed after cloud pair.
                 </p>
               )}
             </div>
+
+            <button
+              type="button"
+              className="btn btn-danger driver-disconnect-main"
+              disabled={busy}
+              onClick={handleDisconnect}
+            >
+              Disconnect from bus
+            </button>
           </>
         ) : (
-          <form className="driver-connect-section" onSubmit={handlePair}>
-            <label htmlFor="plateOrCode">4-digit pairing code (on bus display)</label>
-            <input
-              id="plateOrCode"
-              type="text"
-              autoComplete="off"
-              inputMode="numeric"
-              maxLength={12}
-              placeholder="e.g. 7291 — not the 6-digit fleet code"
-              value={plateOrCode}
-              onChange={(e) => setPlateOrCode(e.target.value)}
+          <>
+            <button
+              type="button"
+              className="btn btn-primary driver-scan-btn"
               disabled={busy || !ready}
-            />
-            <p className="hint" style={{ margin: 0 }}>
-              Or enter the full number plate (e.g. KL07AB1234). Bus must be online in Fleet first.
-            </p>
-            <button type="submit" className="btn btn-primary" disabled={busy || !ready}>
-              Connect to bus
+              onClick={() => setScannerOpen(true)}
+            >
+              <span className="driver-scan-icon" aria-hidden>
+                📷
+              </span>
+              Scan bus QR code
             </button>
-          </form>
+
+            <p className="driver-connect-or">or enter code manually</p>
+
+            <form className="driver-connect-section" onSubmit={handlePair}>
+              <label htmlFor="plateOrCode">4-digit code or number plate</label>
+              <input
+                id="plateOrCode"
+                type="text"
+                autoComplete="off"
+                inputMode="text"
+                maxLength={12}
+                placeholder="e.g. 7291 or KL07AB1234"
+                value={plateOrCode}
+                onChange={(e) => setPlateOrCode(e.target.value)}
+                disabled={busy || !ready}
+              />
+              <button type="submit" className="btn btn-secondary" disabled={busy || !ready || !plateOrCode.trim()}>
+                Connect
+              </button>
+            </form>
+          </>
         )}
 
-        <p className="driver-connect-foot">
-          {driverId ? (
-            <>
-              Device ID: <code>{driverId.slice(0, 8)}…</code>
-            </>
-          ) : (
-            'Preparing device…'
-          )}
-          {cloudUrl && (
-            <>
-              {' · '}
-              Cloud: <code>{cloudUrl.replace(/^https?:\/\//, '')}</code>
-            </>
-          )}
+        <p className="driver-connect-foot driver-connect-foot-muted">
+          {driverId ? <>Device: {driverId.slice(0, 8)}…</> : 'Preparing…'}
+          {linked && ' · Stays connected until you tap Disconnect'}
         </p>
       </div>
     </div>

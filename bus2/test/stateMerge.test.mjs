@@ -76,3 +76,88 @@ test('mergeRemoteState clears driverLink when cloud push is newer even if savedA
   assert.equal(merged.busProfile.pairingCode, '4829');
   assert.equal(merged.lastCloudPushAt, 9500);
 });
+
+test('mergeIncomingState keeps forward stop index when driveRevision is newer', () => {
+  const current = {
+    savedAt: 5000,
+    driveRevision: 4,
+    currentStopIndex: 6,
+    tripStarted: true,
+    tripDeparted: true,
+    tripEnded: false,
+    routeDirection: 'forward',
+  };
+  const incoming = {
+    savedAt: 5000,
+    driveRevision: 3,
+    currentStopIndex: 5,
+    tripStarted: true,
+    tripDeparted: true,
+    tripEnded: false,
+    routeDirection: 'forward',
+    driverLocation: { lat: 8.82, lng: 76.95, at: 5000 },
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.equal(merged.currentStopIndex, 6);
+  assert.equal(merged.driveRevision, 4);
+  assert.equal(merged.driverLocation.lat, 8.82);
+});
+
+test('mergeIncomingState keeps driverLink when phone GPS save omits it', () => {
+  const current = {
+    savedAt: 5000,
+    driverLink: { driverId: 'phone-abc123', linkedAt: 4000 },
+    busProfile: { pairingCode: '4821' },
+  };
+  const incoming = {
+    savedAt: 5000,
+    driverLink: null,
+    driverLocation: { lat: 8.82, lng: 76.95, at: 5000 },
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.equal(merged.driverLink?.driverId, 'phone-abc123');
+  assert.equal(merged.driverLocation.lat, 8.82);
+});
+
+test('mergeIncomingState keeps assignedRouteIds when phone save omits them', () => {
+  const current = {
+    savedAt: 5000,
+    busProfile: {
+      pairingCode: '4821',
+      assignedRouteIds: ['route-a', 'route-b'],
+    },
+    routes: [{ id: 'route-a', name: 'A', startStop: { en: 'X' }, endStop: { en: 'Y' }, stops: [] }],
+  };
+  const incoming = {
+    savedAt: 5001,
+    busProfile: { pairingCode: '4821', assignedRouteIds: [] },
+    driverLocation: { lat: 1, lng: 2, at: 5001 },
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.deepEqual(merged.busProfile.assignedRouteIds, ['route-a', 'route-b']);
+});
+
+test('mergeRemoteState keeps newer driveRevision over stale poll', () => {
+  const prev = {
+    savedAt: 7000,
+    driveRevision: 8,
+    currentStopIndex: 3,
+    tripStarted: true,
+    tripDeparted: true,
+  };
+  const remote = {
+    savedAt: 7100,
+    driveRevision: 7,
+    currentStopIndex: 2,
+    tripStarted: true,
+    tripDeparted: true,
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.currentStopIndex, 3);
+  assert.equal(merged.driveRevision, 8);
+  assert.equal(merged.savedAt, 7100);
+});

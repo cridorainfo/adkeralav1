@@ -7,6 +7,7 @@ import {
   getStoredDriverToken,
   saveDriverCredentials,
 } from '../lib/driverCredentials';
+import { isBusPcForSerial } from '../lib/appRole';
 import { DriverControlContext } from './DriverControlContext';
 
 /** Gate /control — requires bus pairing code + admin OTP before showing the panel. */
@@ -26,7 +27,7 @@ export default function DriverControlGate({ children }) {
       setUnlocked(false);
       setPlate('');
       setChecking(false);
-      return;
+      return false;
     }
     try {
       const res = await fetch('/api/driver/unlock-status', {
@@ -36,21 +37,63 @@ export default function DriverControlGate({ children }) {
       if (json.unlocked) {
         setPlate(getStoredDriverPlate());
         setUnlocked(true);
-      } else {
-        clearDriverCredentials();
-        setUnlocked(false);
-        setPlate('');
+        return true;
       }
+      clearDriverCredentials();
+      setUnlocked(false);
+      setPlate('');
+      return false;
     } catch {
       setUnlocked(false);
+      return false;
     } finally {
       setChecking(false);
     }
   }, []);
 
+  const tryCloudPairedUnlock = useCallback(async () => {
+    const params = new URLSearchParams(location.search);
+    const driverId = params.get('driverId')?.trim();
+    if (!driverId) return false;
+
+    try {
+      const res = await fetch('/api/driver/unlock-paired', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId }),
+      });
+      const json = await res.json();
+      if (!json.ok) return false;
+      saveDriverCredentials({ token: json.token, plate: json.plate ?? '' });
+      setPlate(json.plate ?? '');
+      setUnlocked(true);
+      setChecking(false);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [location.search]);
+
   useEffect(() => {
-    checkUnlock();
-  }, [checkUnlock]);
+    if (isBusPcForSerial()) {
+      setUnlocked(true);
+      setPlate('Bus PC');
+      setChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const hadToken = await checkUnlock();
+      if (cancelled || hadToken) return;
+      await tryCloudPairedUnlock();
+      if (!cancelled) setChecking(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkUnlock, tryCloudPairedUnlock]);
 
   useEffect(() => {
     const fromQr = readPairingCodeFromLocation(location.search);
@@ -140,8 +183,8 @@ export default function DriverControlGate({ children }) {
           <h1>Driver unlock</h1>
           <p className="driver-control-gate-lead">
             {pairingCode
-              ? 'Pair code from QR is filled in — enter the 6-digit OTP from your admin.'
-              : 'Enter the pair code on the bus screen (or scan the QR) and the admin OTP.'}
+              ? 'Pair code from QR is filled in — enter admin OTP, or pair first at adkerala.com/driver and open this page from the app.'
+              : 'Scan the bus QR at adkerala.com/driver, or enter the pair code and admin OTP.'}
           </p>
           <form onSubmit={handleSubmit} className="driver-control-gate-form">
             <label className="driver-control-gate-field">
@@ -176,7 +219,7 @@ export default function DriverControlGate({ children }) {
             </button>
           </form>
           <p className="driver-control-gate-hint">
-            Credentials stay saved on this phone for this bus until you disconnect or join a different bus.
+            Same bus Wi‑Fi as the display PC. Credentials stay on this phone until you disconnect.
           </p>
         </div>
       </div>

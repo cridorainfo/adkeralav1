@@ -52,7 +52,8 @@ $wipe = @(
   'certs',
   'adkerala.device.json',
   '.adkerala-driver-sessions.json',
-  '.adkerala-firewall-v1'
+  '.adkerala-firewall-v1',
+  '.adkerala-state-archive'
 )
 foreach ($item in $wipe) {
   $path = Join-Path $Target $item

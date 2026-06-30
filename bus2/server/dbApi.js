@@ -1,20 +1,89 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { createReadStream, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
 import { requireDriverAuthUnlessLocal } from './driverAuth.js';
 import { notifyStateChanged, subscribeStateChanged } from './stateEvents.js';
+import {
+  atomicWriteTextFile,
+  backupPathFor,
+  durableWriteTextFile,
+  readBestRecoverableFile,
+  snapshotBackup,
+} from './safeFileWrite.js';
+import {
+  archiveInfoContent,
+  archiveRelativeLabel,
+  readBestInfoArchive,
+} from './stateArchive.js';
 
 const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
 
 export function getDbPaths(root) {
   const dbDir = path.join(root, 'db');
+  const infoFile = path.join(dbDir, 'info.txt');
   return {
     dbDir,
-    infoFile: path.join(dbDir, 'info.txt'),
+    infoFile,
+    infoBackup: backupPathFor(infoFile),
     mediaDir: path.join(dbDir, 'media'),
   };
+}
+
+function infoSavedAt(raw) {
+  try {
+    return parseInfoText(raw)?.savedAt ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function isValidInfoRaw(raw) {
+  try {
+    parseInfoText(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Load info.txt from db/, siblings, or .adkerala-state-archive/ — restores main when needed. */
+async function loadInfoRaw(root) {
+  const { infoFile } = getDbPaths(root);
+  const localBest = await readBestRecoverableFile(infoFile, {
+    validate: isValidInfoRaw,
+    score: infoSavedAt,
+  });
+  const archiveBest = await readBestInfoArchive(root, {
+    validate: isValidInfoRaw,
+    score: infoSavedAt,
+  });
+
+  let best = localBest;
+  if (archiveBest && (!best || archiveBest.score >= best.score)) {
+    best = archiveBest;
+  }
+  if (!best) return null;
+
+  if (best.sourcePath !== infoFile) {
+    console.warn(
+      `AdKerala: recovered db/info.txt from ${archiveRelativeLabel(best.sourcePath, root)} after unexpected shutdown`
+    );
+    await durableWriteTextFile(infoFile, best.raw);
+    await atomicWriteTextFile(backupPathFor(infoFile), best.raw).catch(() => {});
+    await archiveInfoContent(root, best.raw, { savedAt: infoSavedAt(best.raw) }).catch(() => {});
+  }
+
+  return best.raw;
+}
+
+function buildInfoContent(data) {
+  const header = `# AdKerala — routes, stops, settings (JSON below)
+# Edit this file in Notepad. Put media files in db/media/ subfolders.
+# Use "mediaFile" and "audioFile" for paths like "ads/promo.mp4" (relative to db/media/).
+`;
+  return header + JSON.stringify(data, null, 2) + '\n';
 }
 
 export async function ensureDbLayout(root) {
@@ -85,9 +154,10 @@ export function parseInfoText(raw) {
 }
 
 export async function readInfoFile(root) {
-  const { infoFile } = getDbPaths(root);
   try {
-    const raw = await fs.readFile(infoFile, 'utf8');
+    const raw = await loadInfoRaw(root);
+    if (raw == null) return null;
+
     const stripped = raw
       .split(/\r?\n/)
       .filter((line) => !line.trim().startsWith('#'))
@@ -131,31 +201,39 @@ export async function readInfoFile(root) {
 
 export async function writeInfoFile(root, data) {
   const { infoFile } = getDbPaths(root);
-  const header = `# AdKerala — routes, stops, settings (JSON below)
-# Edit this file in Notepad. Put media files in db/media/ subfolders.
-# Use "mediaFile" and "audioFile" for paths like "ads/promo.mp4" (relative to db/media/).
-`;
-  const content = header + JSON.stringify(data, null, 2) + '\n';
-  const tmpFile = `${infoFile}.tmp`;
-  await fs.writeFile(tmpFile, content, 'utf8');
-  try {
-    await fs.rename(tmpFile, infoFile);
-  } catch {
-    await fs.writeFile(infoFile, content, 'utf8');
-    await fs.unlink(tmpFile).catch(() => {});
-  }
+  const content = buildInfoContent(data);
+  const savedAt = data?.savedAt ?? Date.now();
+
+  await archiveInfoContent(root, content, { savedAt });
+  await snapshotBackup(infoFile, isValidInfoRaw);
+  await durableWriteTextFile(infoFile, content);
+  await atomicWriteTextFile(backupPathFor(infoFile), content).catch(() => {});
+}
+
+/** Hot path for driver Forward / route — skip archive snapshot to keep display in sync. */
+export async function writeInfoFileFast(root, data) {
+  const { infoFile } = getDbPaths(root);
+  const content = buildInfoContent(data);
+  await durableWriteTextFile(infoFile, content);
+  await atomicWriteTextFile(backupPathFor(infoFile), content).catch(() => {});
 }
 
 let writeInfoQueue = Promise.resolve();
 
 /** Serialize writes to db/info.txt so cloud sync and API saves cannot interleave. */
 export function writeInfoFileSerialized(root, data, meta = {}) {
+  const fast = meta.source === 'drive-api';
   writeInfoQueue = writeInfoQueue
     .then(async () => {
-      await writeInfoFile(root, data);
+      if (fast) {
+        await writeInfoFileFast(root, data);
+      } else {
+        await writeInfoFile(root, data);
+      }
       notifyStateChanged(root, {
         savedAt: data?.savedAt ?? 0,
         lastCloudPushAt: data?.lastCloudPushAt ?? 0,
+        driveRevision: data?.driveRevision ?? 0,
         source: meta.source ?? 'write',
       });
     })
@@ -234,6 +312,7 @@ export function setupDbApi(app, root) {
 
     const writeEvent = (payload) => {
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      res.flush?.();
     };
 
     writeEvent({ type: 'connected', at: Date.now() });
@@ -258,15 +337,7 @@ export function setupDbApi(app, root) {
       const current = (await readInfoFile(root)) ?? {};
       const { mergeIncomingState } = await import('./stateMerge.js');
       const merged = mergeIncomingState(current, req.body ?? {});
-      const gpsChanged =
-        JSON.stringify(current.driverLocation ?? null) !== JSON.stringify(merged.driverLocation ?? null) &&
-        merged.driverLocation?.lat != null;
       await writeInfoFileSerialized(root, merged);
-      if (gpsChanged) {
-        import('./cloudSync.js')
-          .then(({ runCloudSync }) => runCloudSync(root))
-          .catch(() => {});
-      }
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });

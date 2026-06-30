@@ -1,16 +1,9 @@
 import { createServer as createHttpServer } from 'http';
 import express from 'express';
 import path from 'path';
-import { setupDbApi, ensureDbLayout } from './dbApi.js';
+import { setupDbApi, ensureDbLayout, readInfoFile } from './dbApi.js';
 import { buildNetworkUrls, logNetworkStartup, findBestControlIp } from './networkInfo.js';
-import { startCloudSyncLoop } from './cloudSync.js';
-import { setupCloudProxy } from './cloudProxy.js';
-import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
-import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
-import { startHttpsMirror, getHttpsPort } from './tls.js';
-import { ensureWindowsFirewallPorts, checkFirewallPorts } from './firewall.js';
-import { setupDriverAuth } from './driverAuth.js';
-import { verifyDriverControlOnCloud } from './cloudSync.js';
+import { startCloudSyncLoop, getCloudConfig, verifyDriverControlOnCloud, verifyDriverLinkedOnCloud } from './cloudSync.js';
 
 /**
  * Production bus server — static SPA + same API as dev.js (no Vite).
@@ -37,11 +30,18 @@ export async function startBusServer(options = {}) {
   app.use(express.json({ limit: '2mb' }));
 
   await ensureDbLayout(dataRoot);
+  try {
+    await readInfoFile(dataRoot);
+  } catch (err) {
+    console.warn('AdKerala: db/info.txt could not be loaded at startup —', err.message);
+  }
   setupDbApi(app, dataRoot);
   setupDriverAuth(app, {
     dataRoot,
     verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(dataRoot, pairingCode, otp),
+    verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(dataRoot, driverId),
   });
+  setupDriveApi(app, dataRoot);
   setupCloudProxy(app, dataRoot);
 
   let httpsInfo = { httpsEnabled: false, httpsPort: null };
@@ -62,9 +62,13 @@ export async function startBusServer(options = {}) {
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
     });
+    const cloudCfg = getCloudConfig(dataRoot);
     res.json({
       ok: true,
       ...urls,
+      cloudDriverUrl: cloudCfg.publicUrl
+        ? `${String(cloudCfg.publicUrl).replace(/\/$/, '')}/driver`
+        : null,
       firewallOk: firewallStatus.ok,
       firewallClosedPorts: firewallStatus.closed,
       lanReachable: lanProbe.ok,

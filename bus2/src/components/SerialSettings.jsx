@@ -68,11 +68,12 @@ export default function SerialSettings({
   if (remoteConfig) {
     return (
       <div className="serial-panel serial-panel--remote">
-        <h4 className="settings-section-title">ESP32 serial control</h4>
+        <h4 className="settings-section-title">ESP32 USB buttons</h4>
         <p className="serial-panel-desc">
-          The ESP32 USB cable connects to the <strong>bus display PC</strong> (/display). Settings
-          you change here sync to that screen. Scroll down for button mappings (1/2/3) and text
-          commands (<code>fullscreen</code> / <code>exit</code>).
+          Configure everything here on your phone. The ESP32 USB cable plugs into the{' '}
+          <strong>bus PC</strong> (passenger display). When you enable serial below, the bus PC
+          connects automatically. Use <strong>Remember COM port</strong> so it reconnects after
+          restart.
         </p>
 
         <div className="serial-status-row">
@@ -94,8 +95,8 @@ export default function SerialSettings({
 
         {!serialRuntime?.at && (
           <p className="serial-hint">
-            Waiting for status from the bus display. Open <code>/display</code> on the bus PC if this
-            stays blank.
+            Waiting for connection status from the bus PC. Enable serial input below — on first
+            setup, tap <strong>Connect ESP32 USB</strong> once on the passenger screen.
           </p>
         )}
 
@@ -125,8 +126,8 @@ export default function SerialSettings({
         </div>
 
         <p className="serial-hint serial-hint--warning">
-          On the bus PC: close other serial apps, unplug/replug the ESP32, then use the ⚙️ button on
-          the passenger screen to select the COM port again if needed.
+          First time only: on the bus passenger screen, tap <strong>Connect ESP32 USB</strong> once
+          to authorize the COM port. After that, phone settings control everything.
         </p>
 
         <div className="form-row">
@@ -268,10 +269,10 @@ export default function SerialSettings({
     <div className="serial-panel">
       <h4 className="settings-section-title">ESP32 serial control</h4>
       <p className="serial-panel-desc">
-        Connect an ESP32 over USB. Actions fire once per button press: the value must return to
-        idle ({mappings.idle ?? '0'}) before the next press counts. Text commands{' '}
-        <code>fullscreen</code> / <code>exit</code> (any case) work anytime — use{' '}
-        <code>Serial.println()</code>.
+        Connect an ESP32 over USB on this PC (driver control page). Select COM port and enable{' '}
+        <strong>Remember this COM port</strong> for auto-connect after restart. Buttons{' '}
+        <code>1</code>/<code>2</code>/<code>3</code> map to Forward / Undo / Announce (same as the
+        on-screen buttons).
       </p>
 
       <div className="serial-status-row">

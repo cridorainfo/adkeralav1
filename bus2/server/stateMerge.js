@@ -1,5 +1,7 @@
 import { dedupeRoutes, mergeRoutesForSync } from '../src/store/busStore.js';
 import { mergeAudioMap } from './audioMerge.js';
+import { resolveTripFields } from '../src/store/tripMerge.js';
+import { mergeBusProfile } from '../src/store/busProfileMerge.js';
 
 function mergeCatalogs(current = [], incoming = []) {
   const byKey = new Map();
@@ -62,6 +64,23 @@ function mergeDisplayPlayback(current = {}, incoming = {}, base = {}) {
   }
 }
 
+/** Driver link is set only by /api/driver/* — control phone saves must not wipe it. */
+function mergeDriverLink(current = {}, incoming = {}, base = {}) {
+  const incId = incoming.driverLink?.driverId ?? null;
+  const curId = current.driverLink?.driverId ?? null;
+  if (incId) {
+    base.driverLink = incoming.driverLink;
+  } else if (curId) {
+    base.driverLink = current.driverLink;
+  } else {
+    base.driverLink = incoming.driverLink ?? current.driverLink ?? null;
+  }
+}
+
+function mergeBusProfileOntoState(current = {}, incoming = {}, base = {}) {
+  base.busProfile = mergeBusProfile(current.busProfile, incoming.busProfile ?? base.busProfile);
+}
+
 /** Merge a client POST body onto db/info.txt without dropping routes by accident. */
 export function mergeIncomingState(current = {}, incoming = {}) {
   const curSaved = current.savedAt ?? 0;
@@ -85,5 +104,8 @@ export function mergeIncomingState(current = {}, incoming = {}) {
 
   base.savedAt = Math.max(curSaved, incSaved);
   base.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, incoming.lastCloudPushAt ?? 0);
+  resolveTripFields(current, incoming, base);
+  mergeDriverLink(current, incoming, base);
+  mergeBusProfileOntoState(current, incoming, base);
   return base;
 }

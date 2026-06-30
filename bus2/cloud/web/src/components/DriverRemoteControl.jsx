@@ -42,8 +42,7 @@ export default function DriverRemoteControl({ driverId, session, onDriveMessage 
     <div className="driver-remote-control">
       <h2 className="driver-remote-control-title">Drive control</h2>
       <p className="hint driver-remote-control-hint">
-        Commands go through cloud to the bus. For routes, ads, and GPS auto-drive, use{' '}
-        <strong>Full control</strong> on bus Wi‑Fi.
+        Instant buttons when the bus is online. On bus Wi‑Fi, tap <strong>Full control</strong> for routes and ESP32.
       </p>
 
       <div className="driver-trip-status">

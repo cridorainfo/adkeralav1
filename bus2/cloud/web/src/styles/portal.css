@@ -1629,6 +1629,101 @@ tr.route-row-assigned {
   gap: 0.5rem;
 }
 
+.driver-scan-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 1rem 1.25rem;
+  font-size: 1.05rem;
+  margin-bottom: 0.5rem;
+}
+
+.driver-scan-icon {
+  font-size: 1.35rem;
+}
+
+.driver-connect-or {
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--kerala-muted);
+  margin: 0.75rem 0;
+}
+
+.driver-disconnect-main {
+  width: 100%;
+  margin-top: 1.25rem;
+  padding: 0.85rem 1rem;
+}
+
+.driver-connect-foot-muted {
+  margin-top: 1rem;
+  opacity: 0.85;
+}
+
+.driver-inline-btn {
+  margin-left: 0.5rem;
+}
+
+.driver-qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(6, 24, 20, 0.72);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.driver-qr-sheet {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 16px 16px 12px 12px;
+  padding: 1rem 1rem 1.25rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+}
+
+.driver-qr-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.driver-qr-sheet-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--kerala-green);
+}
+
+.driver-qr-close {
+  border: none;
+  background: transparent;
+  font-size: 1.25rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  color: var(--kerala-muted);
+}
+
+.driver-qr-hint {
+  margin: 0 0 0.75rem;
+}
+
+.driver-qr-reader {
+  width: 100%;
+  min-height: 260px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.driver-qr-reader video {
+  border-radius: 12px;
+}
+
 /* ——— Stops hub ——— */
 
 .stops-hub-layout {

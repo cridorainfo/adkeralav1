@@ -44,6 +44,7 @@ import {
   unlinkDriver,
   unlinkDriverByBusId,
   getDriverSession,
+  verifyLinkedDriverForBus,
   deleteBus,
   updateDriverLocation,
   getLocationHistory,
@@ -411,6 +412,16 @@ app.post('/api/buses/:busId/verify-driver-control', authBus, async (req, res) =>
   const busId = req.busId ?? req.params.busId;
   const { pairingCode, otp } = req.body ?? {};
   const result = await verifyDriverControlForBus(busId, pairingCode, otp);
+  if (!result.ok) {
+    res.status(403).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/buses/:busId/verify-linked-driver', authBus, async (req, res) => {
+  const busId = req.busId ?? req.params.busId;
+  const result = await verifyLinkedDriverForBus(busId, req.body?.driverId);
   if (!result.ok) {
     res.status(403).json(result);
     return;

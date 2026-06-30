@@ -1,5 +1,7 @@
 import { readIdbState, writeIdbState } from '../lib/idbStorage.js';
 import { fetchStateFromDb, hydrateStateFromFile, isDbApiAvailable, saveStateToDb } from '../lib/fileStorage.js';
+import { resolveTripFields } from './tripMerge.js';
+import { mergeBusProfile } from './busProfileMerge.js';
 
 const STORAGE_KEY = 'kerala-bus-state';
 const ROUTE_CACHE_KEY = 'kerala-bus-route-cache';
@@ -13,6 +15,7 @@ const defaultState = () => ({
   tripEnded: false,
   tripDeparted: false,
   routeDirection: 'forward',
+  driveRevision: 0,
   ads: [],
   bannerAds: [],
   adsSavedAt: 0,
@@ -363,7 +366,9 @@ function mergeStoredIntoPrev(prev, parsed) {
       merged.driverLink = stored.driverLink ?? null;
     }
     if (cloudPushAdvanced && stored.busProfile && typeof stored.busProfile === 'object') {
-      merged.busProfile = { ...(merged.busProfile ?? {}), ...stored.busProfile };
+      merged.busProfile = mergeBusProfile(merged.busProfile, stored.busProfile);
+    } else {
+      merged.busProfile = mergeBusProfile(prev?.busProfile, merged.busProfile);
     }
 
     const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
@@ -378,6 +383,7 @@ function mergeStoredIntoPrev(prev, parsed) {
       merged.announcementRequest = prev.announcementRequest;
     }
 
+    resolveTripFields(prev, stored, merged);
     merged._cloudPushAdvanced = cloudPushAdvanced;
     return merged;
   } catch {
@@ -485,6 +491,7 @@ function saveStateLocal(state) {
 }
 
 let dbWriteInFlight = false;
+let pendingDbWrites = 0;
 
 function notifySaveError(message) {
   if (typeof window === 'undefined') return;
@@ -493,6 +500,10 @@ function notifySaveError(message) {
 
 export function isDbWriteInFlight() {
   return dbWriteInFlight;
+}
+
+export function hasPendingDbWrites() {
+  return pendingDbWrites > 0;
 }
 
 /** Update browser cache + other tabs when db/info.txt changed on the server (no write-back). */
@@ -520,6 +531,7 @@ export function saveState(state, { force = false } = {}) {
   }
 
   void (async () => {
+    pendingDbWrites += 1;
     try {
       if (await isDbApiAvailable()) {
         usingDbStorage = true;
@@ -542,7 +554,9 @@ export function saveState(state, { force = false } = {}) {
     }
 
     saveStateLocal(state);
-  })();
+  })().finally(() => {
+    pendingDbWrites = Math.max(0, pendingDbWrites - 1);
+  });
 
   return { ok: true };
 }
@@ -702,9 +716,12 @@ export function isAssignedRoute(route) {
 export function getDriverVisibleRoutes(state = {}) {
   const routes = dedupeRoutes(state.routes ?? []);
   const assignedIds = state.busProfile?.assignedRouteIds;
-  if (!Array.isArray(assignedIds) || !assignedIds.length) return [];
-  const idSet = new Set(assignedIds);
-  return routes.filter((r) => idSet.has(r.id));
+  if (Array.isArray(assignedIds) && assignedIds.length) {
+    const idSet = new Set(assignedIds);
+    return routes.filter((r) => idSet.has(r.id));
+  }
+  const shared = routes.filter(isAssignedRoute);
+  return shared.length ? shared : [];
 }
 
 export function getAssignedRoutes(routes = []) {

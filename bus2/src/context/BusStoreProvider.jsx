@@ -18,6 +18,7 @@ import {
   mergeRemoteState,
   defaultState,
   isDbWriteInFlight,
+  hasPendingDbWrites,
   syncLocalCacheFromServer,
 } from '../store/busStore';
 import { createRouteId } from '../lib/routeLabels';
@@ -43,12 +44,10 @@ import {
   applyEndTrip,
   applyMoveForward,
   applyRequestAnnouncement,
+  applySelectRoute,
+  applySetRouteDirection,
+  applyUndoForward,
 } from '../store/driveActions';
-
-function stopActiveAdPatch(state) {
-  if (state?.displayView !== 'ad') return {};
-  return { displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null };
-}
 
 function useBusStoreLogic() {
   const [state, setState] = useState(defaultState);
@@ -133,6 +132,7 @@ function useBusStoreLogic() {
         if (next === prev) return prev;
         const stamped = { ...next, savedAt: Date.now() };
         lastWriteAtRef.current = stamped.savedAt;
+        stateRef.current = stamped;
         const result = saveState(stamped);
         if (!result.ok) {
           setTimeout(() => setStorageError(result.error), 0);
@@ -152,21 +152,29 @@ function useBusStoreLogic() {
   const applyRemoteState = useCallback((remoteHydrated) => {
     setState((prev) => {
       if (!isPersistenceReady()) return prev;
-      if (isDbWriteInFlight()) return prev;
 
-      const cloudPushAdvanced =
-        (remoteHydrated?.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
-      const blockedByRecentLocalWrite =
-        !cloudPushAdvanced &&
-        Date.now() - lastWriteAtRef.current < 4000 &&
-        lastWriteAtRef.current > (remoteHydrated?.savedAt ?? 0);
-      if (blockedByRecentLocalWrite) {
-        const remoteRuntimeAt = remoteHydrated?.serialRuntime?.at ?? 0;
-        const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
-        if (remoteRuntimeAt > prevRuntimeAt && remoteHydrated?.serialRuntime) {
-          return { ...prev, serialRuntime: remoteHydrated.serialRuntime };
+      const remoteRev = remoteHydrated?.driveRevision ?? 0;
+      const prevRev = prev?.driveRevision ?? 0;
+      const tripAdvanced = remoteRev > prevRev;
+      const announceNew =
+        Boolean(remoteHydrated?.announcementRequest?.id) &&
+        remoteHydrated.announcementRequest.id !== prev?.announcementRequest?.id;
+
+      if (!tripAdvanced && !announceNew) {
+        if (isDbWriteInFlight() || hasPendingDbWrites()) return prev;
+
+        const blockedByRecentLocalWrite =
+          Date.now() - lastWriteAtRef.current < 8000 &&
+          lastWriteAtRef.current >= (remoteHydrated?.savedAt ?? 0);
+        const localTripAhead = prevRev > remoteRev;
+        if (blockedByRecentLocalWrite || localTripAhead) {
+          const remoteRuntimeAt = remoteHydrated?.serialRuntime?.at ?? 0;
+          const prevRuntimeAt = prev?.serialRuntime?.at ?? 0;
+          if (remoteRuntimeAt > prevRuntimeAt && remoteHydrated?.serialRuntime) {
+            return { ...prev, serialRuntime: remoteHydrated.serialRuntime };
+          }
+          return prev;
         }
-        return prev;
       }
 
       const merged = mergeRemoteState(prev, remoteHydrated);
@@ -237,9 +245,12 @@ function useBusStoreLogic() {
   const updateDriverLocation = useCallback((location, persist = false) => {
     setState((prev) => {
       const next = { ...prev, driverLocation: location };
-      if (!persist) return next;
-      // GPS-only saves must not bump savedAt — that was overwriting cloud-pushed routes/audio.
+      if (!persist) {
+        stateRef.current = next;
+        return next;
+      }
       const stamped = { ...next, savedAt: prev.savedAt ?? Date.now() };
+      stateRef.current = stamped;
       saveState(stamped);
       return stamped;
     });
@@ -567,57 +578,14 @@ function useBusStoreLogic() {
 
   const selectRoute = useCallback(
     (id) => {
-      update((s) => {
-        const route = s.routes.find((r) => r.id === id);
-        const stops = route ? getAllStops(route) : [];
-        const dir = s.routeDirection ?? 'forward';
-        if (
-          id === s.activeRouteId &&
-          !s.tripStarted &&
-          !s.tripEnded &&
-          !s.tripDeparted
-        ) {
-          return s;
-        }
-
-        return {
-          ...s,
-          ...stopActiveAdPatch(s),
-          activeRouteId: id,
-          currentStopIndex: getTripStartIndex(stops, dir),
-          tripStarted: false,
-          tripEnded: false,
-          tripDeparted: false,
-          displayView: 'route',
-          announcementRequest: null,
-        };
-      });
+      update((s) => applySelectRoute(s, id));
     },
     [update]
   );
 
   const setRouteDirection = useCallback(
     (routeDirection) => {
-      update((s) => {
-        const route = getActiveRoute(s);
-        if (!route) return s;
-        const stops = getAllStops(route);
-        if ((s.routeDirection ?? 'forward') === routeDirection && !s.tripStarted && !s.tripEnded) {
-          return s;
-        }
-
-        return {
-          ...s,
-          ...stopActiveAdPatch(s),
-          routeDirection,
-          currentStopIndex: getTripStartIndex(stops, routeDirection),
-          tripStarted: false,
-          tripEnded: false,
-          tripDeparted: false,
-          displayView: 'route',
-          announcementRequest: null,
-        };
-      });
+      update((s) => applySetRouteDirection(s, routeDirection));
     },
     [update]
   );
@@ -643,49 +611,7 @@ function useBusStoreLogic() {
   }, [update, playAnnouncementNow]);
 
   const undoForward = useCallback(() => {
-    update((s) => {
-      const route = getActiveRoute(s);
-      if (!route || !s.tripStarted || s.tripEnded) return s;
-      const stops = getAllStops(route);
-      const dir = s.routeDirection ?? 'forward';
-      const tripStart = getTripStartIndex(stops, dir);
-
-      if (!s.tripDeparted) return s;
-
-      if (dir === 'forward') {
-        if (s.currentStopIndex <= tripStart) {
-          return {
-            ...s,
-            tripDeparted: false,
-            currentStopIndex: tripStart,
-            displayView: 'route',
-            announcementRequest: null,
-          };
-        }
-        return {
-          ...s,
-          currentStopIndex: s.currentStopIndex - 1,
-          displayView: 'route',
-          announcementRequest: null,
-        };
-      }
-
-      if (s.currentStopIndex >= tripStart) {
-        return {
-          ...s,
-          tripDeparted: false,
-          currentStopIndex: tripStart,
-          displayView: 'route',
-          announcementRequest: null,
-        };
-      }
-      return {
-        ...s,
-        currentStopIndex: s.currentStopIndex + 1,
-        displayView: 'route',
-        announcementRequest: null,
-      };
-    });
+    update((s) => applyUndoForward(s));
   }, [update]);
 
   const addAd = useCallback(
@@ -939,25 +865,24 @@ function useBusStoreLogic() {
     [update]
   );
 
-  const updateSerialRuntime = useCallback(
-    (runtime) => {
-      update((s) => {
-        const prev = s.serialRuntime ?? {};
-        const next = { ...prev, ...runtime, at: runtime?.at ?? Date.now() };
-        if (
-          prev.status === next.status &&
-          prev.portLabel === next.portLabel &&
-          prev.error === next.error &&
-          prev.isConnected === next.isConnected &&
-          prev.lastLine === next.lastLine
-        ) {
-          return s;
-        }
-        return { ...s, serialRuntime: next };
-      });
-    },
-    [update]
-  );
+  const updateSerialRuntime = useCallback((runtime) => {
+    setState((prev) => {
+      const prevRt = prev.serialRuntime ?? {};
+      const next = { ...prevRt, ...runtime, at: runtime?.at ?? Date.now() };
+      if (
+        prevRt.status === next.status &&
+        prevRt.portLabel === next.portLabel &&
+        prevRt.error === next.error &&
+        prevRt.isConnected === next.isConnected &&
+        prevRt.lastLine === next.lastLine
+      ) {
+        return prev;
+      }
+      const updated = { ...prev, serialRuntime: next };
+      stateRef.current = updated;
+      return updated;
+    });
+  }, []);
 
   const updateAdSettings = useCallback(
     (settings) => {

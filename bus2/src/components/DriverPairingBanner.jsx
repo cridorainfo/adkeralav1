@@ -24,7 +24,8 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
   const controlLabel =
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
-  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code);
+  const cloudDriverBase = network?.cloudDriverUrl?.replace(/\/driver\/?$/, '') ?? null;
+  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code, cloudDriverBase);
   const qrSize = compact ? 88 : 132;
   const showBlockedWarning = lanReachable === false || firewallBlocked || lanProbeError === 'probe_failed';
   const showNoWifiWarning = lanProbeError === 'no_lan_ip' || (!controlUrlHttp && !allControlUrls.length);
@@ -36,10 +37,14 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
       aria-label={controlLabel ? `Driver control ${controlLabel}` : 'Driver pairing'}
     >
       <div className="driver-pairing-banner-body">
-        {joinUrl && code && controlUrlHttp && (
+        {joinUrl && code && (
           <div className="driver-pairing-qr-wrap">
             <DriverPairingQr value={joinUrl} size={qrSize} />
-            {!compact && <span className="driver-pairing-qr-caption">Scan phone</span>}
+            {!compact && (
+              <span className="driver-pairing-qr-caption">
+                Scan with {cloudDriverBase ? 'AdKerala Driver app' : 'phone'}
+              </span>
+            )}
           </div>
         )}
         <div className="driver-pairing-banner-text">
