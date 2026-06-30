@@ -219,7 +219,8 @@ export default function DriverControlGate({ children }) {
             </button>
           </form>
           <p className="driver-control-gate-hint">
-            Same bus Wi‑Fi as the display PC. Credentials stay on this phone until you disconnect.
+            Same bus Wi‑Fi as the display PC. Pair code + admin OTP work offline after the bus has synced
+            once online. Credentials stay on this phone until you disconnect.
           </p>
         </div>
       </div>

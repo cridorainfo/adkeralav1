@@ -408,6 +408,19 @@ app.post('/api/fleet/driver-otp/refresh', authFleet, async (req, res) => {
   res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
 });
 
+/** Bus device pulls fleet OTP for offline LAN driver unlock when internet is down. */
+app.get('/api/buses/:busId/driver-control-otp', authBus, async (req, res) => {
+  const busId = req.busId ?? req.params.busId;
+  const profile = await getBusProfile(busId);
+  if (!profile) {
+    res.status(404).json({ ok: false, error: 'Bus not found' });
+    return;
+  }
+  const ownerId = profile.ownerId || 'platform';
+  const entry = await getOwnerDriverOtp(ownerId);
+  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
+});
+
 app.post('/api/buses/:busId/verify-driver-control', authBus, async (req, res) => {
   const busId = req.busId ?? req.params.busId;
   const { pairingCode, otp } = req.body ?? {};

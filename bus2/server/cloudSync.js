@@ -208,6 +208,45 @@ async function syncAssignedRoutesFromCloud(root, creds) {
   }
 }
 
+/** Cache fleet admin OTP on the bus for offline driver unlock on LAN. */
+async function syncDriverControlOtpFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const json = await cloudFetch(
+      creds,
+      `/api/buses/${encodeURIComponent(creds.busId)}/driver-control-otp`
+    );
+    if (!json?.ok || !json.otp) return;
+
+    const current = (await readInfoFile(root)) ?? {};
+    const profile = current.busProfile ?? {};
+    const prevUpdatedAt = profile.driverControlOtpUpdatedAt ?? 0;
+    const nextUpdatedAt = Number(json.updatedAt ?? 0);
+    if (
+      profile.driverControlOtp === json.otp &&
+      nextUpdatedAt <= prevUpdatedAt
+    ) {
+      return;
+    }
+
+    const pushAt = Date.now();
+    const merged = {
+      ...current,
+      busProfile: {
+        ...profile,
+        driverControlOtp: String(json.otp),
+        driverControlOtpUpdatedAt: nextUpdatedAt || pushAt,
+      },
+      savedAt: Math.max(current.savedAt ?? 0, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    };
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-driver-otp' });
+  } catch {
+    /* cloud offline */
+  }
+}
+
 async function syncStopAudioFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
 
@@ -353,6 +392,7 @@ export async function runCloudSync(root) {
   }
 
   lastPushedAt = Date.now();
+  await syncDriverControlOtpFromCloud(root, creds);
   await syncAssignedRoutesFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);

@@ -27,5 +27,10 @@ export function mergeBusProfile(currentProfile = {}, incomingProfile = {}) {
   if (cur.displayName) merged.displayName = cur.displayName;
   else if (inc.displayName) merged.displayName = inc.displayName;
 
+  if (cur.driverControlOtp) merged.driverControlOtp = cur.driverControlOtp;
+  if (cur.driverControlOtpUpdatedAt) {
+    merged.driverControlOtpUpdatedAt = cur.driverControlOtpUpdatedAt;
+  }
+
   return merged;
 }
