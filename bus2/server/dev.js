@@ -5,7 +5,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
 import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
-import { startCloudSyncLoop, getCloudConfig, verifyDriverControlOnCloud, verifyDriverLinkedOnCloud } from './cloudSync.js';
+import {
+  startCloudSyncLoop,
+  getCloudConfig,
+  verifyDriverControlOnCloud,
+  verifyDriverLinkedOnCloud,
+} from './cloudSync.js';
+import { setupCloudProxy } from './cloudProxy.js';
+import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
+import { startHttpsMirror } from './tls.js';
+import { ensureWindowsFirewallPorts } from './firewall.js';
+import { setupDriverAuth } from './driverAuth.js';
+import { setupDriveApi } from './driveApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
