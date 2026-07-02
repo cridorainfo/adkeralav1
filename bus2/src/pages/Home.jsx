@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME, APP_TAGLINE } from '../lib/brand';
 import DriverConnectBanner from '../components/DriverConnectBanner';
 import { useNetworkUrls } from '../hooks/useNetworkUrls';
@@ -11,7 +12,9 @@ export default function Home() {
   return (
     <div className="home">
       <div className="home-brand">
-        <div className="home-logo">🌴</div>
+        <div className="home-logo">
+          <AdKeralaLogo size="xl" />
+        </div>
         <h1>{APP_NAME}</h1>
         <p className="home-tagline">{APP_TAGLINE}</p>
       </div>

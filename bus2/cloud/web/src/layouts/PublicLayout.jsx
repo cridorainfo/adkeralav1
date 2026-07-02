@@ -1,4 +1,5 @@
 import { Link, Outlet } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { useAuth } from '../lib/auth.jsx';
 import { APP_NAME } from '../lib/brand.js';
 
@@ -9,7 +10,8 @@ export default function PublicLayout() {
     <div className="public-layout">
       <nav className="public-nav">
         <Link to="/" className="public-nav-brand">
-          <span>🌴</span> {APP_NAME}
+          <AdKeralaLogo size="sm" />
+          {APP_NAME}
         </Link>
         <div className="public-nav-links">
           {user ? (

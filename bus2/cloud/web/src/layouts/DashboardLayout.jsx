@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { useAuth } from '../lib/auth.jsx';
 import { APP_NAME, ROLE_LABELS } from '../lib/brand.js';
 
@@ -39,7 +40,10 @@ export default function DashboardLayout({ basePath, navItems, title, children })
       />
 
       <aside className="dashboard-sidebar">
-        <div className="dashboard-sidebar-brand">🌴 {APP_NAME}</div>
+        <div className="dashboard-sidebar-brand">
+          <AdKeralaLogo size="sm" />
+          {APP_NAME}
+        </div>
         <nav className="dashboard-nav" id="dashboard-sidebar-nav">
           {navItems.map((item) => (
             <NavLink

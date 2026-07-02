@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { APP_NAME, APP_TAGLINE } from '../lib/brand.js';
 
 export default function AuthLayout({ title, subtitle, children, footer }) {
@@ -6,7 +7,7 @@ export default function AuthLayout({ title, subtitle, children, footer }) {
     <div className="auth-layout">
       <aside className="auth-layout-brand">
         <Link to="/" className="auth-layout-logo">
-          <span className="auth-layout-logo-icon">🌴</span>
+          <AdKeralaLogo className="auth-layout-logo-icon" size="md" />
           <span>{APP_NAME}</span>
         </Link>
         <p className="auth-layout-tagline">{APP_TAGLINE}</p>

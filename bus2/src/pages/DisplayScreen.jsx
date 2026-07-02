@@ -5,6 +5,7 @@ import BannerAdStrip from '../components/BannerAdStrip';
 import DriverPairingBanner from '../components/DriverPairingBanner';
 import { BilingualStop, LanguageAlternateProvider } from '../components/BilingualStop';
 import { useBusStore } from '../hooks/useBusStore';
+import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
 import { adHasPlayableMedia, nextPlayableAdIndex } from '../lib/adPlayback';
 
@@ -219,7 +220,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
       <div className="display-top-bar">
         <div className="display-brand">
-          <span className="display-brand-icon">🌴</span>
+          <AdKeralaLogo className="display-brand-icon" size="md" />
           <div className="display-brand-text">
             <h2>{brandTitle}</h2>
             <span>{APP_DISPLAY_TAGLINE}</span>

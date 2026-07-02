@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { APP_NAME, APP_TAGLINE } from '../lib/brand.js';
 
 const FEATURES = [
@@ -58,7 +59,8 @@ export default function Landing() {
       <header className="landing-header">
         <div className="landing-header-inner">
           <Link to="/" className="landing-logo">
-            <span>🌴</span> {APP_NAME}
+            <AdKeralaLogo size="sm" />
+            {APP_NAME}
           </Link>
           <nav className="landing-nav">
             <a href="#features">Features</a>
@@ -196,7 +198,10 @@ export default function Landing() {
       <footer className="landing-footer">
         <div className="landing-footer-inner">
           <div className="landing-footer-brand">
-            <span>🌴 {APP_NAME}</span>
+            <span className="landing-footer-brand-row">
+              <AdKeralaLogo size="sm" />
+              {APP_NAME}
+            </span>
             <p>Kerala bus route display &amp; tourism advertising</p>
           </div>
           <div className="landing-footer-links">

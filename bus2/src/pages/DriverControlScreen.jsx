@@ -8,6 +8,7 @@ import {
   getUpcomingPassengerStop,
   getDriverVisibleRoutes,
 } from '../store/busStore';
+import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
 import { postDriveAction } from '../lib/driverDriveApi';
 import { BilingualStop } from '../components/BilingualStop';
@@ -84,7 +85,7 @@ export default function DriverControlScreen({
     <div className="screen-shell driver-minimal-shell">
       <header className="screen-header driver-minimal-header">
         <div className="screen-header-brand">
-          <span>🌴</span>
+          <AdKeralaLogo size="sm" />
           <div>
             <h1>{APP_NAME}</h1>
             <small>{plate ? `Bus ${plate}` : 'Driver control'}</small>

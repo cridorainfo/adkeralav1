@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { APP_NAME } from '../lib/brand.js';
 import {
   clearLanLink,
@@ -242,7 +243,7 @@ export default function DriverConnect() {
 
       <div className="driver-connect-card driver-connect-card-wide">
         <div className="driver-connect-header">
-          <span className="driver-connect-logo">🌴</span>
+          <AdKeralaLogo className="driver-connect-logo" size="lg" />
           <h1>{APP_NAME} Driver</h1>
           <p>{linked ? 'You are connected to this bus' : 'Scan the QR on the bus display to start'}</p>
         </div>

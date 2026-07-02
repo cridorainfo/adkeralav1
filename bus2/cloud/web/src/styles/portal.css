@@ -41,6 +41,20 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--kerala-muted);
 }
 
+.adkerala-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.adkerala-logo--xs { height: 1.25rem; }
+.adkerala-logo--sm { height: 1.75rem; }
+.adkerala-logo--md { height: 2.25rem; }
+.adkerala-logo--lg { height: 3.5rem; }
+.adkerala-logo--xl { height: 5rem; }
+
 /* ——— Public layout ——— */
 
 .public-layout { min-height: 100dvh; display: flex; flex-direction: column; }
@@ -517,7 +531,11 @@ button, input, select, textarea { font-family: inherit; }
   gap: 1.5rem;
 }
 
-.landing-footer-brand span {
+.landing-footer-brand span,
+.landing-footer-brand-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
@@ -592,7 +610,7 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 1rem;
 }
 
-.auth-layout-logo-icon { font-size: 1.75rem; }
+.auth-layout-logo-icon { flex-shrink: 0; }
 
 .auth-layout-tagline {
   font-size: 1.05rem;
@@ -809,6 +827,9 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .dashboard-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   padding: 0 1.25rem 1.25rem;
   font-family: var(--font-display);
   font-size: 1.15rem;
@@ -1424,9 +1445,8 @@ tr.route-row-assigned {
 }
 
 .driver-connect-logo {
-  font-size: 2.5rem;
   display: block;
-  margin-bottom: 0.35rem;
+  margin: 0 auto 0.35rem;
 }
 
 .driver-connect-header h1 {

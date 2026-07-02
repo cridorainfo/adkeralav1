@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
 import { getStopInfo, getStopEn, sameStop, getUpcomingPassengerStop, getDriverVisibleRoutes } from '../store/busStore';
+import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME, APP_CONTROL_SUBTITLE } from '../lib/brand';
 import RouteManager from '../components/RouteManager';
 import AnnouncementManager from '../components/AnnouncementManager';
@@ -167,7 +168,7 @@ export default function ControlScreen({
     <div className="screen-shell">
       <header className="screen-header">
         <div className="screen-header-brand">
-          <span>🌴</span>
+          <AdKeralaLogo size="sm" />
           <div>
             <h1>{APP_NAME}</h1>
             <small>{APP_CONTROL_SUBTITLE}</small>

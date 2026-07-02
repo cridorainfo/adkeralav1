@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
 import { APP_VERSION, isNewerVersion } from '../lib/version';
 import {
@@ -177,7 +178,7 @@ export default function DriverConnect() {
     <div className="driver-connect-page">
       <div className="driver-connect-card">
         <div className="driver-connect-header">
-          <span className="driver-connect-logo">🌴</span>
+          <AdKeralaLogo className="driver-connect-logo" size="lg" />
           <h1>{APP_NAME} Driver</h1>
           <p>Pair with your bus, then open control over Wi‑Fi.</p>
           <p className="driver-connect-foot">App v{APP_VERSION}</p>
