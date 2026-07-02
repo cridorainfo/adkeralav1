@@ -7,7 +7,7 @@ import { BilingualStop, LanguageAlternateProvider } from '../components/Bilingua
 import { useBusStore } from '../hooks/useBusStore';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
-import { adHasPlayableMedia, nextPlayableAdIndex } from '../lib/adPlayback';
+import { adHasPlayableMedia, getFullscreenAdSchedule, nextPlayableAdIndex } from '../lib/adPlayback';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
   const { state, endAd, playAdNow } = useBusStore();
@@ -200,18 +200,23 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   useEffect(() => {
     if (!(s.adSettings?.enabled ?? true) || !ads.some(adHasPlayableMedia)) return;
 
-    const intervalSec = s.adSettings?.intervalSec ?? 90;
     const id = setInterval(() => {
       const latest = stateRef.current;
       const latestAds = latest.ads ?? [];
       if (!latest.adSettings?.enabled || !latestAds.length || latest.displayView === 'ad') return;
 
-      const elapsed = (Date.now() - (latest.lastAdEndedAt ?? Date.now())) / 1000;
-      if (elapsed >= intervalSec) playAdNow();
+      const { ready } = getFullscreenAdSchedule(latest);
+      if (ready) playAdNow();
     }, 1000);
 
     return () => clearInterval(id);
-  }, [s.adSettings?.enabled, s.adSettings?.intervalSec, ads.length, playAdNow]);
+  }, [
+    s.adSettings?.enabled,
+    s.adSettings?.intervalSec,
+    s.adSettings?.initialDelaySec,
+    ads.length,
+    playAdNow,
+  ]);
 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>

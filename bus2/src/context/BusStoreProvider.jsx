@@ -826,7 +826,13 @@ function useBusStoreLogic() {
           lastAdEndedAt: s.displayView === 'ad' ? Date.now() : s.lastAdEndedAt,
         };
       }
-      return { ...s, appView: 'display', isFullscreen: true, displayView: 'route' };
+      return {
+        ...s,
+        appView: 'display',
+        isFullscreen: true,
+        displayView: 'route',
+        displayOpenedAt: Date.now(),
+      };
     });
   }, [update]);
 
@@ -836,7 +842,12 @@ function useBusStoreLogic() {
       appView: 'display',
       isFullscreen: true,
       displayView: 'route',
+      displayOpenedAt: Date.now(),
     }));
+  }, [update]);
+
+  const markDisplayOpened = useCallback(() => {
+    update((s) => ({ ...s, displayOpenedAt: Date.now() }));
   }, [update]);
 
   const exitToControl = useCallback(() => {
@@ -1077,6 +1088,7 @@ function useBusStoreLogic() {
     endAd,
     toggleDisplayMode,
     enterDisplayMode,
+    markDisplayOpened,
     exitToControl,
     updateSerialSettings,
     updateSerialRuntime,

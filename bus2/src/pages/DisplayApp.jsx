@@ -12,8 +12,14 @@ import DisplayScreen from './DisplayScreen';
 
 /** Passenger screen — open on bus PC at /display */
 export default function DisplayApp() {
-  const { state, exitToControl, applyRemoteState, updateSerialRuntime, updateSerialSettings } =
-    useBusStore();
+  const {
+    state,
+    exitToControl,
+    applyRemoteState,
+    updateSerialRuntime,
+    updateSerialSettings,
+    markDisplayOpened,
+  } = useBusStore();
 
   const kioskMode = isKioskMode();
   const busPcLaunch = isLaunchedByRunScript() || kioskMode;
@@ -28,6 +34,10 @@ export default function DisplayApp() {
     updateSerialRuntime,
     updateSerialSettings,
   });
+
+  useEffect(() => {
+    markDisplayOpened();
+  }, [markDisplayOpened]);
 
   useEffect(() => {
     if (!busPcLaunch) return;

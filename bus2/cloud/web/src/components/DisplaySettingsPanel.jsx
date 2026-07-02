@@ -16,6 +16,7 @@ const defaultForm = () => ({
   },
   adSettings: {
     enabled: true,
+    initialDelaySec: 90,
     intervalSec: 90,
     defaultDurationSec: 12,
     playAudio: true,
@@ -125,14 +126,27 @@ export default function DisplaySettingsPanel() {
       </div>
 
       <h3>Fullscreen ads</h3>
+      <p className="hint">
+        Initial delay runs after the passenger display opens; repeat interval is the gap between later ads.
+      </p>
       <div className="inline-form">
         <label>
           <input type="checkbox" checked={form.adSettings.enabled} onChange={(e) => patch('adSettings.enabled', e.target.checked)} /> Enabled
         </label>
         <div className="form-group">
-          <label>Interval (sec)</label>
+          <label>Initial delay (sec)</label>
           <input
             type="number"
+            min="0"
+            value={form.adSettings.initialDelaySec}
+            onChange={(e) => patch('adSettings.initialDelaySec', Number(e.target.value))}
+          />
+        </div>
+        <div className="form-group">
+          <label>Repeat interval (sec)</label>
+          <input
+            type="number"
+            min="0"
             value={form.adSettings.intervalSec}
             onChange={(e) => patch('adSettings.intervalSec', Number(e.target.value))}
           />

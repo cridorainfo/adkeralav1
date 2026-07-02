@@ -20,3 +20,20 @@ export function nextPlayableAdIndex(ads = [], startIndex = 0) {
 export function filterPlayableAds(ads = []) {
   return ads.filter(adHasPlayableMedia);
 }
+
+/** Seconds until the next fullscreen ad may start (initial delay vs repeat interval). */
+export function getFullscreenAdSchedule(state, now = Date.now()) {
+  const openedAt = state.displayOpenedAt ?? now;
+  const lastEnd = state.lastAdEndedAt ?? 0;
+  const intervalSec = state.adSettings?.intervalSec ?? 90;
+  const initialDelaySec = state.adSettings?.initialDelaySec ?? intervalSec;
+  const hasPlayedSinceOpen = lastEnd >= openedAt;
+  const anchor = hasPlayedSinceOpen ? lastEnd : openedAt;
+  const thresholdSec = hasPlayedSinceOpen ? intervalSec : initialDelaySec;
+  const elapsedSec = (now - anchor) / 1000;
+  return {
+    elapsedSec,
+    thresholdSec,
+    ready: elapsedSec >= thresholdSec,
+  };
+}

@@ -21,6 +21,7 @@ const defaultState = () => ({
   adsSavedAt: 0,
   adSettings: {
     enabled: true,
+    initialDelaySec: 90,
     intervalSec: 90,
     defaultDurationSec: 12,
     playAudio: true,
@@ -95,6 +96,8 @@ const defaultState = () => ({
   nextAdIndex: 0,
   lastAdEndedAt: Date.now(),
   adStartedAt: null,
+  /** When passenger display last opened — used for initial ad delay. */
+  displayOpenedAt: null,
 });
 
 let listeners = new Set();
@@ -443,8 +446,9 @@ export async function loadStateAsync() {
 }
 
 function stateForPersistence(state) {
+  const { displayOpenedAt, announcementStatus, ...rest } = state;
   return {
-    ...state,
+    ...rest,
     announcementStatus: null,
     savedAt: state.savedAt ?? Date.now(),
   };

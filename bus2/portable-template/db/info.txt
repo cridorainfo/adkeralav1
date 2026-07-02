@@ -12,6 +12,7 @@
   "bannerAds": [],
   "adSettings": {
     "enabled": true,
+    "initialDelaySec": 90,
     "intervalSec": 90,
     "defaultDurationSec": 12,
     "playAudio": true
