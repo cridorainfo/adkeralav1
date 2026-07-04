@@ -31,6 +31,7 @@ export default function App() {
   return (
     <Routes>
       <Route index element={<HomeRedirect />} />
+      <Route path="site" element={<Landing />} />
       <Route
         path="login"
         element={

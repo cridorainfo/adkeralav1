@@ -63,7 +63,7 @@ export default function DashboardLayout({ basePath, navItems, title, children })
           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: '0.5rem' }} onClick={logout}>
             Log out
           </button>
-          <Link to="/" style={{ display: 'block', marginTop: '0.5rem', opacity: 0.8 }}>
+          <Link to="/site" style={{ display: 'block', marginTop: '0.5rem', opacity: 0.8 }}>
             ← Public site
           </Link>
         </div>
