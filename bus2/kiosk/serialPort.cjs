@@ -1,6 +1,6 @@
-/** Web Serial support for Electron — ESP32 USB on the bus display PC. */
+/** Web Serial support for Electron — console USB on the bus display PC (no COM picker). */
 
-const ESP_VENDOR_IDS = new Set([
+const CONSOLE_VENDOR_IDS = new Set([
   0x303a, // Espressif native USB
   0x10c4, // Silicon Labs CP210x
   0x1a86, // WCH CH340
@@ -8,13 +8,14 @@ const ESP_VENDOR_IDS = new Set([
   0x0403, // FTDI
 ]);
 
+/** Auto-pick any USB serial port — prefer common console chips, else newest in list. */
 function pickSerialPort(portList) {
   if (!portList?.length) return null;
-  const esp = portList.find((p) => {
+  const known = portList.find((p) => {
     const vid = Number(p.vendorId ?? p.usbVendorId ?? 0);
-    return ESP_VENDOR_IDS.has(vid);
+    return CONSOLE_VENDOR_IDS.has(vid);
   });
-  return esp ?? portList[0];
+  return known ?? portList[portList.length - 1];
 }
 
 function setupWebSerial(session) {

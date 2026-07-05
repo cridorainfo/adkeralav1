@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { isWebSerialSupported } from './useSerialPort';
 import { usePlatformSerial, isPlatformSerialSupported } from './usePlatformSerial';
-import { isAndroidSerialAvailable } from './useAndroidSerialBridge';
 import { useEspSerialControl } from './useEspSerialControl';
 import { refreshRemoteState } from './useRemoteStateSync';
 import { getStopEn } from '../store/busStore';
 import { postDriveAction } from '../lib/driverDriveApi';
 import { isBusPcForSerial } from '../lib/appRole';
 
-/** Console USB on bus PC passenger display — auto-connects any authorized COM port. */
+/** Console USB on bus PC — auto-detects and connects any port; no driver setup. */
 export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime, updateSerialSettings }) {
   const active = isBusPcForSerial() && isPlatformSerialSupported();
 
@@ -31,9 +29,6 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     [drive]
   );
 
-  const enterDisplayMode = useCallback(() => {}, []);
-  const exitToControl = useCallback(() => {}, []);
-
   const { handleValueChange } = useEspSerialControl({
     state,
     startTrip,
@@ -41,8 +36,8 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     moveForward,
     undoForward,
     requestAnnouncement,
-    enterDisplayMode,
-    exitToControl,
+    enterDisplayMode: () => {},
+    exitToControl: () => {},
   });
 
   const serialSettings = state.serialSettings ?? {};
@@ -61,33 +56,6 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
   });
 
   const savedPortRef = useRef(null);
-
-  const authorizeUsbPort = useCallback(async () => {
-    if (!active) return false;
-    serial.clearError?.();
-    try {
-      if (isAndroidSerialAvailable()) {
-        await serial.reconnect?.();
-        return true;
-      }
-      await serial.selectPort();
-      const info = serial.getPortInfo();
-      if (info && updateSerialSettings) {
-        updateSerialSettings({
-          enabled: true,
-          portLocked: true,
-          savedPortInfo: info,
-        });
-      }
-      return Boolean(info);
-    } catch (err) {
-      if (err?.name !== 'NotFoundError') {
-        const msg = serial.describeError?.(err) ?? err?.message ?? 'Could not open serial port';
-        serial.setError?.(msg);
-      }
-      return false;
-    }
-  }, [active, serial, updateSerialSettings]);
 
   useEffect(() => {
     if (!active || !updateSerialRuntime) return;
@@ -150,15 +118,5 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     serial.isConnected,
   ]);
 
-  return {
-    serial,
-    serialSupported: active,
-    authorizeUsbPort,
-    needsUsbAuthorize:
-      active &&
-      isWebSerialSupported() &&
-      !isAndroidSerialAvailable() &&
-      !serial.isConnected &&
-      (serial.status === 'idle' || serial.status === 'waiting'),
-  };
+  return { serial, serialSupported: active };
 }

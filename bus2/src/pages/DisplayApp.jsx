@@ -28,7 +28,7 @@ export default function DisplayApp() {
   useAnnouncementPlayback();
   useDisplayBrowserFullscreen(true, exitToControl, kioskMode);
 
-  const { needsUsbAuthorize, authorizeUsbPort, serial } = useBusPcEspSerial({
+  const { serial } = useBusPcEspSerial({
     state,
     applyRemoteState,
     updateSerialRuntime,
@@ -57,7 +57,6 @@ export default function DisplayApp() {
     isConnected: serial?.isConnected,
     portLabel: serial?.portLabel,
     status: serial?.status,
-    error: serial?.error,
     at: state.serialRuntime?.at,
   };
 
@@ -70,20 +69,6 @@ export default function DisplayApp() {
         <div className="display-console-status-wrap">
           <ConsoleStatus serialRuntime={consoleRuntime} compact />
         </div>
-      )}
-      {kioskMode && needsUsbAuthorize && (
-        <button
-          type="button"
-          className="display-esp-once-btn"
-          onClick={() => authorizeUsbPort()}
-        >
-          Connect console USB (one-time)
-        </button>
-      )}
-      {kioskMode && serial?.error && (
-        <p className="display-esp-error" role="alert">
-          Console: {serial.error}
-        </p>
       )}
     </>
   );

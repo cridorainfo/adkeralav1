@@ -7,19 +7,15 @@ export function isWebSerialSupported() {
   return true;
 }
 
-function portMatchesInfo(port, savedInfo) {
-  if (!savedInfo) return false;
-  const info = port.getInfo?.() ?? {};
-  if (savedInfo.usbVendorId != null && info.usbVendorId !== savedInfo.usbVendorId) {
-    return false;
-  }
-  if (savedInfo.usbProductId != null && info.usbProductId !== savedInfo.usbProductId) {
-    return false;
-  }
-  return true;
+/** Packaged bus PC app — can auto-grant serial without a driver picking COM ports. */
+export function isElectronKiosk() {
+  if (typeof window === 'undefined') return false;
+  return Boolean(window.adKeralaKiosk?.kiosk);
 }
 
+
 function formatPortLabel(port) {
+  if (isElectronKiosk()) return 'Console';
   const info = port.getInfo?.() ?? {};
   if (info.usbVendorId != null) {
     const vid = info.usbVendorId.toString(16).padStart(4, '0');
@@ -343,12 +339,22 @@ export function useSerialPort({
   const findSavedPort = useCallback(async () => {
     const ports = await navigator.serial.getPorts();
     if (!ports.length) return null;
-    if (savedPortInfo) {
-      const match = ports.find((p) => portMatchesInfo(p, savedPortInfo));
-      if (match) return match;
+    return ports[ports.length - 1];
+  }, []);
+
+  const tryAutoGrantPort = useCallback(async () => {
+    if (!isElectronKiosk() || manualDisconnectRef.current || abortRef.current) return false;
+    try {
+      setStatus('connecting');
+      setError('');
+      const port = await navigator.serial.requestPort();
+      if (!port || abortRef.current) return false;
+      await connectPortCore(port);
+      return Boolean(portRef.current);
+    } catch {
+      return false;
     }
-    return ports[0];
-  }, [savedPortInfo]);
+  }, [connectPortCore]);
 
   const shouldStayConnected = enabled || locked || Boolean(savedPortInfo);
   const shouldStayConnectedRef = useRef(shouldStayConnected);
@@ -367,16 +373,16 @@ export function useSerialPort({
 
       const ports = await navigator.serial.getPorts();
       if (!ports.length) {
+        const granted = await tryAutoGrantPort();
+        if (granted) {
+          reconnectAttemptRef.current = 0;
+          return true;
+        }
         setStatus('waiting');
         return false;
       }
 
-      const saved = savedPortInfoRef.current;
-      const ordered = [...ports].sort((a, b) => {
-        const aMatch = saved && portMatchesInfo(a, saved) ? 1 : 0;
-        const bMatch = saved && portMatchesInfo(b, saved) ? 1 : 0;
-        return bMatch - aMatch;
-      });
+      const ordered = [...ports].reverse();
 
       abortRef.current = false;
       setError('');
@@ -397,7 +403,7 @@ export function useSerialPort({
       setStatus('waiting');
       return false;
     });
-  }, [connectPortCore, enqueue, isConnectedNow]);
+  }, [connectPortCore, enqueue, isConnectedNow, tryAutoGrantPort]);
 
   const scheduleReconnect = useCallback(
     (immediate = false) => {
