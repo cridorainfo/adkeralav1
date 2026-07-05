@@ -8,8 +8,10 @@ import {
   loadDeviceConfig,
   getDeviceCredentials,
   applyClaimCredentials,
+  clearDeviceClaim,
   isDeviceClaimed,
 } from './deviceConfig.js';
+import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -26,14 +28,51 @@ const ENROLL_POLL_MS = 3000;
 
 let lastPushedAt = 0;
 let dataRootRef = null;
+let unclaimInProgress = false;
 
 function getCredentials(dataRoot) {
   return getDeviceCredentials(dataRoot ?? dataRootRef);
 }
 
+function isFleetAccessDenied(result) {
+  if (!result || result.ok) return false;
+  return result.status === 401 || result.status === 403 || result.status === 404;
+}
+
+async function handleDeviceRemovedFromFleet(root, reason) {
+  if (unclaimInProgress) return;
+  unclaimInProgress = true;
+  try {
+    console.warn(`AdKerala cloud sync: bus removed from fleet (${reason}) — showing claim code`);
+    clearDeviceClaim(root);
+
+    const current = (await readInfoFile(root)) ?? {};
+    const oldMediaPaths = [
+      ...new Set([
+        ...collectAdMediaFromState(current),
+        ...collectAudioMediaFromState(current),
+      ]),
+    ];
+    const merged = resetBusStateForUnclaim(current);
+    const pushAt = Date.now();
+    merged.savedAt = pushAt;
+    merged.lastCloudPushAt = pushAt;
+
+    await writeInfoFileSerialized(root, merged, { source: 'fleet-unclaim' });
+    await deleteLocalMediaFiles(root, oldMediaPaths);
+    notifyStateChanged(root, {
+      savedAt: pushAt,
+      lastCloudPushAt: pushAt,
+      source: 'fleet-unclaim',
+    });
+  } finally {
+    unclaimInProgress = false;
+  }
+}
+
 async function cloudFetch(creds, path, options = {}) {
   const cloudUrl = creds.cloudUrl;
-  if (!cloudUrl) return null;
+  if (!cloudUrl) return { ok: false, status: 0, json: null };
   const headers = {
     'Content-Type': 'application/json',
     ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
@@ -41,7 +80,8 @@ async function cloudFetch(creds, path, options = {}) {
     ...(options.headers ?? {}),
   };
   const res = await fetch(`${cloudUrl}${path}`, { ...options, headers });
-  return res.json().catch(() => null);
+  const json = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
 }
 
 function buildTelemetry(state, busId) {
@@ -92,10 +132,10 @@ async function tryFleetEnrollment(root) {
   });
 
   const status = await cloudFetch(creds, `/api/fleet/enroll/${encodeURIComponent(config.installId)}/status`);
-  if (status?.claimed && status.deviceToken && status.busId) {
+  if (status.json?.claimed && status.json.deviceToken && status.json.busId) {
     applyClaimCredentials(root, {
-      busId: status.busId,
-      deviceToken: status.deviceToken,
+      busId: status.json.busId,
+      deviceToken: status.json.deviceToken,
       cloudUrl: creds.cloudUrl,
     });
     return getDeviceCredentials(root);
@@ -162,6 +202,10 @@ async function syncAssignedRoutesFromCloud(root, creds) {
         ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
       },
     });
+    if (isFleetAccessDenied({ ok: res.ok, status: res.status })) {
+      await handleDeviceRemovedFromFleet(root, 'routes sync rejected');
+      return;
+    }
     if (!res.ok) return;
     const json = await res.json();
     if (!json?.ok) return;
@@ -217,14 +261,14 @@ async function syncDriverControlOtpFromCloud(root, creds) {
       creds,
       `/api/buses/${encodeURIComponent(creds.busId)}/driver-control-otp`
     );
-    if (!json?.ok || !json.otp) return;
+    if (!json.ok || !json.json?.ok || !json.json.otp) return;
 
     const current = (await readInfoFile(root)) ?? {};
     const profile = current.busProfile ?? {};
     const prevUpdatedAt = profile.driverControlOtpUpdatedAt ?? 0;
-    const nextUpdatedAt = Number(json.updatedAt ?? 0);
+    const nextUpdatedAt = Number(json.json.updatedAt ?? 0);
     if (
-      profile.driverControlOtp === json.otp &&
+      profile.driverControlOtp === json.json.otp &&
       nextUpdatedAt <= prevUpdatedAt
     ) {
       return;
@@ -235,7 +279,7 @@ async function syncDriverControlOtpFromCloud(root, creds) {
       ...current,
       busProfile: {
         ...profile,
-        driverControlOtp: String(json.otp),
+        driverControlOtp: String(json.json.otp),
         driverControlOtpUpdatedAt: nextUpdatedAt || pushAt,
       },
       savedAt: Math.max(current.savedAt ?? 0, pushAt),
@@ -324,15 +368,23 @@ export async function runCloudSync(root) {
   const telemetry = buildTelemetry(state, busId);
   const displaySnapshot = buildDisplaySnapshot(state);
 
-  await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/telemetry`, {
+  const telemetryRes = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/telemetry`, {
     method: 'POST',
     body: JSON.stringify({ telemetry, state, displaySnapshot }),
   });
+  if (isFleetAccessDenied(telemetryRes)) {
+    await handleDeviceRemovedFromFleet(root, telemetryRes.json?.error ?? 'telemetry rejected');
+    return;
+  }
 
   const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
-  if (pending?.ok && Array.isArray(pending.commands) && pending.commands.length) {
-    const kioskCommands = pending.commands.filter((cmd) => KIOSK_COMMAND_TYPES.has(cmd.type));
-    const stateCommands = pending.commands.filter((cmd) => !KIOSK_COMMAND_TYPES.has(cmd.type));
+  if (isFleetAccessDenied(pending)) {
+    await handleDeviceRemovedFromFleet(root, pending.json?.error ?? 'commands rejected');
+    return;
+  }
+  if (pending.json?.ok && Array.isArray(pending.json.commands) && pending.json.commands.length) {
+    const kioskCommands = pending.json.commands.filter((cmd) => KIOSK_COMMAND_TYPES.has(cmd.type));
+    const stateCommands = pending.json.commands.filter((cmd) => !KIOSK_COMMAND_TYPES.has(cmd.type));
 
     for (const cmd of kioskCommands) {
       dispatchKioskCommand(cmd.type, cmd.payload ?? {});
@@ -374,7 +426,7 @@ export async function runCloudSync(root) {
       });
     }
 
-    for (const cmd of pending.commands) {
+    for (const cmd of pending.json.commands) {
       await cloudFetch(
         creds,
         `/api/buses/${encodeURIComponent(busId)}/commands/${encodeURIComponent(cmd.id)}/ack`,
@@ -388,7 +440,7 @@ export async function runCloudSync(root) {
     if (kioskCommands.length) {
       parts.push(`${kioskCommands.length} system command(s)`);
     }
-    console.log(`AdKerala cloud sync: applied ${parts.join(', ') || pending.commands.length + ' command(s)'}`);
+    console.log(`AdKerala cloud sync: applied ${parts.join(', ') || pending.json.commands.length + ' command(s)'}`);
   }
 
   lastPushedAt = Date.now();
@@ -469,7 +521,7 @@ export async function verifyDriverControlOnCloud(dataRoot, pairingCode, otp) {
     method: 'POST',
     body: JSON.stringify({ pairingCode, otp }),
   });
-  return json ?? { ok: false, error: 'Cloud unreachable' };
+  return json.json ?? { ok: false, error: 'Cloud unreachable' };
 }
 
 /** Cloud-paired driver unlock on bus LAN — no OTP when phone already linked in cloud. */
@@ -489,7 +541,7 @@ export async function verifyDriverLinkedOnCloud(dataRoot, driverId) {
       body: JSON.stringify({ driverId: String(driverId ?? '').trim() }),
     }
   );
-  return json ?? { ok: false, error: 'Cloud unreachable' };
+  return json.json ?? { ok: false, error: 'Cloud unreachable' };
 }
 
 export { ENROLL_POLL_MS };

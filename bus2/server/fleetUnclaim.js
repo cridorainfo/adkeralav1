@@ -1,0 +1,46 @@
+import { generatePairingCode } from '../src/store/busStore.js';
+
+/** Strip fleet-managed content when this PC is no longer registered on the server. */
+export function resetBusStateForUnclaim(current = {}) {
+  return {
+    serialSettings: current.serialSettings,
+    displaySettings: current.displaySettings,
+    announcementSettings: current.announcementSettings,
+    adSettings: current.adSettings,
+    bannerAdSettings: current.bannerAdSettings,
+    appView: current.appView,
+    isFullscreen: current.isFullscreen,
+    displayOpenedAt: current.displayOpenedAt ?? null,
+    routes: [],
+    activeRouteId: null,
+    currentStopIndex: 0,
+    tripStarted: false,
+    tripEnded: false,
+    tripDeparted: false,
+    routeDirection: 'forward',
+    driveRevision: 0,
+    ads: [],
+    bannerAds: [],
+    adsSavedAt: 0,
+    routesSavedAt: 0,
+    stopCatalog: [],
+    audioFragments: {},
+    stopAudio: {},
+    driverLink: null,
+    driverLocation: null,
+    displayView: 'route',
+    announcementRequest: null,
+    announcementStatus: null,
+    navigateRequest: null,
+    currentAdIndex: 0,
+    nextAdIndex: 0,
+    lastAdEndedAt: Date.now(),
+    adStartedAt: null,
+    busProfile: {
+      plate: '',
+      plateDisplay: '',
+      pairingCode: generatePairingCode(),
+    },
+    savedAt: Date.now(),
+  };
+}

@@ -1358,12 +1358,37 @@ export async function unlinkDriverByBusId(busId) {
   return unlinkDriver(profile.linkedDriverId);
 }
 
+const FLEET_ENROLL_TTL_MS = 30 * 60 * 1000;
+
+function detachFleetDevicesForBus(store, busId) {
+  if (!store.fleetEnrollments) store.fleetEnrollments = {};
+  if (!store.busDevices) store.busDevices = {};
+  const now = Date.now();
+
+  for (const enrollment of Object.values(store.fleetEnrollments)) {
+    if (enrollment?.busId !== busId) continue;
+    enrollment.claimed = false;
+    enrollment.busId = null;
+    enrollment.ownerId = null;
+    enrollment.expiresAt = now + FLEET_ENROLL_TTL_MS;
+    enrollment.updatedAt = now;
+  }
+
+  for (const device of Object.values(store.busDevices)) {
+    if (device?.busId !== busId) continue;
+    device.revokedAt = now;
+    device.tokenHash = null;
+    device.pendingToken = null;
+  }
+}
+
 export async function deleteBus(busId) {
   if (usePostgres()) return pg.pgDeleteBus(busId);
   const store = await loadStore();
   if (!store.busProfiles?.[busId]) {
     return { ok: false, error: 'Bus not found' };
   }
+  detachFleetDevicesForBus(store, busId);
   delete store.busProfiles[busId];
   delete store.buses[busId];
   for (const driver of Object.values(store.drivers ?? {})) {

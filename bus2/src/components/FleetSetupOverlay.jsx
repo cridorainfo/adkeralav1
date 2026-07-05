@@ -23,10 +23,11 @@ export default function FleetSetupOverlay() {
       setConfig(json);
 
       if (json.claimed) {
-        stopPolling();
         setDismissed(true);
         return;
       }
+
+      setDismissed(false);
 
       if (!json.cloudUrl) {
         setStatus('Connecting to cloud… restart the app if this persists.');
