@@ -47,6 +47,9 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const showClock = theme.showClock !== false;
   const showBannerStrip =
     theme.showBanner !== false && (s.bannerAdSettings?.enabled ?? true);
+  const bannerAds = s.bannerAds ?? [];
+  const playableBannerAds = bannerAds.filter(adHasPlayableMedia);
+  const reserveBannerSlot = showBannerStrip && !showingAd;
   const brandTitle = s.displaySettings?.brandTitle?.trim() || APP_NAME;
   const screenStyle = {
     ...(theme.primaryColor ? { '--display-primary': theme.primaryColor } : {}),
@@ -64,7 +67,6 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
   const showDriverQr = useShowDriverPairingQr(s);
-  const driverConnected = !showDriverQr;
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -372,8 +374,15 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
       {isPassengerView && showDriverQr && <DriverPairingBanner visible compact />}
 
-      {!showingAd && driverConnected && showBannerStrip && (
-        <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />
+      {reserveBannerSlot && (
+        <div
+          className={`display-banner-slot${playableBannerAds.length ? '' : ' display-banner-slot--empty'}`}
+          aria-hidden={playableBannerAds.length ? undefined : true}
+        >
+          {playableBannerAds.length > 0 && (
+            <BannerAdStrip bannerAds={bannerAds} settings={s.bannerAdSettings} />
+          )}
+        </div>
       )}
     </div>
     </LanguageAlternateProvider>

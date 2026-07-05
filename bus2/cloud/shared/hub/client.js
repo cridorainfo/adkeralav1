@@ -171,6 +171,14 @@ export async function tryStoredHubConnect() {
   return { ...result, controlUrl };
 }
 
+/** Save bus control URL (no secrets in the URL), then reconnect if this device already paired. */
+export async function connectAfterBusUrlSaved(controlUrl) {
+  if (!controlUrl) return { ok: false, status: 'no-url', controlUrl: null };
+  const normalized = saveHubControlUrl(controlUrl);
+  if (!normalized) return { ok: false, status: 'invalid-url', controlUrl: null };
+  return tryStoredHubConnect();
+}
+
 export function goToHubControl(controlUrl) {
   const url = saveHubControlUrl(controlUrl) || loadHubControlUrl();
   if (!url) return false;

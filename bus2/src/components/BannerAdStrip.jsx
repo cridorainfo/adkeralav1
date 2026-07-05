@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { adHasPlayableMedia } from '../lib/adPlayback';
+import { mediaPathToUrl } from '../lib/fileStorage';
 
 export default function BannerAdStrip({ bannerAds, settings }) {
   const [index, setIndex] = useState(0);
@@ -51,13 +52,15 @@ export default function BannerAdStrip({ bannerAds, settings }) {
 
   if (!enabled || !current) return null;
 
+  const mediaUrl = current.mediaUrl || mediaPathToUrl(current.mediaFile);
+
   return (
     <aside className="display-banner-ad" aria-label="Banner advertisement">
       <div className="display-banner-ad-media">
         {isVideo ? (
-          <video ref={videoRef} src={current.mediaUrl} playsInline muted />
+          <video ref={videoRef} src={mediaUrl} playsInline muted />
         ) : (
-          <img src={current.mediaUrl} alt="" onError={() => setIndex((i) => (i + 1) % ads.length)} />
+          <img src={mediaUrl} alt="" onError={() => setIndex((i) => (i + 1) % ads.length)} />
         )}
       </div>
     </aside>

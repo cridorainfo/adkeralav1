@@ -3,16 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import DriverQrScanner from '../components/DriverQrScanner.jsx';
 import { APP_NAME } from '../lib/brand.js';
-import { isOnBusLanOrigin } from '#hub/api';
-import {
-  hydrateHubStorage,
-  loadHubControlUrl,
-  loadHubPairCode,
-  readHubControlFromLocation,
-  saveHubControlUrl,
-  saveHubPairCode,
-} from '#hub/persist';
-import { goToHubControl, pairToHub, tryStoredHubConnect } from '#hub/client';
+import { bootDriverConnect } from '#hub/driverConnectBoot';
+import { saveHubPairCode } from '#hub/persist';
+import { connectAfterBusUrlSaved, goToHubControl, pairToHub } from '#hub/client';
 import { parseControlFromScan } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
@@ -34,49 +27,21 @@ export default function DriverConnect() {
     let cancelled = false;
 
     (async () => {
-      await hydrateHubStorage();
+      const boot = await bootDriverConnect({
+        locationSearch: location.search,
+        navigate,
+      });
+      if (cancelled || boot.redirected) return;
 
-      const savedCode = loadHubPairCode();
-      if (savedCode && !cancelled) setPairCode(savedCode);
+      setBusUrl(boot.busUrl);
 
-      const fromQr = readHubControlFromLocation(location.search);
-      if (fromQr) {
-        saveHubControlUrl(fromQr);
-        if (!cancelled) setBusUrl(fromQr);
-        navigate('/driver', { replace: true });
-        return;
-      }
-
-      if (isOnBusLanOrigin()) {
-        const lanControl = `${window.location.origin}/control`;
-        saveHubControlUrl(lanControl);
-        if (!cancelled) setBusUrl(lanControl);
-      }
-
-      const saved = loadHubControlUrl();
-      if (!cancelled) setBusUrl(saved);
-
-      const auto = await tryStoredHubConnect();
-      if (cancelled) return;
-
-      if (auto.ok && auto.controlUrl) {
-        setStatus('Connecting to your bus…');
-        goToHubControl(auto.controlUrl);
-        return;
-      }
-
-      if (auto.status === 'revoked') {
+      if (boot.auto?.status === 'revoked') {
         setStatus('Disconnected by admin');
-        setError(auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
+        setError(boot.auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
         return;
       }
 
-      if (auto.status === 'need-code' && saved) {
-        setStatus('Enter the pairing code from admin');
-        return;
-      }
-
-      if (saved) {
+      if (boot.busUrl) {
         setStatus('Enter the pairing code from admin');
       } else {
         setStatus('Scan the QR on the bus display');
@@ -91,19 +56,36 @@ export default function DriverConnect() {
   const handlePairCodeChange = (raw) => {
     const digits = raw.replace(/\D/g, '').slice(0, 4);
     setPairCode(digits);
-    if (digits.length === 4) saveHubPairCode(digits);
   };
 
-  const handleQrScan = (raw) => {
+  const handleQrScan = async (raw) => {
     setError('');
     const control = parseControlFromScan(raw);
-    if (control) {
-      saveHubControlUrl(control);
-      setBusUrl(control);
-      setStatus('Enter the pairing code from admin');
+    if (!control) {
+      setError('Unrecognized QR — scan the code on the passenger display');
       return;
     }
-    setError('Unrecognized QR — scan the code on the passenger display');
+
+    setBusy(true);
+    try {
+      const auto = await connectAfterBusUrlSaved(control);
+      setBusUrl(control);
+
+      if (auto.ok && auto.controlUrl) {
+        goToHubControl(auto.controlUrl);
+        return;
+      }
+
+      if (auto.status === 'revoked') {
+        setStatus('Disconnected by admin');
+        setError(auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
+        return;
+      }
+
+      setStatus('Enter the pairing code from admin');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -121,6 +103,7 @@ export default function DriverConnect() {
         setError(result.error ?? 'Could not connect');
         return;
       }
+      if (pairCode.length === 4) saveHubPairCode(pairCode);
       goToHubControl(busUrl);
     } finally {
       setBusy(false);
@@ -146,6 +129,7 @@ export default function DriverConnect() {
               type="button"
               className="btn btn-primary driver-scan-btn"
               onClick={() => setScannerOpen(true)}
+              disabled={busy}
             >
               Scan QR with camera
             </button>
@@ -163,7 +147,7 @@ export default function DriverConnect() {
                 id="pairCode"
                 type="text"
                 inputMode="numeric"
-                autoComplete="one-time-code"
+                autoComplete="off"
                 maxLength={4}
                 placeholder="e.g. 4821"
                 value={pairCode}
@@ -179,7 +163,12 @@ export default function DriverConnect() {
                 </p>
               )}
             </form>
-            <button type="button" className="btn btn-ghost driver-rescan-btn" onClick={() => setScannerOpen(true)}>
+            <button
+              type="button"
+              className="btn btn-ghost driver-rescan-btn"
+              onClick={() => setScannerOpen(true)}
+              disabled={busy}
+            >
               Scan a different bus
             </button>
           </div>

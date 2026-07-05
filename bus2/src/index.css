@@ -2226,8 +2226,31 @@ html.kiosk-hide-cursor * {
   flex: 1;
 }
 
-.display-screen:has(.display-route-view) .display-banner-ad {
+.display-banner-slot {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: min(18vh, 120px);
   margin-top: auto;
+  position: relative;
+  z-index: 2;
+}
+
+.display-banner-slot--empty {
+  border-top: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.display-banner-slot .display-banner-ad {
+  margin-top: 0;
+  height: 100%;
+  min-height: inherit;
+}
+
+.display-banner-slot .display-banner-ad-media {
+  max-height: min(18vh, 120px);
+  height: 100%;
 }
 
 .display-main:has(.display-ad-view) {
@@ -2798,7 +2821,6 @@ html.kiosk-hide-cursor * {
 .display-banner-ad {
   flex-shrink: 0;
   width: 100%;
-  margin-top: auto;
   position: relative;
   z-index: 2;
   border-radius: 0;

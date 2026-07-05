@@ -13,6 +13,7 @@ export default defineConfig({
       '#hub/persist': path.resolve(__dirname, 'cloud/shared/hub/persist.js'),
       '#hub/api': path.resolve(__dirname, 'cloud/shared/hub/api.js'),
       '#hub/client': path.resolve(__dirname, 'cloud/shared/hub/client.js'),
+      '#hub/driverConnectBoot': path.resolve(__dirname, 'cloud/shared/hub/driverConnectBoot.js'),
       '#hub/drive': path.resolve(__dirname, 'cloud/shared/hub/drive.js'),
       '#hub/useHubState': path.resolve(__dirname, 'cloud/shared/hub/useHubState.js'),
     },
