@@ -20,7 +20,7 @@ export default function ClaimBus() {
         .catch(() => {});
     };
     load();
-    const id = setInterval(load, 30000);
+    const id = setInterval(load, 10000);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -48,6 +48,7 @@ export default function ClaimBus() {
       );
       setCode('');
       setPlate('');
+      setPending((rows) => rows.filter((row) => row.fleetClaimCode !== code));
       if (json.busId) {
         window.dispatchEvent(new CustomEvent('adkerala-fleet-refresh'));
       }

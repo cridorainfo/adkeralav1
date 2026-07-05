@@ -19,7 +19,7 @@ import {
 const ENROLL_TTL_MS = 30 * 60 * 1000;
 const ONLINE_THRESHOLD_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
 /** Only list unclaimed devices that polled enroll recently (not every past app start). */
-const ENROLL_ACTIVE_MS = Number(process.env.ADKERALA_ENROLL_ACTIVE_MS ?? 120000);
+const ENROLL_ACTIVE_MS = Number(process.env.ADKERALA_ENROLL_ACTIVE_MS ?? 90000);
 
 function hashToken(token) {
   return createHash('sha256').update(token).digest('hex');
@@ -145,6 +145,12 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
 
   if (usePostgres() && isValidUuid(id)) {
     await pgCleanupExpiredEnrollments();
+    const pgExisting = await pgGetEnrollment(id);
+    if (pgExisting?.claimed && pgExisting.busId) {
+      store.fleetEnrollments[id] = { ...pgExisting, installId: id, lastSeenAt: Date.now() };
+      await saveStore();
+      return { ok: true, installId: id, claimed: true, busId: pgExisting.busId };
+    }
     await pgSupersedeEnrollmentByCode(code, id);
   } else {
     pruneStaleEnrollments(store, { keepInstallId: id, keepCode: code });
@@ -197,6 +203,66 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
   };
 }
 
+async function issuePendingTokenForClaimedDevice(id, enrollment, store) {
+  const token = generateDeviceToken();
+  const tokenHash = hashToken(token);
+  if (usePostgres() && isValidUuid(id)) {
+    await query(
+      `UPDATE bus_devices
+       SET pending_token = $2, token_hash = $3, revoked_at = NULL
+       WHERE install_id = $1::uuid`,
+      [id, token, tokenHash]
+    );
+  }
+  if (store) {
+    ensureFleetStore(store);
+    store.busDevices[id] = {
+      ...(store.busDevices[id] ?? {}),
+      installId: id,
+      busId: enrollment.busId,
+      tokenHash,
+      pendingToken: token,
+      claimedAt: store.busDevices[id]?.claimedAt ?? Date.now(),
+      revokedAt: null,
+    };
+    await saveStore();
+  }
+  return token;
+}
+
+/** Return pending token for a claimed bus PC, or null once the PC has acknowledged delivery. */
+async function deliverPendingTokenForClaimedDevice(id, enrollment, device, store) {
+  if (!enrollment?.claimed || !enrollment.busId) return null;
+
+  const pending = device?.pending_token ?? device?.pendingToken ?? null;
+  if (pending) return pending;
+
+  const hasHash = Boolean(device?.token_hash ?? device?.tokenHash);
+  if (hasHash) return null;
+
+  return issuePendingTokenForClaimedDevice(id, enrollment, store);
+}
+
+/** Bus PC calls after saving credentials locally — stops repeating token in status polls. */
+export async function acknowledgeEnrollment(installId) {
+  const id = String(installId ?? '').trim();
+  if (!id) return { ok: false, error: 'Missing installId' };
+
+  if (usePostgres() && isValidUuid(id)) {
+    await query(`UPDATE bus_devices SET pending_token = NULL WHERE install_id = $1::uuid`, [id]);
+  }
+
+  const store = await loadStore();
+  ensureFleetStore(store);
+  const device = store.busDevices[id];
+  if (device?.pendingToken) {
+    delete device.pendingToken;
+    await saveStore();
+  }
+
+  return { ok: true };
+}
+
 export async function getEnrollmentStatus(installId) {
   const id = String(installId ?? '').trim();
   if (!id) return { ok: false, error: 'Missing installId' };
@@ -211,19 +277,23 @@ export async function getEnrollmentStatus(installId) {
       return { ok: true, claimed: false, registered: true, expired: true };
     }
 
+    const store = await loadStore();
+    ensureFleetStore(store);
+    if (enrollment.claimed) {
+      store.fleetEnrollments[id] = { ...enrollment, installId: id };
+    }
+
     const device = await pgGetDeviceForInstall(id);
-    if (enrollment.claimed && device?.pending_token) {
-      const token = device.pending_token;
-      await query(
-        `UPDATE bus_devices SET pending_token = NULL, token_hash = $2 WHERE install_id = $1::uuid`,
-        [id, hashToken(token)]
-      );
-      return {
-        ok: true,
-        claimed: true,
-        busId: enrollment.busId,
-        deviceToken: token,
-      };
+    if (enrollment.claimed) {
+      const token = await deliverPendingTokenForClaimedDevice(id, enrollment, device, store);
+      if (token) {
+        return {
+          ok: true,
+          claimed: true,
+          busId: enrollment.busId,
+          deviceToken: token,
+        };
+      }
     }
 
     return {
@@ -249,18 +319,16 @@ export async function getEnrollmentStatus(installId) {
   }
 
   const device = store.busDevices[id];
-  if (enrollment.claimed && device?.pendingToken) {
-    const token = device.pendingToken;
-    delete device.pendingToken;
-    device.tokenHash = hashToken(token);
-    device.claimedAt = Date.now();
-    await saveStore();
-    return {
-      ok: true,
-      claimed: true,
-      busId: enrollment.busId,
-      deviceToken: token,
-    };
+  if (enrollment.claimed) {
+    const token = await deliverPendingTokenForClaimedDevice(id, enrollment, device, store);
+    if (token) {
+      return {
+        ok: true,
+        claimed: true,
+        busId: enrollment.busId,
+        deviceToken: token,
+      };
+    }
   }
 
   return {

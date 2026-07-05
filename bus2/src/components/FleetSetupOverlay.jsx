@@ -22,7 +22,7 @@ export default function FleetSetupOverlay() {
       const json = await res.json();
       setConfig(json);
 
-      if (json.claimed || json.busId) {
+      if (json.claimed) {
         setDismissed(true);
         stopPolling();
         return;
@@ -46,7 +46,7 @@ export default function FleetSetupOverlay() {
     return stopPolling;
   }, [refresh, stopPolling]);
 
-  if (dismissed || config?.claimed || config?.busId) return null;
+  if (dismissed || config?.claimed) return null;
 
   if (config === null) {
     return (

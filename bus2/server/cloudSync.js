@@ -32,6 +32,7 @@ let lastPushedAt = 0;
 let dataRootRef = null;
 let unclaimInProgress = false;
 let revokeStrikeCount = 0;
+let syncRunning = false;
 
 function getCredentials(dataRoot) {
   return getDeviceCredentials(dataRoot ?? dataRootRef);
@@ -131,7 +132,13 @@ async function tryFleetEnrollment(root) {
   const config = loadDeviceConfig(root);
   const creds = getDeviceCredentials(root);
   if (!creds.cloudUrl) return creds;
-  if (creds.busId && creds.deviceToken) return creds;
+  if (creds.busId && creds.deviceToken) {
+    await cloudFetch(creds, `/api/fleet/enroll/${encodeURIComponent(config.installId)}/ack`, {
+      method: 'POST',
+      body: '{}',
+    });
+    return creds;
+  }
 
   await cloudFetch(creds, '/api/fleet/enroll', {
     method: 'POST',
@@ -149,6 +156,11 @@ async function tryFleetEnrollment(root) {
       deviceToken: status.json.deviceToken,
       cloudUrl: creds.cloudUrl,
     });
+    await cloudFetch(creds, `/api/fleet/enroll/${encodeURIComponent(config.installId)}/ack`, {
+      method: 'POST',
+      body: '{}',
+    });
+    console.log(`AdKerala cloud sync: fleet claim applied — bus ${status.json.busId}`);
     return getDeviceCredentials(root);
   }
 
@@ -376,7 +388,17 @@ async function syncStopAudioFromCloud(root, creds) {
 
 /** Push bus telemetry + pull per-bus command queue when cloud URL is configured. */
 export async function runCloudSync(root) {
+  if (syncRunning) return;
+  syncRunning = true;
   dataRootRef = root;
+  try {
+    await runCloudSyncInner(root);
+  } finally {
+    syncRunning = false;
+  }
+}
+
+async function runCloudSyncInner(root) {
   let creds = await tryFleetEnrollment(root);
   if (!creds.cloudUrl) return;
 
@@ -543,9 +565,19 @@ export function startCloudSyncLoop(root) {
     });
   };
 
+  const enrollTick = () => {
+    if (isDeviceClaimed(root)) return;
+    tryFleetEnrollment(root).catch(() => {});
+  };
+
   setTimeout(tick, jitter);
+  setTimeout(enrollTick, jitter + 500);
   const id = setInterval(tick, SYNC_INTERVAL_MS);
-  return () => clearInterval(id);
+  const enrollId = setInterval(enrollTick, ENROLL_POLL_MS);
+  return () => {
+    clearInterval(id);
+    clearInterval(enrollId);
+  };
 }
 
 export function getCloudConfig(root) {
@@ -559,7 +591,7 @@ export function getCloudConfig(root) {
     enabled: Boolean(creds.cloudUrl || envCloud),
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
-    fleetClaimCode: creds.busId ? null : creds.fleetClaimCode,
+    fleetClaimCode: isDeviceClaimed(root ?? dataRootRef) ? null : creds.fleetClaimCode,
   };
 }
 

@@ -98,6 +98,7 @@ import {
 import {
   enrollDevice,
   getEnrollmentStatus,
+  acknowledgeEnrollment,
   claimBusByCode,
   listPendingEnrollments,
   revokeBusDevice,
@@ -342,6 +343,15 @@ app.post('/api/fleet/enroll', enrollLimiter, async (req, res) => {
 
 app.get('/api/fleet/enroll/:installId/status', enrollLimiter, async (req, res) => {
   const result = await getEnrollmentStatus(req.params.installId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+app.post('/api/fleet/enroll/:installId/ack', enrollLimiter, async (req, res) => {
+  const result = await acknowledgeEnrollment(req.params.installId);
   if (!result.ok) {
     res.status(400).json(result);
     return;
