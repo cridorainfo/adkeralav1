@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" fill="none">
+  <!-- Bus body -->
+  <rect x="10" y="28" width="90" height="36" rx="6" fill="#006B3C"/>
+  <!-- Bus windows -->
+  <rect x="18" y="34" width="14" height="12" rx="2" fill="#CCF0D9"/>
+  <rect x="36" y="34" width="14" height="12" rx="2" fill="#CCF0D9"/>
+  <rect x="54" y="34" width="14" height="12" rx="2" fill="#CCF0D9"/>
+  <rect x="72" y="34" width="10" height="12" rx="2" fill="#D4A017"/>
+  <!-- Bus windshield -->
+  <rect x="84" y="32" width="14" height="18" rx="3" fill="#CCF0D9"/>
+  <!-- Bus wheels -->
+  <circle cx="28" cy="65" r="7" fill="#1B4332"/>
+  <circle cx="28" cy="65" r="3.5" fill="#CCF0D9"/>
+  <circle cx="82" cy="65" r="7" fill="#1B4332"/>
+  <circle cx="82" cy="65" r="3.5" fill="#CCF0D9"/>
+  <!-- Bus undercarriage -->
+  <rect x="10" y="60" width="90" height="6" rx="2" fill="#004D29"/>
+
+  <!-- Coconut palm trunk -->
+  <path d="M118 72 Q121 55 120 38 Q119 28 122 20" stroke="#5C3D11" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- Palm leaves -->
+  <path d="M122 20 Q110 10 98 14" stroke="#006B3C" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  <path d="M122 20 Q116 8 130 6" stroke="#00813A" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  <path d="M122 20 Q128 10 140 12" stroke="#006B3C" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  <path d="M122 20 Q118 14 108 8" stroke="#009B4E" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <path d="M122 20 Q126 14 136 8" stroke="#009B4E" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- Coconut -->
+  <circle cx="117" cy="24" r="4" fill="#D4A017"/>
+  <circle cx="127" cy="22" r="3.5" fill="#D4A017"/>
+
+  <!-- Brand text: "ad" in gold, "kerala" in green -->
+  <text x="152" y="48" font-family="Georgia, serif" font-size="30" font-weight="700" fill="#D4A017" letter-spacing="-1">ad</text>
+  <text x="186" y="48" font-family="Georgia, serif" font-size="30" font-weight="700" fill="#006B3C" letter-spacing="-1">kerala</text>
+  <!-- Tagline -->
+  <text x="152" y="63" font-family="Arial, sans-serif" font-size="9.5" fill="#009B4E" letter-spacing="2">SMART BUS NETWORK</text>
+</svg>
