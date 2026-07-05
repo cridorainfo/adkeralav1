@@ -1,4 +1,5 @@
 /** Convert db/info.txt JSON into app state shape (paths → URLs). */
+import { hubFetch } from '#hub/api';
 import { getHubToken } from '#hub/persist';
 
 export const MEDIA_BASE = '/db/media';
@@ -218,7 +219,7 @@ export async function saveStateToDb(state) {
 }
 
 export async function fetchStateFromDb() {
-  const res = await fetch('/api/state');
+  const res = await hubFetch('/api/state');
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Could not load db/info.txt');
   return hydrateStateFromFile(json.data ?? {});
@@ -246,7 +247,7 @@ export async function uploadDataUrl(category, dataUrl, filename) {
 
 export async function isDbApiAvailable() {
   try {
-    const res = await fetch('/api/state', { method: 'GET' });
+    const res = await hubFetch('/api/state', { method: 'GET' });
     return res.ok;
   } catch {
     return false;

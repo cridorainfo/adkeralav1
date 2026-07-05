@@ -32,7 +32,7 @@ import {
 } from '../lib/fileStorage';
 import { collectUsedStopAudioKeys } from '../lib/audioFragments';
 import { runAnnouncementPlayback } from '../lib/runAnnouncementPlayback';
-import { isDisplayRole } from '../lib/appRole';
+import { isDisplayRole, isControlRole } from '../lib/appRole';
 import { nextPlayableAdIndex, adHasPlayableMedia } from '../lib/adPlayback';
 import {
   mergeStopWithCatalog,
@@ -114,6 +114,8 @@ function useBusStoreLogic() {
   useEffect(() => {
     const flush = () => {
       if (!isPersistenceReady()) return;
+      // Driver phone reads trip from the bus PC — never push stale trip on refresh/tab close.
+      if (isControlRole()) return;
       saveState(stateRef.current, { force: true });
     };
     window.addEventListener('pagehide', flush);
@@ -149,13 +151,20 @@ function useBusStoreLogic() {
 
   const clearStorageError = useCallback(() => setStorageError(null), []);
 
-  const applyRemoteState = useCallback((remoteHydrated) => {
+  const applyRemoteState = useCallback((remoteHydrated, { force = false } = {}) => {
     setState((prev) => {
       if (!isPersistenceReady()) return prev;
 
       const remoteRev = remoteHydrated?.driveRevision ?? 0;
       const prevRev = prev?.driveRevision ?? 0;
       const tripAdvanced = remoteRev > prevRev;
+      const tripFieldsChanged =
+        Boolean(remoteHydrated?.tripStarted) !== Boolean(prev?.tripStarted) ||
+        Boolean(remoteHydrated?.tripEnded) !== Boolean(prev?.tripEnded) ||
+        Boolean(remoteHydrated?.tripDeparted) !== Boolean(prev?.tripDeparted) ||
+        (remoteHydrated?.currentStopIndex ?? 0) !== (prev?.currentStopIndex ?? 0) ||
+        (remoteHydrated?.activeRouteId ?? null) !== (prev?.activeRouteId ?? null) ||
+        (remoteHydrated?.routeDirection ?? 'forward') !== (prev?.routeDirection ?? 'forward');
       const announceNew =
         Boolean(remoteHydrated?.announcementRequest?.id) &&
         remoteHydrated.announcementRequest.id !== prev?.announcementRequest?.id;
@@ -166,7 +175,13 @@ function useBusStoreLogic() {
       const cloudPushAdvanced =
         (remoteHydrated?.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
       const authoritativeRemote =
-        tripAdvanced || announceNew || driverLinkChanged || deviceCountChanged || cloudPushAdvanced;
+        force ||
+        tripAdvanced ||
+        (tripFieldsChanged && remoteRev >= prevRev) ||
+        announceNew ||
+        driverLinkChanged ||
+        deviceCountChanged ||
+        cloudPushAdvanced;
 
       if (!authoritativeRemote) {
         if (isDbWriteInFlight() || hasPendingDbWrites()) return prev;

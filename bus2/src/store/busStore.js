@@ -209,7 +209,11 @@ function mergeStoredState(parsed) {
 
     let activeRouteId = hydrated.activeRouteId ?? null;
     if (activeRouteId && !routes.some((r) => r.id === activeRouteId)) {
-      activeRouteId = routes[0]?.id ?? null;
+      activeRouteId = null;
+    }
+    if (!activeRouteId && routes.length) {
+      const visible = getDriverVisibleRoutes({ routes, busProfile: hydrated.busProfile, activeRouteId });
+      activeRouteId = visible[0]?.id ?? routes[0]?.id ?? null;
     }
 
     let currentStopIndex = Number.isFinite(hydrated.currentStopIndex)
@@ -524,7 +528,7 @@ export function syncLocalCacheFromServer(state) {
   getChannel()?.postMessage({ type: 'STATE_UPDATE', state: persisted });
 }
 
-export function saveState(state, { force = false } = {}) {
+export function saveState(state, { force = false, serverWrite = true } = {}) {
   writeRouteCache(state);
 
   const persisted = stateForPersistence(state);
@@ -536,10 +540,14 @@ export function saveState(state, { force = false } = {}) {
     return { ok: true, deferred: true };
   }
 
+  // Driver phone: trip changes go through /api/drive — keep local cache only here.
+  const skipServerWrite =
+    !serverWrite || (typeof window !== 'undefined' && window.location.pathname.startsWith('/control'));
+
   void (async () => {
     pendingDbWrites += 1;
     try {
-      if (await isDbApiAvailable()) {
+      if (!skipServerWrite && (await isDbApiAvailable())) {
         usingDbStorage = true;
         dbWriteInFlight = true;
         try {
@@ -551,6 +559,7 @@ export function saveState(state, { force = false } = {}) {
       }
     } catch (err) {
       dbWriteInFlight = false;
+      if (skipServerWrite) return;
       console.warn('AdKerala: could not save to db/info.txt', err);
       const msg =
         err.code === 'DRIVER_LOCKED'

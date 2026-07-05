@@ -298,7 +298,15 @@ export function setupDbApi(app, root) {
       await ensureDbLayout(root);
       const { normalizeClientState } = await import('./hubSessions.js');
       const raw = (await readInfoFile(root)) ?? {};
-      res.json({ ok: true, data: normalizeClientState(raw) });
+      const data = normalizeClientState(raw);
+      if (data.activeRouteId && data.activeRouteId !== raw.activeRouteId) {
+        void writeInfoFileSerialized(
+          root,
+          { ...raw, activeRouteId: data.activeRouteId },
+          { source: 'normalize-active-route' }
+        ).catch(() => {});
+      }
+      res.json({ ok: true, data });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
