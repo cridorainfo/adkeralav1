@@ -371,9 +371,15 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
     startSessionCleanup(dataRoot);
   });
 
-  app.get('/api/driver/unlock-status', (req, res) => {
+  app.get('/api/driver/unlock-status', async (req, res) => {
     const token = getDriverTokenFromRequest(req);
-    res.json({ ok: true, unlocked: isDriverSessionValid(token) });
+    const unlocked = isDriverSessionValid(token);
+    let plate = null;
+    if (unlocked) {
+      const state = (await readInfoFile(dataRoot)) ?? {};
+      plate = state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null;
+    }
+    res.json({ ok: true, unlocked, plate });
   });
 
   app.get('/api/driver/connected', async (_req, res) => {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
-import { readBusControlFromLocation, loadBusControlUrl, saveBusControlUrl } from '../lib/driverLanStorage';
+import { readBusControlFromLocation, loadBusControlUrl, loadPairingCode, saveBusControlUrl } from '../lib/driverLanStorage';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow';
 
 /**
@@ -12,7 +12,7 @@ import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverCo
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [pairCode, setPairCode] = useState('');
+  const [pairCode, setPairCode] = useState(() => loadPairingCode() ?? '');
   const [busUrl, setBusUrl] = useState(null);
   const [status, setStatus] = useState('Checking saved bus…');
   const [error, setError] = useState('');
@@ -43,6 +43,12 @@ export default function DriverConnect() {
 
       if (auto.reason === 'need-code' && saved) {
         setStatus('Enter the pairing code from admin');
+        return;
+      }
+
+      if (auto.reason === 'connect-failed' && saved) {
+        setStatus('Reconnecting to bus…');
+        setError(auto.error ?? 'Could not reach bus — check Wi‑Fi');
         return;
       }
 

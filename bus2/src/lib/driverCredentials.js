@@ -29,27 +29,7 @@ export function getStoredDriverBusOrigin() {
 }
 
 export function getStoredDriverToken() {
-  const token = read(TOKEN_KEY);
-  const bus = read(BUS_KEY);
-  if (!token || !bus) return null;
-
-  try {
-    const onLanPage =
-      window.location.protocol !== 'capacitor:' &&
-      (window.location.hostname === 'localhost' ||
-        /^192\.168\./.test(window.location.hostname) ||
-        /^10\./.test(window.location.hostname) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(window.location.hostname));
-
-    if (onLanPage && bus !== currentBusOrigin()) {
-      clearDriverCredentials();
-      return null;
-    }
-  } catch {
-    /* ignore */
-  }
-
-  return token;
+  return read(TOKEN_KEY);
 }
 
 export function getStoredDriverPlate() {
@@ -72,6 +52,11 @@ export function clearDriverCredentials() {
   write(BUS_KEY, null);
   write(PLATE_KEY, null);
   write(DRIVER_ID_KEY, null);
+}
+
+/** Drop session token only — keep saved bus URL + admin pairing code for auto-reconnect. */
+export function clearDriverToken() {
+  write(TOKEN_KEY, null);
 }
 
 export { TOKEN_KEY as DRIVER_TOKEN_KEY };

@@ -39,7 +39,6 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const adStartedAt = s.adStartedAt ?? null;
   const isVideoAd = showingAd && currentAd?.type === 'video';
   const announcementPlaying = s.announcementStatus === 'playing';
-  const pairingCompact = showTripOnDisplay && tripStarted && !tripEnded;
   const theme = s.displaySettings?.theme ?? {};
   const showClock = theme.showClock !== false;
   const showBannerStrip =
@@ -60,6 +59,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const isPassengerView =
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
+  const driverConnected = (s.connectedDeviceCount ?? 0) > 0;
+  const waitForDriver = isPassengerView && !driverConnected;
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -221,7 +222,10 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>
-    <div className={`display-screen ${isPassengerView ? 'fullscreen' : ''}`} style={screenStyle}>
+    <div
+      className={`display-screen ${isPassengerView ? 'fullscreen' : ''}${waitForDriver ? ' display-screen--awaiting-driver' : ''}`}
+      style={screenStyle}
+    >
       <audio ref={audioRef} />
 
       <div className="display-top-bar">
@@ -230,13 +234,15 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
             <AdKeralaLogo className="display-brand-icon" size="md" />
             <DisplayStatusDots />
           </div>
-          <div className="display-brand-text">
-            <h2>{brandTitle}</h2>
-            <span>{APP_DISPLAY_TAGLINE}</span>
-          </div>
+          {!waitForDriver && (
+            <div className="display-brand-text">
+              <h2>{brandTitle}</h2>
+              <span>{APP_DISPLAY_TAGLINE}</span>
+            </div>
+          )}
         </div>
         <div className="display-top-bar-center">
-          {stopInfo.routeName && (
+          {!waitForDriver && stopInfo.routeName && (
             <div className="display-route-badge">{stopInfo.routeName}</div>
           )}
         </div>
@@ -251,7 +257,13 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       </div>
 
       <main className="display-main">
-        {showingAd ? (
+        {waitForDriver ? (
+          <DriverPairingBanner
+            busProfile={s.busProfile}
+            connectedDeviceCount={0}
+            fullscreen
+          />
+        ) : showingAd ? (
           <div className="display-ad-view">
             <div className="display-ad-stage">
               <div className="display-ad-timer">{adTimer}s</div>
@@ -354,15 +366,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
         )}
       </main>
 
-      {!showingAd && (
-        <DriverPairingBanner
-          busProfile={s.busProfile}
-          connectedDeviceCount={s.connectedDeviceCount ?? 0}
-          compact={pairingCompact}
-        />
-      )}
-
-      {!showingAd && showBannerStrip && (
+      {!waitForDriver && !showingAd && driverConnected && showBannerStrip && (
         <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />
       )}
     </div>

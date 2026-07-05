@@ -3850,6 +3850,66 @@ html.kiosk-hide-cursor * {
   display: none;
 }
 
+.driver-pairing-screen {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2rem;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  pointer-events: auto;
+  text-align: center;
+}
+
+.driver-pairing-screen-title {
+  margin: 0 0 1.25rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 700;
+  color: #f0fdf4;
+}
+
+.driver-pairing-screen .driver-pairing-banner-body {
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.driver-pairing-screen .driver-pairing-banner-text {
+  width: 100%;
+}
+
+.driver-pairing-screen .driver-pairing-hint {
+  max-width: 28rem;
+  margin-top: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.driver-pairing-screen .driver-pairing-qr-caption {
+  font-size: 0.72rem;
+}
+
+.display-screen--awaiting-driver .display-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.display-screen--awaiting-driver .display-top-bar-center {
+  visibility: hidden;
+}
+
 .driver-pairing-plate {
   font-size: 1.1rem;
   font-weight: 700;

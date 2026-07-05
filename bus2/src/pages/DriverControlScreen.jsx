@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
 import { refreshRemoteState } from '../hooks/useRemoteStateSync';
-import { getStoredDriverToken } from '../lib/driverCredentials';
 import {
   getStopInfo,
   getStopEn,
@@ -15,7 +14,7 @@ import { postDriveAction } from '../lib/driverDriveApi';
 import { BilingualStop } from '../components/BilingualStop';
 import { canPlayAnnouncement } from '../lib/audioFragments';
 import { useDriverControl } from '../components/DriverControlContext';
-import { busFetch } from '../lib/driverBusApi';
+import { ensureDriverSession } from '../lib/driverConnectFlow';
 import ConsoleStatus from '../components/ConsoleStatus';
 
 export default function DriverControlScreen({ serialRuntime = null }) {
@@ -26,20 +25,8 @@ export default function DriverControlScreen({ serialRuntime = null }) {
   const [connected, setConnected] = useState(true);
 
   const pingConnection = useCallback(async () => {
-    const token = getStoredDriverToken();
-    if (!token) {
-      setConnected(false);
-      return;
-    }
-    try {
-      const res = await busFetch('/api/driver/unlock-status', {
-        headers: { 'X-Driver-Token': token },
-      });
-      const json = await res.json();
-      setConnected(Boolean(json.unlocked));
-    } catch {
-      /* transient Wi‑Fi glitch — keep last status */
-    }
+    const result = await ensureDriverSession();
+    setConnected(Boolean(result.ok || result.keepTrying));
   }, []);
 
   useEffect(() => {

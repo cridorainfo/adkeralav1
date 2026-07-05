@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  clearDriverCredentials,
   getStoredDriverPlate,
   getStoredDriverToken,
 } from '../lib/driverCredentials';
+import { loadBusControlUrl } from '../lib/driverLanStorage';
 import { isBusPcForSerial } from '../lib/appRole';
-import { busFetch, isOnBusLanOrigin, redirectToSavedBusControl } from '../lib/driverBusApi';
-import { disconnectFromBus } from '../lib/driverConnectFlow';
+import { isOnBusLanOrigin, redirectToSavedBusControl, busFetch } from '../lib/driverBusApi';
+import { disconnectFromBus, ensureDriverSession } from '../lib/driverConnectFlow';
 import { DriverControlContext } from './DriverControlContext';
+
+const HEARTBEAT_MS = 25000;
 
 /** Gate /control — requires saved token; pairing happens on /driver. */
 export default function DriverControlGate({ children }) {
@@ -17,6 +19,28 @@ export default function DriverControlGate({ children }) {
   const [checking, setChecking] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [plate, setPlate] = useState('');
+  const [reconnecting, setReconnecting] = useState(false);
+  const maintainRef = useRef(false);
+
+  const openSession = useCallback(async () => {
+    const result = await ensureDriverSession();
+    if (result.ok) {
+      setPlate(result.plate ?? getStoredDriverPlate());
+      setUnlocked(true);
+      setReconnecting(false);
+      return true;
+    }
+    if (result.keepTrying && getStoredDriverToken()) {
+      setPlate(getStoredDriverPlate());
+      setUnlocked(true);
+      setReconnecting(true);
+      return true;
+    }
+    setUnlocked(false);
+    setPlate('');
+    setReconnecting(false);
+    return false;
+  }, []);
 
   useEffect(() => {
     if (isBusPcForSerial()) {
@@ -28,16 +52,18 @@ export default function DriverControlGate({ children }) {
 
     if (!isOnBusLanOrigin()) {
       if (redirectToSavedBusControl()) return undefined;
-      setChecking(false);
-      navigate('/driver', { replace: true });
-      return undefined;
+      if (!loadBusControlUrl()) {
+        setChecking(false);
+        navigate('/driver', { replace: true });
+        return undefined;
+      }
     }
 
     let cancelled = false;
+    maintainRef.current = true;
 
     (async () => {
-      const token = getStoredDriverToken();
-      if (!token) {
+      if (!getStoredDriverToken() && !loadBusControlUrl()) {
         if (!cancelled) {
           setChecking(false);
           navigate('/driver', { replace: true });
@@ -45,64 +71,60 @@ export default function DriverControlGate({ children }) {
         return;
       }
 
-      try {
-        const res = await busFetch('/api/driver/unlock-status', {
-          headers: { 'X-Driver-Token': token },
-        });
-        const json = await res.json();
-        if (!cancelled && json.unlocked) {
-          setPlate(getStoredDriverPlate());
-          setUnlocked(true);
-          setChecking(false);
-          return;
-        }
-        clearDriverCredentials();
-      } catch {
-        clearDriverCredentials();
-      }
-
+      const ok = await openSession();
       if (!cancelled) {
         setChecking(false);
-        navigate('/driver', { replace: true });
+        if (!ok) navigate('/driver', { replace: true });
       }
     })();
 
     return () => {
       cancelled = true;
+      maintainRef.current = false;
     };
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, openSession]);
 
   useEffect(() => {
-    if (!unlocked) return undefined;
-    const token = getStoredDriverToken();
-    if (!token) return undefined;
+    if (!unlocked || isBusPcForSerial()) return undefined;
 
-    const ping = () => {
-      busFetch('/api/driver/heartbeat', {
-        method: 'POST',
-        headers: { 'X-Driver-Token': token },
-      })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json?.expired) {
-            clearDriverCredentials();
-            setUnlocked(false);
-            setPlate('');
-            navigate('/driver', { replace: true });
-          }
-        })
-        .catch(() => {});
+    const maintain = async () => {
+      if (!maintainRef.current) return;
+      const token = getStoredDriverToken();
+      if (!token) {
+        const ok = await openSession();
+        if (!ok && maintainRef.current) navigate('/driver', { replace: true });
+        return;
+      }
+
+      try {
+        const res = await busFetch('/api/driver/heartbeat', {
+          method: 'POST',
+          headers: { 'X-Driver-Token': token },
+        });
+        const json = await res.json();
+        if (json?.ok) {
+          setReconnecting(false);
+          return;
+        }
+        if (json?.expired) {
+          const ok = await openSession();
+          if (!ok && maintainRef.current) navigate('/driver', { replace: true });
+        }
+      } catch {
+        setReconnecting(true);
+      }
     };
 
-    ping();
-    const id = setInterval(ping, 30000);
+    maintain();
+    const id = setInterval(maintain, HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [unlocked, navigate]);
+  }, [unlocked, navigate, openSession]);
 
   const disconnect = useCallback(async () => {
     disconnectFromBus();
     setUnlocked(false);
     setPlate('');
+    setReconnecting(false);
     navigate('/driver', { replace: true });
   }, [navigate]);
 
@@ -124,7 +146,9 @@ export default function DriverControlGate({ children }) {
     <DriverControlContext.Provider value={ctx}>
       {plate && (
         <div className="driver-control-unlocked-bar" role="status">
-          <span>Connected — {plate}</span>
+          <span>
+            {reconnecting ? 'Reconnecting to bus…' : `Connected — ${plate}`}
+          </span>
           <button type="button" className="driver-control-disconnect-btn" onClick={disconnect}>
             Disconnect
           </button>

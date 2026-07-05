@@ -38,11 +38,22 @@ function getBusOriginFromControlUrl(controlUrl) {
   }
 }
 
+function busOriginForFetch(controlUrl) {
+  return getBusOriginFromControlUrl(controlUrl) || read(BUS_KEY);
+}
+
+async function fetchBusApi(controlUrl, path, options = {}) {
+  const origin = busOriginForFetch(controlUrl);
+  if (!origin) throw new Error('No bus address saved');
+  return fetch(`${origin}${path.startsWith('/') ? path : `/${path}`}`, options);
+}
+
 function getStoredDriverToken() {
-  const token = read(TOKEN_KEY);
-  const bus = read(BUS_KEY);
-  if (!token || !bus) return null;
-  return token;
+  return read(TOKEN_KEY);
+}
+
+function getStoredDriverPlate() {
+  return read(PLATE_KEY) ?? '';
 }
 
 function saveDriverCredentials({ token, plate, busOrigin }) {
@@ -55,6 +66,10 @@ function clearDriverCredentials() {
   write(TOKEN_KEY, null);
   write(BUS_KEY, null);
   write(PLATE_KEY, null);
+}
+
+function clearDriverToken() {
+  write(TOKEN_KEY, null);
 }
 
 export async function connectToBus(controlUrl, pairingCode) {
@@ -70,7 +85,7 @@ export async function connectToBus(controlUrl, pairingCode) {
   if (!origin) return { ok: false, error: 'Invalid bus address' };
 
   try {
-    const res = await fetch(`${origin}/api/driver/connect`, {
+    const res = await fetchBusApi(normalized, '/api/driver/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pairingCode: code }),
@@ -90,26 +105,23 @@ export async function connectToBus(controlUrl, pairingCode) {
   }
 }
 
-export async function tryStoredAutoConnect() {
+export async function ensureDriverSession() {
   const controlUrl = loadBusControlUrl();
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 
-  const origin = getBusOriginFromControlUrl(controlUrl);
   const token = getStoredDriverToken();
-  const savedOrigin = read(BUS_KEY);
-
-  if (token && savedOrigin && origin && savedOrigin === origin) {
+  if (token) {
     try {
-      const res = await fetch(`${origin}/api/driver/unlock-status`, {
+      const res = await fetchBusApi(controlUrl, '/api/driver/unlock-status', {
         headers: { 'X-Driver-Token': token },
       });
       const json = await res.json();
       if (json.unlocked) {
-        return { ok: true, controlUrl };
+        return { ok: true, controlUrl, plate: json.plate ?? getStoredDriverPlate() };
       }
-      clearDriverCredentials();
+      clearDriverToken();
     } catch {
-      clearDriverCredentials();
+      return { ok: false, reason: 'offline', controlUrl, keepTrying: true };
     }
   }
 
@@ -117,8 +129,17 @@ export async function tryStoredAutoConnect() {
   if (!code) return { ok: false, reason: 'need-code', controlUrl };
 
   const result = await connectToBus(controlUrl, code);
-  if (result.ok) return result;
+  if (result.ok) return { ...result, reason: 'reconnected' };
   return { ok: false, reason: 'connect-failed', error: result.error, controlUrl };
+}
+
+export async function tryStoredAutoConnect() {
+  const result = await ensureDriverSession();
+  if (result.ok) return result;
+  if (result.reason === 'offline' && getStoredDriverToken()) {
+    return { ok: true, controlUrl: result.controlUrl, plate: getStoredDriverPlate(), offline: true };
+  }
+  return result;
 }
 
 export function goToControl(controlUrl) {
@@ -129,10 +150,10 @@ export function goToControl(controlUrl) {
 }
 
 export function disconnectFromBus() {
-  const origin = read(BUS_KEY);
+  const controlUrl = loadBusControlUrl();
   const token = getStoredDriverToken();
-  if (origin && token) {
-    fetch(`${origin}/api/driver/disconnect`, {
+  if (controlUrl && token) {
+    fetchBusApi(controlUrl, '/api/driver/disconnect', {
       method: 'POST',
       headers: { 'X-Driver-Token': token },
     }).catch(() => {});
