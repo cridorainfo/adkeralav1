@@ -337,6 +337,18 @@ export function setupDbApi(app, root) {
       const current = (await readInfoFile(root)) ?? {};
       const { mergeIncomingState } = await import('./stateMerge.js');
       const merged = mergeIncomingState(current, req.body ?? {});
+      const tripUnchanged =
+        (merged.driveRevision ?? 0) === (current.driveRevision ?? 0) &&
+        (merged.currentStopIndex ?? 0) === (current.currentStopIndex ?? 0) &&
+        Boolean(merged.tripStarted) === Boolean(current.tripStarted) &&
+        Boolean(merged.tripEnded) === Boolean(current.tripEnded) &&
+        (merged.driverLink?.driverId ?? null) === (current.driverLink?.driverId ?? null) &&
+        JSON.stringify(merged.busProfile ?? {}) === JSON.stringify(current.busProfile ?? {}) &&
+        (merged.savedAt ?? 0) <= (current.savedAt ?? 0);
+      if (tripUnchanged) {
+        res.json({ ok: true, unchanged: true });
+        return;
+      }
       await writeInfoFileSerialized(root, merged);
       res.json({ ok: true });
     } catch (err) {

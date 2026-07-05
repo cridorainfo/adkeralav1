@@ -13,6 +13,7 @@ import {
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
+import { clearDriverSessionsForDriver } from './driverAuth.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -408,7 +409,12 @@ export async function runCloudSync(root) {
     if (stateCommands.length) {
       const oldAdPaths = new Set(collectAdMediaFromState(current));
       const oldAudioPaths = new Set(collectAudioMediaFromState(current));
+      const prevDriverId = current.driverLink?.driverId ?? null;
       const merged = applyCloudCommands(current, stateCommands);
+      const nextDriverId = merged.driverLink?.driverId ?? null;
+      if (prevDriverId && !nextDriverId) {
+        await clearDriverSessionsForDriver(root, prevDriverId);
+      }
       const newAdPaths = new Set(collectAdMediaFromState(merged));
       const newAudioPaths = new Set(collectAudioMediaFromState(merged));
       const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));

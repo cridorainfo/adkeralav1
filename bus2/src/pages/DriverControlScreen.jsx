@@ -27,6 +27,22 @@ export default function DriverControlScreen({
   const [error, setError] = useState('');
   const [connected, setConnected] = useState(true);
 
+  const pingConnection = useCallback(async () => {
+    try {
+      const res = await fetch('/api/driver/connected');
+      const json = await res.json();
+      setConnected(Boolean(json.connected));
+    } catch {
+      setConnected(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    pingConnection();
+    const id = setInterval(pingConnection, 5000);
+    return () => clearInterval(id);
+  }, [pingConnection, state.savedAt, state.driveRevision, state.driverLink?.driverId]);
+
   const busRoutes = getDriverVisibleRoutes(state);
   const activeRouteId =
     busRoutes.some((r) => r.id === state.activeRouteId)
@@ -51,10 +67,6 @@ export default function DriverControlScreen({
     tripStarted &&
     !tripEnded;
 
-  useEffect(() => {
-    setConnected(true);
-  }, [state.savedAt, state.driveRevision]);
-
   const runDrive = useCallback(async (action, payload = {}) => {
     if (busy) return;
     setBusy(true);
@@ -62,7 +74,7 @@ export default function DriverControlScreen({
     try {
       await postDriveAction(action, payload);
       await refreshRemoteState(applyRemoteState);
-      setConnected(true);
+      await pingConnection();
     } catch (err) {
       setConnected(false);
       setError(
@@ -73,7 +85,7 @@ export default function DriverControlScreen({
     } finally {
       setBusy(false);
     }
-  }, [busy, applyRemoteState]);
+  }, [busy, applyRemoteState, pingConnection]);
 
   const handleAnnounce = () => {
     if (!announceTarget) return;

@@ -135,6 +135,21 @@ export function isDriverSessionValid(token) {
   return true;
 }
 
+/** Drop LAN unlock tokens when cloud unlinks the driver from this bus. */
+export async function clearDriverSessionsForDriver(dataRoot, driverId) {
+  const id = String(driverId ?? '').trim();
+  if (!id) return;
+  pruneExpiredSessions();
+  let removed = false;
+  for (const [token, session] of sessions) {
+    if (session.driverId === id) {
+      sessions.delete(token);
+      removed = true;
+    }
+  }
+  if (removed) await saveSessionsToDisk(dataRoot ?? dataRootRef);
+}
+
 function createDriverSession(driverIdOverride = null) {
   const token = randomBytes(24).toString('hex');
   const driverId =

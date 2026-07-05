@@ -9,7 +9,12 @@ const POLL_MS_LIVE = 5000;
 /** Keep display/control in sync with db/info.txt — instant via SSE, fallback poll. */
 export function useRemoteStateSync(enabled = true) {
   const { applyRemoteState } = useBusStore();
-  const lastSeenRef = useRef({ savedAt: 0, lastCloudPushAt: 0, driveRevision: 0 });
+  const lastSeenRef = useRef({
+    savedAt: 0,
+    lastCloudPushAt: 0,
+    driveRevision: 0,
+    driverLinkId: null,
+  });
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -27,17 +32,24 @@ export function useRemoteStateSync(enabled = true) {
         const savedAt = remote?.savedAt ?? 0;
         const cloudPush = remote?.lastCloudPushAt ?? 0;
         const driveRevision = remote?.driveRevision ?? 0;
+        const driverLinkId = remote?.driverLink?.driverId ?? null;
         const last = lastSeenRef.current;
         if (
           !force &&
           savedAt === last.savedAt &&
           cloudPush === last.lastCloudPushAt &&
-          driveRevision === last.driveRevision
+          driveRevision === last.driveRevision &&
+          driverLinkId === last.driverLinkId
         ) {
           return;
         }
 
-        lastSeenRef.current = { savedAt, lastCloudPushAt: cloudPush, driveRevision };
+        lastSeenRef.current = {
+          savedAt,
+          lastCloudPushAt: cloudPush,
+          driveRevision,
+          driverLinkId,
+        };
         applyRemoteState(remote);
       } catch {
         /* server not ready */

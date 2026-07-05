@@ -159,8 +159,14 @@ function useBusStoreLogic() {
       const announceNew =
         Boolean(remoteHydrated?.announcementRequest?.id) &&
         remoteHydrated.announcementRequest.id !== prev?.announcementRequest?.id;
+      const driverLinkChanged =
+        (remoteHydrated?.driverLink?.driverId ?? null) !== (prev?.driverLink?.driverId ?? null);
+      const cloudPushAdvanced =
+        (remoteHydrated?.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
+      const authoritativeRemote =
+        tripAdvanced || announceNew || driverLinkChanged || cloudPushAdvanced;
 
-      if (!tripAdvanced && !announceNew) {
+      if (!authoritativeRemote) {
         if (isDbWriteInFlight() || hasPendingDbWrites()) return prev;
 
         const blockedByRecentLocalWrite =
@@ -221,6 +227,8 @@ function useBusStoreLogic() {
       }
 
       syncLocalCacheFromServer(merged);
+
+      lastWriteAtRef.current = Math.max(lastWriteAtRef.current, merged.savedAt ?? 0);
 
       return merged;
     });
