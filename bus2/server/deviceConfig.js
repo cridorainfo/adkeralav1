@@ -164,6 +164,7 @@ export function applyClaimCredentials(dataRoot, { busId, deviceToken, cloudUrl }
     deviceToken,
     cloudUrl: (cloudUrl ?? defaultCloudUrl()).replace(/\/+$/, ''),
     claimedAt: Date.now(),
+    requireFleetClaim: false,
   });
 }
 
@@ -174,6 +175,7 @@ export function clearDeviceClaim(dataRoot) {
     busId: null,
     deviceToken: null,
     claimedAt: null,
+    requireFleetClaim: true,
     // Keep installId + fleetClaimCode so server enrollment stays in sync.
     installId: current.installId,
     fleetClaimCode: current.fleetClaimCode,

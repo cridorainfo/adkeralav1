@@ -32,5 +32,11 @@ export function mergeBusProfile(currentProfile = {}, incomingProfile = {}, optio
   if (cur.displayName) merged.displayName = cur.displayName;
   else if (inc.displayName) merged.displayName = inc.displayName;
 
+  if (cur.devicesDisconnectLastApplied) {
+    merged.devicesDisconnectLastApplied = cur.devicesDisconnectLastApplied;
+  } else if (inc.devicesDisconnectLastApplied) {
+    merged.devicesDisconnectLastApplied = inc.devicesDisconnectLastApplied;
+  }
+
   return merged;
 }

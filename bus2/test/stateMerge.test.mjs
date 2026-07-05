@@ -224,3 +224,22 @@ test('mergeRemoteState keeps assigned routes when remote poll omits routes array
   assert.equal(merged.routes.length, 1);
   assert.equal(merged.routes[0].id, 'route-a');
 });
+
+test('mergeRemoteState keeps activeRouteId when remote poll clears it but routes remain', () => {
+  const prev = {
+    savedAt: 7000,
+    activeRouteId: 'route-a',
+    routes: [{ id: 'route-a', name: 'A', startStop: { en: 'X' }, endStop: { en: 'Y' }, stops: [] }],
+    busProfile: { assignedRouteIds: ['route-a'] },
+  };
+  const remote = {
+    savedAt: 8000,
+    activeRouteId: null,
+    routes: [],
+    busProfile: { assignedRouteIds: ['route-a'] },
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.routes.length, 1);
+  assert.equal(merged.activeRouteId, 'route-a');
+});

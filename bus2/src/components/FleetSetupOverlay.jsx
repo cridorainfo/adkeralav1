@@ -23,11 +23,16 @@ export default function FleetSetupOverlay() {
   const refresh = useCallback(async () => {
     try {
       const res = await fetch('/api/cloud/config');
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
+      if (!json || typeof json !== 'object') {
+        setStatus('Could not reach bus server.');
+        return;
+      }
       setConfig(json);
 
-      // Hub can run offline with local db/ content — no claim overlay needed.
-      if (json.claimed || json.hubReady) {
+      // Hub can run offline with local db/ content — unless admin deleted this bus from fleet.
+      const hideOverlay = Boolean(json.claimed) || (Boolean(json.hubReady) && !json.requireFleetClaim);
+      if (hideOverlay) {
         stopPolling();
         return;
       }
@@ -48,8 +53,11 @@ export default function FleetSetupOverlay() {
     return stopPolling;
   }, [refresh, stopPolling]);
 
-  // Claimed or already has local routes/ads/audio — PC hub is operational.
-  if (!config || config.claimed || config.hubReady) return null;
+  // Claimed, or offline hub with local content (unless fleet re-claim is required after delete).
+  if (!config) return null;
+  const hideOverlay =
+    Boolean(config.claimed) || (Boolean(config.hubReady) && !config.requireFleetClaim);
+  if (hideOverlay) return null;
 
   const claimBase = config.publicUrl || config.cloudUrl;
   const claimUrl = claimBase
@@ -61,9 +69,9 @@ export default function FleetSetupOverlay() {
       <div className="fleet-setup-card">
         <h1 id="fleet-setup-title">{APP_NAME} — Fleet setup</h1>
         <p className="fleet-setup-lead">
-          One-time setup: enter this code in the admin portal so this PC can download routes, ads,
-          and audio. After that, the bus runs from local files — phones control it over Wi‑Fi even
-          without internet.
+          {config.requireFleetClaim
+            ? 'This bus was removed from the fleet. Enter the code below in the admin portal to claim it again.'
+            : 'One-time setup: enter this code in the admin portal so this PC can download routes, ads, and audio. After that, the bus runs from local files — phones control it over Wi‑Fi even without internet.'}
         </p>
         {config.fleetClaimCode && (
           <div className="fleet-setup-code" aria-label={`Fleet code ${config.fleetClaimCode}`}>

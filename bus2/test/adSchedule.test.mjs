@@ -51,4 +51,28 @@ assert.equal(
   true
 );
 
+assert.equal(
+  getFullscreenAdSchedule(
+    {
+      displayOpenedAt: null,
+      lastAdEndedAt: now - 60_000,
+      adSettings: { initialDelaySec: 90, intervalSec: 90 },
+    },
+    now
+  ).ready,
+  false
+);
+
+assert.equal(
+  getFullscreenAdSchedule(
+    {
+      displayOpenedAt: null,
+      lastAdEndedAt: now - 60_000,
+      adSettings: { initialDelaySec: 90, intervalSec: 90 },
+    },
+    now + 90_000
+  ).ready,
+  true
+);
+
 console.log('adSchedule.test.mjs ok');

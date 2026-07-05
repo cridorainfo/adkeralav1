@@ -23,13 +23,27 @@ export function filterPlayableAds(ads = []) {
 
 /** Seconds until the next fullscreen ad may start (initial delay vs repeat interval). */
 export function getFullscreenAdSchedule(state, now = Date.now()) {
-  const openedAt = state.displayOpenedAt ?? now;
   const lastEnd = state.lastAdEndedAt ?? 0;
   const intervalSec = state.adSettings?.intervalSec ?? 90;
   const initialDelaySec = state.adSettings?.initialDelaySec ?? intervalSec;
-  const hasPlayedSinceOpen = lastEnd >= openedAt;
-  const anchor = hasPlayedSinceOpen ? lastEnd : openedAt;
-  const thresholdSec = hasPlayedSinceOpen ? intervalSec : initialDelaySec;
+  const openedAt = state.displayOpenedAt;
+
+  let anchor;
+  let thresholdSec;
+
+  if (openedAt != null && openedAt > 0) {
+    const hasPlayedSinceOpen = lastEnd >= openedAt;
+    anchor = hasPlayedSinceOpen ? lastEnd : openedAt;
+    thresholdSec = hasPlayedSinceOpen ? intervalSec : initialDelaySec;
+  } else if (lastEnd > 0) {
+    // displayOpenedAt is display-local and often missing from db/info.txt after sync.
+    anchor = lastEnd;
+    thresholdSec = intervalSec;
+  } else {
+    anchor = 0;
+    thresholdSec = initialDelaySec;
+  }
+
   const elapsedSec = (now - anchor) / 1000;
   return {
     elapsedSec,

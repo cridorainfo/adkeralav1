@@ -17,6 +17,7 @@ import {
   archiveRelativeLabel,
   readBestInfoArchive,
 } from './stateArchive.js';
+import { ensureActiveRouteId } from '../src/store/busStore.js';
 
 const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
 
@@ -225,15 +226,47 @@ export function writeInfoFileSerialized(root, data, meta = {}) {
   const fast = meta.source === 'drive-api';
   writeInfoQueue = writeInfoQueue
     .then(async () => {
+      let payload = data;
+      try {
+        const current = (await readInfoFile(root)) ?? {};
+        if (!(payload.routes?.length) && (current.routes?.length)) {
+          payload = {
+            ...payload,
+            routes: current.routes,
+            activeRouteId: payload.activeRouteId ?? current.activeRouteId ?? null,
+          };
+        }
+        const tripLive = Boolean(current.tripStarted) && !Boolean(current.tripEnded);
+        if (
+          tripLive &&
+          !Boolean(payload.tripStarted) &&
+          (payload.driveRevision ?? 0) <= (current.driveRevision ?? 0) &&
+          meta.source !== 'drive-api'
+        ) {
+          payload = {
+            ...payload,
+            tripStarted: current.tripStarted,
+            tripEnded: current.tripEnded,
+            tripDeparted: current.tripDeparted,
+            currentStopIndex: current.currentStopIndex,
+            routeDirection: current.routeDirection,
+            driveRevision: current.driveRevision,
+            activeRouteId: payload.activeRouteId ?? current.activeRouteId,
+          };
+        }
+      } catch {
+        /* use payload as-is */
+      }
+      payload = ensureActiveRouteId(payload);
       if (fast) {
-        await writeInfoFileFast(root, data);
+        await writeInfoFileFast(root, payload);
       } else {
-        await writeInfoFile(root, data);
+        await writeInfoFile(root, payload);
       }
       notifyStateChanged(root, {
-        savedAt: data?.savedAt ?? 0,
-        lastCloudPushAt: data?.lastCloudPushAt ?? 0,
-        driveRevision: data?.driveRevision ?? 0,
+        savedAt: payload?.savedAt ?? 0,
+        lastCloudPushAt: payload?.lastCloudPushAt ?? 0,
+        driveRevision: payload?.driveRevision ?? 0,
         source: meta.source ?? 'write',
       });
     })

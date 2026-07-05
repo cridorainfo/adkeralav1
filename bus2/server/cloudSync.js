@@ -12,8 +12,8 @@ import {
   isDeviceClaimed,
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
-import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
-import { clearAllHubSessions, disconnectAllDrivers } from './hubSessions.js';
+import { isFleetRevoked } from './fleetRevoke.js';
+import { clearAllHubSessions, disconnectAllDrivers, readDevicesDisconnectAt } from './hubSessions.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -39,7 +39,6 @@ const ENROLL_POLL_MS = 3000;
 let lastPushedAt = 0;
 let dataRootRef = null;
 let unclaimInProgress = false;
-let revokeStrikeCount = 0;
 let syncRunning = false;
 
 function getCredentials(dataRoot) {
@@ -73,21 +72,13 @@ async function handleDeviceRemovedFromFleet(root, reason) {
       lastCloudPushAt: pushAt,
       source: 'fleet-unclaim',
     });
-    revokeStrikeCount = 0;
   } finally {
     unclaimInProgress = false;
   }
 }
 
 function noteFleetRevokeAttempt(root, reason) {
-  revokeStrikeCount += 1;
-  console.warn(
-    `AdKerala cloud sync: bus token rejected (${reason}) — strike ${revokeStrikeCount}/${REVOKE_STRIKES_REQUIRED}`
-  );
-  if (revokeStrikeCount >= REVOKE_STRIKES_REQUIRED) {
-    return handleDeviceRemovedFromFleet(root, reason);
-  }
-  return undefined;
+  return handleDeviceRemovedFromFleet(root, reason);
 }
 
 async function cloudFetch(creds, path, options = {}) {
@@ -249,9 +240,12 @@ async function syncAssignedRoutesFromCloud(root, creds) {
     }
     const catalogChanged =
       JSON.stringify(current.stopCatalog ?? []) !== JSON.stringify(json.stopCatalog ?? []);
-    const routesChanged =
-      JSON.stringify(localAssigned) !== JSON.stringify(json.routes ?? []);
+    const routesChanged = routesSignature(localAssigned) !== routesSignature(json.routes ?? []);
     const revisionAdvanced = cloudSavedAt > localRevision;
+    const tripLive = Boolean(current.tripStarted) && !Boolean(current.tripEnded);
+    if (tripLive && !revisionAdvanced && !catalogChanged) {
+      return;
+    }
     if (!revisionAdvanced && !catalogChanged && !routesChanged) return;
 
     const merged = applyCloudCommands(current, [
@@ -266,6 +260,29 @@ async function syncAssignedRoutesFromCloud(root, creds) {
         },
       },
     ]);
+
+    const routeSyncFingerprint = (state) =>
+      JSON.stringify({
+        routes: routesSignature(state.routes ?? []),
+        assigned: state.busProfile?.assignedRouteIds ?? [],
+        activeRouteId: state.activeRouteId ?? null,
+        catalog: state.stopCatalog ?? [],
+        tripStarted: Boolean(state.tripStarted),
+        tripEnded: Boolean(state.tripEnded),
+        currentStopIndex: state.currentStopIndex ?? 0,
+        driveRevision: state.driveRevision ?? 0,
+      });
+
+    if (routeSyncFingerprint(merged) === routeSyncFingerprint(current)) {
+      if (revisionAdvanced && cloudSavedAt > localRevision) {
+        await writeInfoFileSerialized(
+          root,
+          { ...current, routesSavedAt: cloudSavedAt },
+          { source: 'cloud-routes-revision' }
+        );
+      }
+      return;
+    }
 
     const pushAt = Date.now();
     merged.savedAt = Math.max(current.savedAt ?? 0, cloudSavedAt, pushAt);
@@ -311,12 +328,24 @@ async function syncPairingCodeFromCloud(root, cloudPairingCode) {
 }
 
 /** Apply admin "disconnect all phones" flag from cloud (bus3-style). */
+function cloudDisconnectAlreadyApplied(current = {}, cloudAt = null) {
+  if (!cloudAt) return true;
+  const applied = readDevicesDisconnectAt(current);
+  if (!applied) return false;
+  if (String(cloudAt) === String(applied)) return true;
+  const cloudMs = Date.parse(cloudAt);
+  const appliedMs = Date.parse(applied);
+  if (Number.isFinite(cloudMs) && Number.isFinite(appliedMs) && appliedMs >= cloudMs) {
+    return true;
+  }
+  return false;
+}
+
 async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = null) {
   if (!cloudAt) return;
 
   const current = (await readInfoFile(root)) ?? {};
-  const applied = current.busProfile?.devicesDisconnectLastApplied ?? null;
-  if (cloudAt === applied) return;
+  if (cloudDisconnectAlreadyApplied(current, cloudAt)) return;
 
   await disconnectAllDrivers(root, {
     disconnectAt: cloudAt,
@@ -475,7 +504,6 @@ async function runCloudSyncInner(root) {
     body: JSON.stringify({ telemetry, state, displaySnapshot }),
   });
   if (telemetryRes.ok) {
-    revokeStrikeCount = 0;
     lastPushedAt = Date.now();
     await syncDevicesDisconnectFromCloud(
       root,
@@ -516,17 +544,14 @@ async function runCloudSyncInner(root) {
       const nextDriverId = merged.driverLink?.driverId ?? null;
       if (prevDriverId && !nextDriverId) {
         await clearAllHubSessions(root);
-        const stamp = new Date().toISOString();
         merged.driverLink = null;
         merged.connectedDeviceCount = 0;
-        merged.tripStarted = false;
-        merged.tripEnded = false;
-        merged.tripDeparted = false;
-        merged.displayView = 'route';
-        merged.announcementRequest = null;
         merged.busProfile = {
           ...(merged.busProfile ?? {}),
-          devicesDisconnectLastApplied: stamp,
+          devicesDisconnectLastApplied:
+            merged.busProfile?.devicesDisconnectLastApplied ??
+            readDevicesDisconnectAt(current) ??
+            new Date().toISOString(),
         };
       }
       const newAdPaths = new Set(collectAdMediaFromState(merged));
@@ -648,6 +673,7 @@ export function getCloudConfig(root) {
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
     fleetClaimCode: isDeviceClaimed(root ?? dataRootRef) ? null : creds.fleetClaimCode,
+    requireFleetClaim: Boolean(loadDeviceConfig(root ?? dataRootRef).requireFleetClaim),
   };
 }
 

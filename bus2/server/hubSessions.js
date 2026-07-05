@@ -2,14 +2,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import {
-  getActiveRoute,
-  getAllStops,
-  getTripStartIndex,
-  generatePairingCode,
-  getDriverVisibleRoutes,
-} from '../src/store/busStore.js';
-import { nextDriveRevision } from '../src/store/tripMerge.js';
+import { generatePairingCode, getDriverVisibleRoutes } from '../src/store/busStore.js';
 import {
   atomicWriteTextFile,
   backupPathFor,
@@ -222,29 +215,13 @@ async function refreshConnectedDeviceCountInState(dataRoot) {
 async function setDriverLink(dataRoot, driverLink) {
   const current = (await readInfoFile(dataRoot)) ?? {};
   const pushAt = Date.now();
-  let next = {
+  const next = {
     ...current,
     driverLink,
     connectedDeviceCount: getConnectedDeviceCount(),
     savedAt: pushAt,
     lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
   };
-
-  if (!driverLink?.driverId) {
-    const route = getActiveRoute(current);
-    const dir = current.routeDirection ?? 'forward';
-    const stops = route ? getAllStops(route) : [];
-    next = {
-      ...next,
-      tripStarted: false,
-      tripEnded: false,
-      tripDeparted: false,
-      currentStopIndex: route ? getTripStartIndex(stops, dir) : 0,
-      displayView: 'route',
-      announcementRequest: null,
-      driveRevision: nextDriveRevision(current),
-    };
-  }
 
   await writeInfoFileSerialized(dataRoot, next, { source: 'driver-link' });
 }
@@ -423,9 +400,6 @@ export async function disconnectAllDrivers(dataRoot, options = {}) {
   const stamp = disconnectAt ?? new Date().toISOString();
   const current = (await readInfoFile(root)) ?? {};
   const pushAt = Date.now();
-  const route = getActiveRoute(current);
-  const dir = current.routeDirection ?? 'forward';
-  const stops = route ? getAllStops(route) : [];
   const nextPairingCode = rotatePairingCode
     ? pairingCodeOverride || generatePairingCode()
     : current.busProfile?.pairingCode ?? '';
@@ -434,13 +408,6 @@ export async function disconnectAllDrivers(dataRoot, options = {}) {
     ...current,
     driverLink: null,
     connectedDeviceCount: 0,
-    tripStarted: false,
-    tripEnded: false,
-    tripDeparted: false,
-    currentStopIndex: route ? getTripStartIndex(stops, dir) : 0,
-    displayView: 'route',
-    announcementRequest: null,
-    driveRevision: nextDriveRevision(current),
     busProfile: {
       ...(current.busProfile ?? {}),
       pairingCode: nextPairingCode,

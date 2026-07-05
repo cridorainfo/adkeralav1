@@ -44,6 +44,7 @@ export async function postDriveAction(action, payload = {}) {
     if (json.code) err.code = json.code;
     else if (res.status === 403) err.code = 'HUB_LOCKED';
     else if (res.status === 503) err.code = 'HUB_BOOT';
+    else if (res.status === 409) err.code = json.code ?? 'NO_ROUTE';
     throw err;
   }
   return json;

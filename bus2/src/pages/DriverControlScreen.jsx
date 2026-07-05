@@ -54,11 +54,29 @@ export default function DriverControlScreen({ serialRuntime = null }) {
       setBusy(true);
       setError('');
       try {
-        await postDriveAction(action, payload);
-        await refreshRemoteState(applyRemoteState);
+        const result = await postDriveAction(action, payload);
+        if (result.changed !== false) {
+          applyRemoteState(
+            {
+              ...state,
+              activeRouteId: result.activeRouteId ?? state.activeRouteId,
+              tripStarted: Boolean(result.tripStarted),
+              tripEnded: Boolean(result.tripEnded),
+              tripDeparted: Boolean(result.tripDeparted),
+              currentStopIndex: result.currentStopIndex ?? state.currentStopIndex,
+              driveRevision: result.driveRevision ?? state.driveRevision,
+              routeDirection: result.routeDirection ?? state.routeDirection,
+              savedAt: result.savedAt ?? state.savedAt,
+            },
+            { force: true }
+          );
+        }
+        await refreshRemoteState(applyRemoteState, { force: true });
       } catch (err) {
         setError(
-          err.code === 'HUB_RECONNECTING' || err.code === 'HUB_BOOT' || err.code === 'HUB_LOCKED'
+          err.code === 'NO_ROUTE'
+            ? 'Route not on bus yet — wait a few seconds for fleet sync'
+            : err.code === 'HUB_RECONNECTING' || err.code === 'HUB_BOOT' || err.code === 'HUB_LOCKED'
             ? 'Reconnecting to bus — stay on bus Wi‑Fi'
             : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
         );
@@ -66,7 +84,7 @@ export default function DriverControlScreen({ serialRuntime = null }) {
         setBusy(false);
       }
     },
-    [busy, applyRemoteState]
+    [busy, applyRemoteState, state]
   );
 
   const handleAnnounce = () => {

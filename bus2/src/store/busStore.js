@@ -298,10 +298,33 @@ function mergeStoredState(parsed) {
   }
 }
 
+function routesSignature(routes = []) {
+  return dedupeRoutes(routes)
+    .map((r) => `${r.id}:${r.name}:${(r.stops ?? []).length}`)
+    .sort()
+    .join('|');
+}
+
+/** Keep display/control on a valid route when sync preserved routes but cleared activeRouteId. */
+export function ensureActiveRouteId(state = {}) {
+  const routes = dedupeRoutes(state.routes ?? []);
+  if (!routes.length) return state;
+  let activeRouteId = state.activeRouteId ?? null;
+  if (activeRouteId && routes.some((r) => r.id === activeRouteId)) return state;
+  const visible = getDriverVisibleRoutes({ ...state, routes, activeRouteId });
+  activeRouteId = visible[0]?.id ?? routes[0]?.id ?? null;
+  if (activeRouteId === state.activeRouteId) return state;
+  return { ...state, activeRouteId, routes };
+}
+
 function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved, options = {}) {
   const remoteIsNewer = remoteSaved >= prevSaved;
   const stored = dedupeRoutes(storedRoutes ?? []);
   const prev = dedupeRoutes(prevRoutes ?? []);
+
+  if (!stored.length && prev.length) {
+    return prev;
+  }
 
   // When bus db / cloud push is newer, trust it — do not union with stale browser routes.
   if (remoteIsNewer) {
@@ -406,8 +429,9 @@ function mergeStoredIntoPrev(prev, parsed) {
     }
 
     mergeTripFieldsFromSync(prev, stored, merged);
-    merged._cloudPushAdvanced = cloudPushAdvanced;
-    return merged;
+    const withRoute = ensureActiveRouteId(merged);
+    withRoute._cloudPushAdvanced = cloudPushAdvanced;
+    return withRoute;
   } catch {
     return prev ?? defaultState();
   }

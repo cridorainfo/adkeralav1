@@ -1,6 +1,7 @@
 /** Convert db/info.txt JSON into app state shape (paths → URLs). */
 import { hubFetch } from '#hub/api';
 import { getHubToken } from '#hub/persist';
+import { mergeRemoteState, defaultState } from '../store/busStore.js';
 
 export const MEDIA_BASE = '/db/media';
 
@@ -222,7 +223,7 @@ export async function fetchStateFromDb() {
   const res = await hubFetch('/api/state');
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Could not load db/info.txt');
-  return hydrateStateFromFile(json.data ?? {});
+  return mergeRemoteState(defaultState(), hydrateStateFromFile(json.data ?? {}));
 }
 
 export async function uploadMediaFile(category, file, suggestedName) {

@@ -2,9 +2,9 @@ import { useNetworkUrls } from '../hooks/useNetworkUrls';
 import { buildDriverJoinUrl } from '../lib/driverJoinUrl';
 import DriverPairingQr from './DriverPairingQr';
 
-/** Passenger display — QR only while waiting for driver; compact badge on control screen if needed. */
+/** Passenger display — QR while waiting for driver pairing. */
 export default function DriverPairingBanner({
-  connectedDeviceCount = 0,
+  visible = true,
   compact = false,
   fullscreen = false,
 }) {
@@ -14,7 +14,7 @@ export default function DriverPairingBanner({
   const controlPort = network?.port ?? 5174;
   const allControlUrls = (network?.controlUrls ?? []).filter((u) => u.controlUrl);
 
-  if ((connectedDeviceCount ?? 0) > 0) {
+  if (!visible) {
     return null;
   }
 

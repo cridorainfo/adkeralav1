@@ -43,6 +43,7 @@ test('clearDeviceClaim keeps installId and fleetClaimCode', () => {
     assert.equal(next.claimedAt, null);
     assert.equal(next.installId, '11111111-2222-4333-8444-555555555555');
     assert.equal(next.fleetClaimCode, '654321');
+    assert.equal(next.requireFleetClaim, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

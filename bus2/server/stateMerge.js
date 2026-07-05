@@ -1,6 +1,7 @@
 import { dedupeRoutes, mergeRoutesForSync } from '../src/store/busStore.js';
 import { mergeAudioMap } from './audioMerge.js';
 import { resolveTripFields } from '../src/store/tripMerge.js';
+import { ensureActiveRouteId } from '../src/store/busStore.js';
 import { mergeBusProfile } from '../src/store/busProfileMerge.js';
 
 function mergeCatalogs(current = [], incoming = []) {
@@ -122,5 +123,5 @@ export function mergeIncomingState(current = {}, incoming = {}) {
   mergeDriverLink(current, sanitized, base);
   mergeBusProfileOntoState(current, sanitized, base);
   base.connectedDeviceCount = current.connectedDeviceCount ?? 0;
-  return base;
+  return ensureActiveRouteId(base);
 }

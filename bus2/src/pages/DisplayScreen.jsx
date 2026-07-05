@@ -3,15 +3,17 @@ import { getStopInfo, sameStop, getUpcomingPassengerStop, findStopByEn } from '.
 import StopJourneyTimeline from '../components/StopJourneyTimeline';
 import BannerAdStrip from '../components/BannerAdStrip';
 import DriverPairingBanner from '../components/DriverPairingBanner';
+import { useShowDriverPairingQr } from '../hooks/useShowDriverPairingQr';
 import { BilingualStop, LanguageAlternateProvider } from '../components/BilingualStop';
 import { useBusStore } from '../hooks/useBusStore';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import DisplayStatusDots from '../components/DisplayStatusDots';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
 import { adHasPlayableMedia, getFullscreenAdSchedule, nextPlayableAdIndex } from '../lib/adPlayback';
+import { mediaPathToUrl } from '../lib/fileStorage';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
-  const { state, endAd, playAdNow } = useBusStore();
+  const { state, endAd, playAdNow, update } = useBusStore();
   const s = state;
   const [adTimer, setAdTimer] = useState(0);
   const audioRef = useRef(null);
@@ -34,6 +36,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const displayStop = stopInfo.atTripStart ? stopInfo.start : nextStopDisplay;
   const destinationStop = stopInfo.final ?? stopInfo.start;
   const currentAd = ads[s.currentAdIndex] ?? null;
+  const currentAdMediaUrl =
+    currentAd?.mediaUrl || mediaPathToUrl(currentAd?.mediaFile) || null;
   const adDuration = currentAd?.durationSec ?? s.adSettings?.defaultDurationSec ?? 12;
   const showingAd = s.displayView === 'ad' && currentAd && adHasPlayableMedia(currentAd);
   const adStartedAt = s.adStartedAt ?? null;
@@ -59,8 +63,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const isPassengerView =
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
-  const driverConnected =
-    (s.connectedDeviceCount ?? 0) > 0 || Boolean(s.driverLink?.driverId);
+  const showDriverQr = useShowDriverPairingQr(s);
+  const driverConnected = !showDriverQr;
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -196,8 +200,16 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     if (s.displayView !== 'ad' || !currentAd) return;
     if (adHasPlayableMedia(currentAd)) return;
     const next = nextPlayableAdIndex(ads, (s.currentAdIndex ?? 0) + 1);
-    if (next < 0) endAd();
-  }, [s.displayView, currentAd, ads, s.currentAdIndex, endAd]);
+    if (next < 0) {
+      endAd();
+      return;
+    }
+    update((prev) =>
+      prev.displayView !== 'ad'
+        ? prev
+        : { ...prev, currentAdIndex: next, adStartedAt: Date.now() }
+    );
+  }, [s.displayView, currentAd, ads, s.currentAdIndex, endAd, update]);
 
   useEffect(() => {
     if (!(s.adSettings?.enabled ?? true) || !ads.some(adHasPlayableMedia)) return;
@@ -263,13 +275,13 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
                 {currentAd.type === 'video' ? (
                   <video
                     ref={videoRef}
-                    src={currentAd.mediaUrl}
+                    src={currentAdMediaUrl}
                     playsInline
                     muted={Boolean(currentAd.audioUrl) || !(s.adSettings?.playAudio ?? true)}
                     onError={() => endAd()}
                   />
                 ) : (
-                  <img src={currentAd.mediaUrl} alt="" onError={() => endAd()} />
+                  <img src={currentAdMediaUrl} alt="" onError={() => endAd()} />
                 )}
               </div>
             </div>
@@ -358,9 +370,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
         )}
       </main>
 
-      {isPassengerView && !driverConnected && (
-        <DriverPairingBanner connectedDeviceCount={s.connectedDeviceCount ?? 0} compact />
-      )}
+      {isPassengerView && showDriverQr && <DriverPairingBanner visible compact />}
 
       {!showingAd && driverConnected && showBannerStrip && (
         <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />

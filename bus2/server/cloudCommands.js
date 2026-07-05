@@ -115,22 +115,26 @@ export function applyCloudCommands(current, commands) {
           route,
           payload.assignedRouteIds
         );
+        const nextActiveId = payload.activeRouteId ?? route.id;
+        const routeChanged = nextActiveId !== (next.activeRouteId ?? null);
         next = {
           ...next,
           routes,
-          activeRouteId: payload.activeRouteId ?? route.id,
-          currentStopIndex: 0,
-          tripStarted: false,
-          tripEnded: false,
-          tripDeparted: false,
-          routeDirection: 'forward',
-          displayView: 'route',
+          activeRouteId: nextActiveId,
           busProfile: {
             ...(next.busProfile ?? {}),
             assignedRouteIds,
           },
           savedAt: payload.savedAt ?? Date.now(),
         };
+        if (routeChanged) {
+          next.currentStopIndex = 0;
+          next.tripStarted = false;
+          next.tripEnded = false;
+          next.tripDeparted = false;
+          next.routeDirection = 'forward';
+          next.displayView = 'route';
+        }
         break;
       }
 
@@ -212,8 +216,17 @@ export function applyCloudCommands(current, commands) {
         if (Array.isArray(payload.stopCatalog)) {
           next.stopCatalog = payload.stopCatalog;
         }
+        const prevActiveId = next.activeRouteId ?? null;
         if (next.activeRouteId && !assignedSet.has(next.activeRouteId)) {
           next.activeRouteId = next.routes[0]?.id ?? null;
+        } else if (!next.activeRouteId && next.routes[0]?.id) {
+          next.activeRouteId = next.routes[0].id;
+        }
+        const activeRouteChanged =
+          prevActiveId &&
+          next.activeRouteId &&
+          prevActiveId !== next.activeRouteId;
+        if (activeRouteChanged && next.tripStarted) {
           next.tripStarted = false;
           next.tripEnded = false;
           next.tripDeparted = false;

@@ -33,7 +33,6 @@ import {
 import { collectUsedStopAudioKeys } from '../lib/audioFragments';
 import { runAnnouncementPlayback } from '../lib/runAnnouncementPlayback';
 import { isDisplayRole, isControlRole } from '../lib/appRole';
-import { copyTripFields } from '../store/tripMerge.js';
 import { nextPlayableAdIndex, adHasPlayableMedia } from '../lib/adPlayback';
 import {
   mergeStopWithCatalog,
@@ -205,10 +204,6 @@ function useBusStoreLogic() {
       const merged = mergeRemoteState(prev, remoteHydrated);
       delete merged._cloudPushAdvanced;
 
-      if (authoritativeRemote) {
-        copyTripFields(remoteHydrated, merged);
-      }
-
       if (prev?.announcementRequest?.id && !merged.announcementRequest?.id) {
         merged.announcementRequest = prev.announcementRequest;
       }
@@ -246,6 +241,10 @@ function useBusStoreLogic() {
           merged.nextAdIndex = prev.nextAdIndex;
           merged.lastAdEndedAt = prev.lastAdEndedAt;
           merged.adStartedAt = prev.adStartedAt;
+        }
+
+        if (prev.displayOpenedAt && !merged.displayOpenedAt) {
+          merged.displayOpenedAt = prev.displayOpenedAt;
         }
       }
 
@@ -878,7 +877,7 @@ function useBusStoreLogic() {
   }, [update]);
 
   const markDisplayOpened = useCallback(() => {
-    update((s) => ({ ...s, displayOpenedAt: Date.now() }));
+    update((s) => (s.displayOpenedAt ? s : { ...s, displayOpenedAt: Date.now() }));
   }, [update]);
 
   const exitToControl = useCallback(() => {
