@@ -139,7 +139,7 @@ if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'product
 
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '55mb' }));
+app.use(express.json({ limit: '140mb' }));
 app.use(cookieParser());
 app.use(requestLogger);
 
@@ -1463,7 +1463,7 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     return;
   }
   const maxBytes =
-    category === 'ads' || category === 'banners' ? 25 * 1024 * 1024 : 12 * 1024 * 1024;
+    category === 'ads' || category === 'banners' ? 100 * 1024 * 1024 : 12 * 1024 * 1024;
   if (buffer.length > maxBytes) {
     res.status(400).json({
       ok: false,
