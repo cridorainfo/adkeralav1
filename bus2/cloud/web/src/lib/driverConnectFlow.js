@@ -135,8 +135,7 @@ export async function ensureDriverSession() {
 
   try {
     const info = await readDriverSessionInfo(controlUrl, token);
-    const session = applyDriverSessionInfo(info);
-    if (session.revoked) return revokedResult();
+    applyDriverSessionInfo(info);
 
     if (token && info.unlocked) {
       return { ok: true, controlUrl, plate: info.plate ?? getStoredDriverPlate() };
@@ -144,8 +143,6 @@ export async function ensureDriverSession() {
 
     if (token && !info.unlocked) {
       clearDriverToken();
-      const afterRevoke = applyDriverSessionInfo(info);
-      if (afterRevoke.revoked) return revokedResult();
     }
   } catch {
     if (token) {
@@ -171,12 +168,7 @@ export async function tryStoredAutoConnect() {
   return result;
 }
 
-export function goToControl(controlUrl, options = {}) {
-  const { navigate } = options;
-  if (typeof navigate === 'function') {
-    navigate('/driver/control');
-    return true;
-  }
+export function goToControl(controlUrl, _options = {}) {
   const url = normalizeControlUrl(controlUrl) || loadBusControlUrl();
   if (!url) return false;
   window.location.href = url;

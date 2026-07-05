@@ -1,5 +1,5 @@
-/** QR on bus display — opens cloud driver PWA with LAN control URL (no pairing code in QR). */
-export function buildDriverJoinUrl(controlUrlHttp, driverPwaBaseUrl = null) {
+/** QR on bus display — opens driver panel on the bus PC LAN (bus3-style, same Wi‑Fi origin). */
+export function buildDriverJoinUrl(controlUrlHttp, _driverPwaBaseUrl = null) {
   if (!controlUrlHttp) return null;
 
   try {
@@ -7,20 +7,9 @@ export function buildDriverJoinUrl(controlUrlHttp, driverPwaBaseUrl = null) {
     if (!control.pathname.includes('/control')) {
       control.pathname = `${control.pathname.replace(/\/$/, '')}/control`;
     }
-    control.search = '';
-    control.hash = '';
-
-    let driver;
-    if (driverPwaBaseUrl) {
-      driver = new URL(driverPwaBaseUrl);
-      if (!driver.pathname.endsWith('/driver')) {
-        driver.pathname = `${driver.pathname.replace(/\/$/, '')}/driver`;
-      }
-    } else {
-      driver = new URL('/driver', control.origin);
-    }
-
-    driver.searchParams.set('control', control.toString());
+    const driver = new URL('/driver', control.origin);
+    driver.search = '';
+    driver.hash = '';
     return driver.toString();
   } catch {
     return null;

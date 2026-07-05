@@ -60,15 +60,18 @@ export function parseControlFromScan(raw) {
   return null;
 }
 
-/** If the QR is a direct bus LAN /control link, return it for immediate navigation. */
+/** If the QR is a direct bus LAN /driver or /control link, return the control URL. */
 export function parseControlUrlFromScan(raw) {
   const text = String(raw ?? '').trim();
   if (!text) return null;
   try {
     const url = new URL(text);
     if (!/^https?:$/i.test(url.protocol)) return null;
-    if (!/\/control\/?$/i.test(url.pathname) && !url.pathname.includes('/control')) return null;
-    return url.toString();
+    if (url.pathname.includes('/driver') || url.pathname.includes('/control')) {
+      const control = new URL('/control', url.origin);
+      return control.toString();
+    }
+    return null;
   } catch {
     return null;
   }

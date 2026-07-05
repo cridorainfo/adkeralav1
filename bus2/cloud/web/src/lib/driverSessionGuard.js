@@ -40,7 +40,6 @@ export function clearDisconnectAck() {
   memoryStore.delete(DISCONNECT_ACK_KEY);
 }
 
-/** True when admin disconnected all phones after this device last synced the stamp. */
 export function isDevicesDisconnectRevoked(serverAt) {
   if (!serverAt) return false;
   const ack = loadDisconnectAck();
@@ -49,11 +48,12 @@ export function isDevicesDisconnectRevoked(serverAt) {
 }
 
 export function applyDriverSessionInfo(json = {}) {
-  if (json.devicesDisconnectAt && isDevicesDisconnectRevoked(json.devicesDisconnectAt)) {
-    return { revoked: true, devicesDisconnectAt: json.devicesDisconnectAt };
-  }
   if (json.devicesDisconnectAt) {
     saveDisconnectAck(json.devicesDisconnectAt);
   }
-  return { revoked: false, devicesDisconnectAt: json.devicesDisconnectAt ?? null };
+  return {
+    revoked: false,
+    devicesDisconnectAt: json.devicesDisconnectAt ?? null,
+    unlocked: Boolean(json.unlocked),
+  };
 }

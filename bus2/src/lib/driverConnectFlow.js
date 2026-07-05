@@ -110,8 +110,7 @@ export async function ensureDriverSession() {
 
   try {
     const info = await readDriverSessionInfo(controlUrl, token);
-    const session = applyDriverSessionInfo(info);
-    if (session.revoked) return revokedResult();
+    applyDriverSessionInfo(info);
 
     if (token && info.unlocked) {
       return {
@@ -123,8 +122,6 @@ export async function ensureDriverSession() {
 
     if (token && !info.unlocked) {
       clearDriverToken();
-      const afterRevoke = applyDriverSessionInfo(info);
-      if (afterRevoke.revoked) return revokedResult();
     }
   } catch {
     if (token) {

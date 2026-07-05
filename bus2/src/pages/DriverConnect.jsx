@@ -11,6 +11,7 @@ import {
   savePairingCode,
 } from '../lib/driverLanStorage';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow';
+import { isOnBusLanOrigin } from '../lib/driverBusApi';
 
 /**
  * Driver entry — scan display QR with phone camera (opens cloud PWA or bus /driver in browser).
@@ -40,6 +41,12 @@ export default function DriverConnect() {
         if (!cancelled) setBusUrl(fromQr);
         navigate('/driver', { replace: true });
         return;
+      }
+
+      if (isOnBusLanOrigin()) {
+        const lanControl = `${window.location.origin}/control`;
+        saveBusControlUrl(lanControl);
+        if (!cancelled) setBusUrl(lanControl);
       }
 
       const saved = loadBusControlUrl();

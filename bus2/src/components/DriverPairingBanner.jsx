@@ -25,7 +25,7 @@ export default function DriverPairingBanner({
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
   const cloudDriverUrl = network?.cloudDriverUrl ?? null;
-  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, cloudDriverUrl);
+  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel);
 
   if (fullscreen) {
     if (!joinUrl) return null;

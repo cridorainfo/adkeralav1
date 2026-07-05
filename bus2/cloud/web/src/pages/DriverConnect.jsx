@@ -11,12 +11,13 @@ import {
   saveBusControlUrl,
   savePairingCode,
 } from '../lib/driverLanStorage.js';
+import { isOnBusLanOrigin } from '../lib/driverBusApi.js';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow.js';
 import { parseControlFromScan } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
 /**
- * Driver phone — in-app QR scan + admin pairing code, then control stays in this PWA.
+ * Driver phone — scan bus QR (opens LAN /driver), enter pairing code, then control on bus PC.
  */
 export default function DriverConnect() {
   const location = useLocation();
@@ -48,6 +49,12 @@ export default function DriverConnect() {
         return;
       }
 
+      if (isOnBusLanOrigin()) {
+        const lanControl = `${window.location.origin}/control`;
+        saveBusControlUrl(lanControl);
+        if (!cancelled) setBusUrl(lanControl);
+      }
+
       const saved = loadBusControlUrl();
       if (!cancelled) setBusUrl(saved);
 
@@ -56,7 +63,7 @@ export default function DriverConnect() {
 
       if (auto.ok) {
         setStatus('Connecting to your bus…');
-        goToControl(auto.controlUrl, { navigate });
+        goToControl(auto.controlUrl);
         return;
       }
 
@@ -122,7 +129,7 @@ export default function DriverConnect() {
         setError(result.error ?? 'Could not connect');
         return;
       }
-      goToControl(result.controlUrl, { navigate });
+      goToControl(result.controlUrl);
     } finally {
       setBusy(false);
     }

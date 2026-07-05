@@ -127,7 +127,10 @@ export default function DriverControlScreen({ serialRuntime = null }) {
         <div className="panel driver-panel driver-minimal-panel">
           {!busRoutes.length ? (
             <div className="drive-no-route">
-              <p>No routes assigned yet.</p>
+              <p>No routes on this bus yet.</p>
+              <p className="drive-no-route-hint">
+                Assign routes from the Fleet dashboard — they sync to the bus PC within a few seconds.
+              </p>
               <p className="drive-no-route-hint">
                 Admin assigns routes from the cloud dashboard — they appear here after the bus PC syncs
                 (needs internet on the PC only; driver control still works on Wi‑Fi).

@@ -2,7 +2,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import { getActiveRoute, getAllStops, getTripStartIndex, generatePairingCode } from '../src/store/busStore.js';
+import { getActiveRoute, getAllStops, getTripStartIndex, generatePairingCode, getDriverVisibleRoutes } from '../src/store/busStore.js';
 import { nextDriveRevision } from '../src/store/tripMerge.js';
 import {
   atomicWriteTextFile,
@@ -445,6 +445,18 @@ export function setupDriverAuth(app, { dataRoot, verifyLinkedWithCloud }) {
       plate,
       devicesDisconnectAt: readDevicesDisconnectAt(state),
       connectedDeviceCount: getConnectedDeviceCount(),
+    });
+  });
+
+  /** Assigned routes on this bus PC — same list the control panel uses (bus3-style). */
+  app.get('/api/driver/routes', async (_req, res) => {
+    const state = (await readInfoFile(dataRoot)) ?? {};
+    const routes = getDriverVisibleRoutes(state);
+    res.json({
+      ok: true,
+      routes,
+      activeRouteId: state.activeRouteId ?? null,
+      assignedRouteIds: state.busProfile?.assignedRouteIds ?? [],
     });
   });
 

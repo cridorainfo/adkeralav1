@@ -12,7 +12,9 @@ export function normalizeControlUrl(raw) {
   try {
     const url = new URL(value);
     if (!/^https?:$/i.test(url.protocol)) return null;
-    if (!url.pathname.includes('/control')) {
+    if (url.pathname.includes('/driver')) {
+      url.pathname = '/control';
+    } else if (!url.pathname.includes('/control')) {
       url.pathname = `${url.pathname.replace(/\/$/, '')}/control`;
     }
     url.search = '';
@@ -76,7 +78,13 @@ export function readBusControlFromLocation(search = '') {
   const params = new URLSearchParams(search);
   const raw =
     params.get('control') || params.get('url') || params.get('bus') || params.get('controlUrl');
-  return normalizeControlUrl(raw);
+  if (raw) return normalizeControlUrl(raw);
+
+  if (typeof window !== 'undefined' && window.location.pathname.includes('/driver')) {
+    return normalizeControlUrl(`${window.location.origin}/control`);
+  }
+
+  return null;
 }
 
 export function navigateToBusControl(rawOrUrl) {

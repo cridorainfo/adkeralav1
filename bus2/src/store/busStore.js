@@ -718,16 +718,22 @@ export function isAssignedRoute(route) {
   return Boolean(route?.sharedFromCloud || route?.cloudRouteId);
 }
 
-/** Routes the driver control panel may use — server-assigned IDs only (never stale local cache). */
+/** Routes the driver control panel may use — mirrors bus PC hub state (bus3-style). */
 export function getDriverVisibleRoutes(state = {}) {
   const routes = dedupeRoutes(state.routes ?? []);
   const assignedIds = state.busProfile?.assignedRouteIds;
   if (Array.isArray(assignedIds) && assignedIds.length) {
     const idSet = new Set(assignedIds);
-    return routes.filter((r) => idSet.has(r.id));
+    const filtered = routes.filter((r) => idSet.has(r.id));
+    if (filtered.length) return filtered;
   }
   const shared = routes.filter(isAssignedRoute);
-  return shared.length ? shared : [];
+  if (shared.length) return shared;
+  if (state.activeRouteId) {
+    const active = routes.find((r) => r.id === state.activeRouteId);
+    if (active) return [active];
+  }
+  return routes;
 }
 
 export function getAssignedRoutes(routes = []) {
