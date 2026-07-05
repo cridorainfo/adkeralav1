@@ -56,11 +56,11 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '#hub/persist': path.resolve(__dirname, '../../shared/hub/persist.js'),
-      '#hub/api': path.resolve(__dirname, '../../shared/hub/api.js'),
-      '#hub/client': path.resolve(__dirname, '../../shared/hub/client.js'),
-      '#hub/drive': path.resolve(__dirname, '../../shared/hub/drive.js'),
-      '#hub/useHubState': path.resolve(__dirname, '../../shared/hub/useHubState.js'),
+      '#hub/persist': path.resolve(__dirname, '../shared/hub/persist.js'),
+      '#hub/api': path.resolve(__dirname, '../shared/hub/api.js'),
+      '#hub/client': path.resolve(__dirname, '../shared/hub/client.js'),
+      '#hub/drive': path.resolve(__dirname, '../shared/hub/drive.js'),
+      '#hub/useHubState': path.resolve(__dirname, '../shared/hub/useHubState.js'),
     },
   },
   build: {

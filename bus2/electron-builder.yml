@@ -11,6 +11,7 @@ files:
   - server/**/*
   - kiosk/**/*
   - shared/**/*
+  - cloud/shared/hub/**/*
   - src/store/**/*
   - src/lib/**/*
   - package.json
