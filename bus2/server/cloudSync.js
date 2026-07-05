@@ -272,14 +272,18 @@ async function syncAssignedRoutesFromCloud(root, creds) {
 }
 
 /** Apply admin "disconnect all phones" flag from cloud (bus3-style). */
-async function syncDevicesDisconnectFromCloud(root, cloudAt) {
+async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = null) {
   if (!cloudAt) return;
 
   const current = (await readInfoFile(root)) ?? {};
   const applied = current.busProfile?.devicesDisconnectLastApplied ?? null;
   if (cloudAt === applied) return;
 
-  await disconnectAllDrivers(root, cloudAt);
+  await disconnectAllDrivers(root, {
+    disconnectAt: cloudAt,
+    pairingCode: cloudPairingCode,
+    rotatePairingCode: Boolean(cloudPairingCode),
+  });
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
 }
 
@@ -416,7 +420,11 @@ async function runCloudSyncInner(root) {
   if (telemetryRes.ok) {
     revokeStrikeCount = 0;
     lastPushedAt = Date.now();
-    await syncDevicesDisconnectFromCloud(root, telemetryRes.json?.devicesDisconnectAt ?? null);
+    await syncDevicesDisconnectFromCloud(
+      root,
+      telemetryRes.json?.devicesDisconnectAt ?? null,
+      telemetryRes.json?.pairingCode ?? null
+    );
   } else if (isFleetRevoked(telemetryRes)) {
     await noteFleetRevokeAttempt(root, telemetryRes.json?.error ?? 'telemetry rejected');
     return;

@@ -284,7 +284,11 @@ export function setupCloudProxy(app, root) {
         res.status(400).json(json);
         return;
       }
-      const local = await disconnectAllDrivers(root, json.devicesDisconnectAt ?? null);
+      const local = await disconnectAllDrivers(root, {
+        disconnectAt: json.devicesDisconnectAt ?? null,
+        pairingCode: json.pairingCode ?? null,
+        rotatePairingCode: true,
+      });
       res.json({ ...json, ...local });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
@@ -325,7 +329,6 @@ export function setupCloudProxy(app, root) {
             ...current,
             busProfile: {
               ...(current.busProfile ?? {}),
-              ...(json.pairingCode ? { pairingCode: json.pairingCode } : {}),
             },
             savedAt: pushAt,
             lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),

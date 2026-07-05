@@ -1,5 +1,6 @@
 import { dedupeRoutes, normalizeRouteMiddleStops, mergeRouteById } from '../src/store/busStore.js';
 import { applyDriveAction } from '../src/store/driveActions.js';
+import { mergeBusProfile } from '../src/store/busProfileMerge.js';
 
 import { mergeAudioMap } from './audioMerge.js';
 
@@ -99,7 +100,9 @@ export function applyCloudCommands(current, commands) {
           next.driverLink = driverLink ?? null;
         }
         if (busProfile && typeof busProfile === 'object') {
-          next.busProfile = { ...(next.busProfile ?? {}), ...busProfile };
+          next.busProfile = mergeBusProfile(next.busProfile, busProfile, {
+            forcePairingCode: Boolean(payload.rotatePairingCode),
+          });
         }
         break;
       }

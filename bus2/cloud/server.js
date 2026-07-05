@@ -989,6 +989,7 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   res.json({
     ok: true,
     devicesDisconnectAt: profile?.devicesDisconnectAt ?? null,
+    pairingCode: profile?.pairingCode ?? null,
   });
 });
 

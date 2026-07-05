@@ -1,5 +1,5 @@
 /** Server-authoritative bus profile — control phones must not wipe fleet fields. */
-export function mergeBusProfile(currentProfile = {}, incomingProfile = {}) {
+export function mergeBusProfile(currentProfile = {}, incomingProfile = {}, options = {}) {
   const cur = currentProfile ?? {};
   const inc = incomingProfile ?? {};
   const merged = { ...cur, ...inc };
@@ -15,8 +15,13 @@ export function mergeBusProfile(currentProfile = {}, incomingProfile = {}) {
     merged.assignedRouteIds = [];
   }
 
-  if (inc.pairingCode) merged.pairingCode = inc.pairingCode;
-  else if (cur.pairingCode) merged.pairingCode = cur.pairingCode;
+  if (options.forcePairingCode && inc.pairingCode) {
+    merged.pairingCode = inc.pairingCode;
+  } else if (cur.pairingCode) {
+    merged.pairingCode = cur.pairingCode;
+  } else if (inc.pairingCode) {
+    merged.pairingCode = inc.pairingCode;
+  }
 
   if (cur.plate) merged.plate = cur.plate;
   else if (inc.plate) merged.plate = inc.plate;

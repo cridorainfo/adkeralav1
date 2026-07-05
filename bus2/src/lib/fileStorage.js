@@ -163,8 +163,15 @@ export function serializeStateForFile(state) {
     isFullscreen,
     connectedDeviceCount,
     driverLink,
+    busProfile,
     ...rest
   } = state;
+
+  const {
+    pairingCode: _pairingCode,
+    devicesDisconnectLastApplied: _disconnectAt,
+    ...busProfileRest
+  } = busProfile ?? {};
 
   const req = state.announcementRequest;
   const announcementRequest =
@@ -179,6 +186,7 @@ export function serializeStateForFile(state) {
 
   return {
     ...rest,
+    ...(Object.keys(busProfileRest).length ? { busProfile: busProfileRest } : {}),
     savedAt: state.savedAt ?? Date.now(),
     displayView: state.displayView ?? 'route',
     announcementRequest,

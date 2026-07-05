@@ -81,7 +81,7 @@ export default function ControlScreen({
     const result = await disconnectAllDriversOnBus();
     setDisconnectAllStatus(
       result.ok
-        ? 'All driver phones disconnected — pairing QR shows on display'
+        ? 'All driver phones disconnected — check Fleet for the new pairing code'
         : (result.error ?? 'Failed')
     );
   }, []);

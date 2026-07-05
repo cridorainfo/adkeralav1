@@ -69,6 +69,11 @@ function stripHubOnlyFields(incoming = {}) {
   const body = { ...incoming };
   delete body.connectedDeviceCount;
   delete body.driverLink;
+  if (body.busProfile && typeof body.busProfile === 'object') {
+    body.busProfile = { ...body.busProfile };
+    delete body.busProfile.pairingCode;
+    delete body.busProfile.devicesDisconnectLastApplied;
+  }
   return body;
 }
 

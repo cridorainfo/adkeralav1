@@ -198,7 +198,9 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       await api(`/api/buses/${encodeURIComponent(selectedBusId)}/disconnect-all-phones`, {
         method: 'POST',
       });
-      setMessage('All driver phones disconnected — they must scan QR and pair again');
+      setMessage(
+        'All driver phones disconnected — new pairing code shown above; drivers must scan QR again'
+      );
       refreshSelected();
     } catch (err) {
       setMessage(err.message ?? 'Could not disconnect phones');
@@ -305,7 +307,10 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               </div>
 
               <h3>Driver access</h3>
-              <p className="hint">Drivers scan the bus QR and enter this fleet OTP.</p>
+              <p className="hint">
+                Pairing code stays the same until you tap <strong>Disconnect all phones</strong>.
+                Share this code with drivers after they scan the bus QR.
+              </p>
               {driverOtp?.otp && (
                 <div className="driver-otp-panel">
                   <p className="hint" style={{ marginBottom: '0.35rem' }}>

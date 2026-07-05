@@ -109,6 +109,7 @@ test('mergeIncomingState ignores client connectedDeviceCount overwrite', () => {
     savedAt: 5000,
     connectedDeviceCount: 2,
     driverLink: { driverId: 'phone-abc', linkedAt: 4000 },
+    busProfile: { pairingCode: '4821' },
   };
   const incoming = {
     savedAt: 5001,
@@ -120,6 +121,7 @@ test('mergeIncomingState ignores client connectedDeviceCount overwrite', () => {
   const merged = mergeIncomingState(current, incoming);
   assert.equal(merged.connectedDeviceCount, 2);
   assert.equal(merged.driverLink?.driverId, 'phone-abc');
+  assert.equal(merged.busProfile.pairingCode, '4821');
 });
 
 test('mergeIncomingState keeps driverLink when phone GPS save omits it', () => {

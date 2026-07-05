@@ -2,7 +2,7 @@ import path from 'path';
 import { randomBytes } from 'crypto';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import { getActiveRoute, getAllStops, getTripStartIndex } from '../src/store/busStore.js';
+import { getActiveRoute, getAllStops, getTripStartIndex, generatePairingCode } from '../src/store/busStore.js';
 import { nextDriveRevision } from '../src/store/tripMerge.js';
 import {
   atomicWriteTextFile,
@@ -181,9 +181,16 @@ export function readDevicesDisconnectAt(state = {}) {
 }
 
 /** Revoke every phone session, clear driver link, bump disconnect stamp for phone clients. */
-export async function disconnectAllDrivers(dataRoot, disconnectAt = null) {
+export async function disconnectAllDrivers(dataRoot, options = {}) {
   const root = dataRoot ?? dataRootRef;
   if (!root) return { ok: false, error: 'Missing data root' };
+
+  const disconnectAt =
+    typeof options === 'string' ? options : (options.disconnectAt ?? null);
+  const rotatePairingCode =
+    typeof options === 'string' ? false : options.rotatePairingCode !== false;
+  const pairingCodeOverride =
+    typeof options === 'string' ? null : (options.pairingCode ?? null);
 
   pruneExpiredSessions();
   sessions.clear();
@@ -195,6 +202,9 @@ export async function disconnectAllDrivers(dataRoot, disconnectAt = null) {
   const route = getActiveRoute(current);
   const dir = current.routeDirection ?? 'forward';
   const stops = route ? getAllStops(route) : [];
+  const nextPairingCode = rotatePairingCode
+    ? pairingCodeOverride || generatePairingCode()
+    : current.busProfile?.pairingCode || generatePairingCode();
 
   const next = {
     ...current,
@@ -209,6 +219,7 @@ export async function disconnectAllDrivers(dataRoot, disconnectAt = null) {
     driveRevision: nextDriveRevision(current),
     busProfile: {
       ...(current.busProfile ?? {}),
+      pairingCode: nextPairingCode,
       devicesDisconnectLastApplied: stamp,
     },
     savedAt: pushAt,
@@ -221,6 +232,7 @@ export async function disconnectAllDrivers(dataRoot, disconnectAt = null) {
   return {
     ok: true,
     devicesDisconnectAt: stamp,
+    pairingCode: nextPairingCode,
     connectedDeviceCount: 0,
   };
 }

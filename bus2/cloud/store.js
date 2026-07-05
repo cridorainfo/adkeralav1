@@ -1197,7 +1197,7 @@ export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state =
       patch.plateDisplay = fromState.plateDisplay || fromState.plate;
     }
     if (fromState.pairingCode) patch.pairingCode = fromState.pairingCode;
-    if (telemetry.pairingCode && !state.driverLink) patch.pairingCode = telemetry.pairingCode;
+    else if (!profile.pairingCode && telemetry.pairingCode) patch.pairingCode = telemetry.pairingCode;
     if (Object.keys(patch).length) return pg.pgUpsertBusProfile(busId, patch);
     return profile;
   }
@@ -1210,7 +1210,7 @@ export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state =
     profile.plateDisplay = fromState.plateDisplay || fromState.plate;
   }
   if (fromState.pairingCode) profile.pairingCode = fromState.pairingCode;
-  if (telemetry.pairingCode && !state.driverLink) {
+  else if (!profile.pairingCode && telemetry.pairingCode) {
     profile.pairingCode = telemetry.pairingCode;
   }
 
@@ -1317,11 +1317,9 @@ export async function unlinkDriver(driverId) {
   const busId = link.linkedBusId;
   const profileFromDb = (await getBusProfile(busId)) ?? ensureBusProfile(store, busId);
   const profile = { ...profileFromDb };
-  const newCode = generatePairingCode();
 
   profile.linkedDriverId = null;
   profile.linkedAt = null;
-  profile.pairingCode = newCode;
 
   if (!store.drivers) store.drivers = {};
   if (store.drivers[driverId]) {
@@ -1335,7 +1333,6 @@ export async function unlinkDriver(driverId) {
     await pg.pgUpsertBusProfile(busId, {
       linkedDriverId: null,
       linkedAt: null,
-      pairingCode: newCode,
       plate: profile.plate,
       plateDisplay: profile.plateDisplay,
     });
@@ -1350,19 +1347,30 @@ export async function unlinkDriver(driverId) {
     busProfile: {
       plate: profile.plate,
       plateDisplay: profile.plateDisplay,
-      pairingCode: newCode,
     },
   });
 
-  return { ok: true, busId, pairingCode: newCode, devicesDisconnectAt: disconnectAt };
+  return { ok: true, busId, pairingCode: profile.pairingCode, devicesDisconnectAt: disconnectAt };
 }
 
-/** Admin: revoke every phone session on this bus (LAN tokens cleared on next sync). */
+/** Admin: revoke every phone session on this bus and rotate the pairing code. */
 export async function disconnectAllPhonesForBus(busId) {
   if (!busId) return { ok: false, error: 'Missing busId' };
+  const profile = (await getBusProfile(busId)) ?? {};
+  const newCode = generatePairingCode();
   const disconnectAt = new Date().toISOString();
-  await upsertBusProfile(busId, { devicesDisconnectAt: disconnectAt });
-  return { ok: true, busId, devicesDisconnectAt: disconnectAt };
+  await upsertBusProfile(busId, { devicesDisconnectAt: disconnectAt, pairingCode: newCode });
+  await queueDriverLinkMerge(busId, {
+    driverLink: null,
+    rotatePairingCode: true,
+    busProfile: {
+      pairingCode: newCode,
+      devicesDisconnectLastApplied: disconnectAt,
+      plate: profile.plate,
+      plateDisplay: profile.plateDisplay,
+    },
+  });
+  return { ok: true, busId, devicesDisconnectAt: disconnectAt, pairingCode: newCode };
 }
 
 export async function unlinkDriverByBusId(busId) {

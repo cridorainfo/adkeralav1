@@ -138,7 +138,7 @@ test('POST /api/driver/disconnect clears connectedDeviceCount when last phone le
   assert.equal(json.connected, false);
 });
 
-test('POST /api/driver/disconnect-all revokes every phone session', async (t) => {
+test('POST /api/driver/disconnect-all revokes every phone session and rotates pairing code', async (t) => {
   const srv = await startTestServer();
   t.after(() => srv.close());
 
@@ -150,6 +150,7 @@ test('POST /api/driver/disconnect-all revokes every phone session', async (t) =>
   assert.equal(json.ok, true);
   assert.equal(json.connectedDeviceCount, 0);
   assert.ok(json.devicesDisconnectAt);
+  assert.notEqual(json.pairingCode, '4821');
 
   const unlockA = await fetch(`${srv.base}/api/driver/unlock-status`, {
     headers: { 'X-Driver-Token': phoneA.token },
@@ -162,16 +163,20 @@ test('POST /api/driver/disconnect-all revokes every phone session', async (t) =>
 
   const connected = await fetch(`${srv.base}/api/driver/connected`);
   assert.equal((await connected.json()).connectedDeviceCount, 0);
+
+  const reconnect = await connectPhone(srv.base, json.pairingCode);
+  assert.ok(reconnect.token);
 });
 
-test('phones can pair again after disconnect-all', async (t) => {
+test('phones can pair again after disconnect-all with new pairing code', async (t) => {
   const srv = await startTestServer();
   t.after(() => srv.close());
 
   const first = await connectPhone(srv.base);
-  await fetch(`${srv.base}/api/driver/disconnect-all`, { method: 'POST' });
+  const disconnect = await fetch(`${srv.base}/api/driver/disconnect-all`, { method: 'POST' });
+  const disconnectJson = await disconnect.json();
 
-  const second = await connectPhone(srv.base);
+  const second = await connectPhone(srv.base, disconnectJson.pairingCode);
   assert.notEqual(first.token, second.token);
 
   const connected = await fetch(`${srv.base}/api/driver/connected`);
