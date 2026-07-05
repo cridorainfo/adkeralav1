@@ -23,9 +23,10 @@ export function isKioskMode() {
   return new URLSearchParams(window.location.search).get('kiosk') === '1';
 }
 
-/** Bus PC running /control — USB serial works here (127.0.0.1 / Electron), not on driver phones. */
+/** Bus display host for ESP32 — PC (127.0.0.1 / Electron) or Android TV WebView, not driver phones. */
 export function isBusPcForSerial() {
   if (typeof window === 'undefined') return false;
+  if (window.adKeralaAndroid?.serialSupported || window.adKeralaAndroid?.kiosk) return true;
   if (window.adKeralaKiosk?.kiosk || window.adKeralaKiosk?.busControl) return true;
   const params = new URLSearchParams(window.location.search);
   if (params.get('buspc') === '1') return true;

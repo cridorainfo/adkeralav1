@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from 'react';
-import { useSerialPort, isWebSerialSupported } from './useSerialPort';
+import { isWebSerialSupported } from './useSerialPort';
+import { usePlatformSerial, isPlatformSerialSupported } from './usePlatformSerial';
+import { isAndroidSerialAvailable } from './useAndroidSerialBridge';
 import { useEspSerialControl } from './useEspSerialControl';
 import { refreshRemoteState } from './useRemoteStateSync';
 import { getStopEn } from '../store/busStore';
@@ -8,7 +10,7 @@ import { isBusPcForSerial } from '../lib/appRole';
 
 /** ESP32 USB on bus PC passenger display — settings come from driver phone via sync. */
 export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime, updateSerialSettings }) {
-  const active = isBusPcForSerial() && isWebSerialSupported();
+  const active = isBusPcForSerial() && isPlatformSerialSupported();
 
   const drive = useCallback(
     async (action, payload = {}) => {
@@ -49,10 +51,10 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     serialSettings.exitCommand ?? 'exit',
   ];
 
-  const serial = useSerialPort({
+  const serial = usePlatformSerial({
     enabled:
       active &&
-      (serialSettings.enabled ?? Boolean(serialSettings.savedPortInfo)),
+      (serialSettings.enabled ?? isAndroidSerialAvailable() ?? Boolean(serialSettings.savedPortInfo)),
     locked: serialSettings.portLocked ?? Boolean(serialSettings.savedPortInfo),
     baudRate: serialSettings.baudRate,
     savedPortInfo: serialSettings.savedPortInfo,
@@ -64,6 +66,10 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     if (!active) return false;
     serial.clearError?.();
     try {
+      if (isAndroidSerialAvailable()) {
+        await serial.reconnect?.();
+        return true;
+      }
       await serial.selectPort();
       const info = serial.getPortInfo();
       if (info && updateSerialSettings) {
@@ -136,6 +142,8 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
     authorizeUsbPort,
     needsUsbAuthorize:
       active &&
+      isWebSerialSupported() &&
+      !isAndroidSerialAvailable() &&
       Boolean(serialSettings.enabled) &&
       !serial.isConnected &&
       !serialSettings.savedPortInfo,
