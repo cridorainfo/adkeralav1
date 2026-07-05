@@ -26,8 +26,8 @@ export default function Home() {
           <span className="home-card-icon">📱</span>
           <h2>Driver phone</h2>
           <p>
-            Scan the QR on the display (same bus Wi‑Fi). Control runs on this PC — internet on the
-            phone does not matter.
+            Scan the QR on the display with your phone <strong>camera</strong>. Enter the admin pairing
+            code in the driver app.
           </p>
           <Link to="/driver" className="home-card-btn control">
             Driver setup →

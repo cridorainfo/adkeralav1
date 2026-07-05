@@ -20,19 +20,35 @@ function write(key, value) {
   }
 }
 
-/** Current bus PC origin — switching buses requires re-unlock. */
 export function currentBusOrigin() {
   return window.location.origin;
+}
+
+export function getStoredDriverBusOrigin() {
+  return read(BUS_KEY);
 }
 
 export function getStoredDriverToken() {
   const token = read(TOKEN_KEY);
   const bus = read(BUS_KEY);
   if (!token || !bus) return null;
-  if (bus !== currentBusOrigin()) {
-    clearDriverCredentials();
-    return null;
+
+  try {
+    const onLanPage =
+      window.location.protocol !== 'capacitor:' &&
+      (window.location.hostname === 'localhost' ||
+        /^192\.168\./.test(window.location.hostname) ||
+        /^10\./.test(window.location.hostname) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(window.location.hostname));
+
+    if (onLanPage && bus !== currentBusOrigin()) {
+      clearDriverCredentials();
+      return null;
+    }
+  } catch {
+    /* ignore */
   }
+
   return token;
 }
 
@@ -44,9 +60,9 @@ export function getStoredDriverId() {
   return read(DRIVER_ID_KEY);
 }
 
-export function saveDriverCredentials({ token, plate, driverId }) {
+export function saveDriverCredentials({ token, plate, driverId, busOrigin }) {
   write(TOKEN_KEY, token);
-  write(BUS_KEY, currentBusOrigin());
+  write(BUS_KEY, busOrigin || currentBusOrigin());
   if (plate) write(PLATE_KEY, plate);
   if (driverId) write(DRIVER_ID_KEY, driverId);
 }

@@ -1,41 +1,98 @@
-import { parseControlUrlFromScan } from './driverPairing.js';
-
 const LAST_CONTROL_KEY = 'adkerala_last_control_url';
+const BUS_CONTROL_URL_KEY = 'adkerala_bus_control_url';
+const PAIRING_CODE_KEY = 'adkerala_saved_pair_code';
 
-export function saveLastControlUrl(url) {
-  const value = String(url ?? '').trim();
-  if (!value) return;
+export function normalizeControlUrl(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
   try {
-    localStorage.setItem(LAST_CONTROL_KEY, value);
-  } catch {
-    /* private mode */
-  }
-}
-
-export function loadLastControlUrl() {
-  try {
-    const value = localStorage.getItem(LAST_CONTROL_KEY);
-    if (!value) return null;
     const url = new URL(value);
     if (!/^https?:$/i.test(url.protocol)) return null;
-    if (!url.pathname.includes('/control')) return null;
+    if (!url.pathname.includes('/control')) {
+      url.pathname = `${url.pathname.replace(/\/$/, '')}/control`;
+    }
+    url.search = '';
+    url.hash = '';
     return url.toString();
   } catch {
     return null;
   }
 }
 
-export function navigateToBusControl(rawOrUrl) {
-  const lanUrl = parseControlUrlFromScan(rawOrUrl) || rawOrUrl;
-  if (!lanUrl) return false;
+export function saveBusControlUrl(raw) {
+  const normalized = normalizeControlUrl(raw);
+  if (!normalized) return null;
   try {
-    const url = new URL(lanUrl);
-    if (!/^https?:$/i.test(url.protocol)) return false;
-    if (!url.pathname.includes('/control')) return false;
-    saveLastControlUrl(url.toString());
-    window.location.href = url.toString();
-    return true;
+    localStorage.setItem(BUS_CONTROL_URL_KEY, normalized);
+    localStorage.setItem(LAST_CONTROL_KEY, normalized);
   } catch {
-    return false;
+    /* private mode */
   }
+  return normalized;
+}
+
+export function loadBusControlUrl() {
+  try {
+    const value =
+      localStorage.getItem(BUS_CONTROL_URL_KEY) || localStorage.getItem(LAST_CONTROL_KEY);
+    return normalizeControlUrl(value);
+  } catch {
+    return null;
+  }
+}
+
+export function savePairingCode(code) {
+  const digits = String(code ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 4);
+  if (digits.length !== 4) return;
+  try {
+    localStorage.setItem(PAIRING_CODE_KEY, digits);
+  } catch {
+    /* private mode */
+  }
+}
+
+export function loadPairingCode() {
+  try {
+    const value = localStorage.getItem(PAIRING_CODE_KEY);
+    if (!value) return null;
+    const digits = value.replace(/\D/g, '').slice(0, 4);
+    return digits.length === 4 ? digits : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearDriverBusSetup() {
+  try {
+    localStorage.removeItem(BUS_CONTROL_URL_KEY);
+    localStorage.removeItem(LAST_CONTROL_KEY);
+    localStorage.removeItem(PAIRING_CODE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function saveLastControlUrl(url) {
+  saveBusControlUrl(url);
+}
+
+export function loadLastControlUrl() {
+  return loadBusControlUrl();
+}
+
+export function readBusControlFromLocation(search = '') {
+  const params = new URLSearchParams(search);
+  const raw =
+    params.get('control') || params.get('url') || params.get('bus') || params.get('controlUrl');
+  return normalizeControlUrl(raw);
+}
+
+export function navigateToBusControl(rawOrUrl) {
+  const normalized = normalizeControlUrl(rawOrUrl);
+  if (!normalized) return false;
+  saveBusControlUrl(normalized);
+  window.location.href = normalized;
+  return true;
 }

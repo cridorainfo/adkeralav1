@@ -1,4 +1,5 @@
-import { loadLastControlUrl } from './driverLanStorage.js';
+import { loadBusControlUrl } from './driverLanStorage.js';
+import { getStoredDriverBusOrigin } from './driverCredentials.js';
 
 /**
  * Driver phone ↔ bus PC control is always LAN-only.
@@ -13,7 +14,6 @@ export function isOnBusLanOrigin(origin = window.location.origin) {
     const { hostname, protocol } = url;
     if (protocol === 'capacitor:' || protocol === 'ionic:') return false;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // Capacitor native WebView uses https://localhost — not the bus PC.
       if (protocol === 'https:' && (url.port === '' || url.port === '443')) return false;
       return true;
     }
@@ -30,13 +30,15 @@ export function isOnBusLanOrigin(origin = window.location.origin) {
 export function getBusApiBase() {
   if (typeof window === 'undefined') return '';
   if (isOnBusLanOrigin()) return '';
-  const last = loadLastControlUrl();
-  if (!last) return '';
-  try {
-    return new URL(last).origin;
-  } catch {
-    return '';
+  const saved = loadBusControlUrl();
+  if (saved) {
+    try {
+      return new URL(saved).origin;
+    } catch {
+      /* fall through */
+    }
   }
+  return getStoredDriverBusOrigin() || '';
 }
 
 export function busApiUrl(path) {
@@ -50,16 +52,12 @@ export function busFetch(path, options) {
   return fetch(busApiUrl(path), options);
 }
 
-/** Redirect to saved bus control URL when opened from APK/PWA on the wrong origin. */
-export function redirectToSavedBusControl(search = window.location.search) {
-  const last = loadLastControlUrl();
+/** Redirect to saved bus control URL when opened from APK on the wrong origin. */
+export function redirectToSavedBusControl() {
+  const last = loadBusControlUrl();
   if (!last) return false;
   try {
-    const url = new URL(last);
-    const params = new URLSearchParams(search);
-    const code = params.get('code') || params.get('pair');
-    if (code) url.searchParams.set('code', code.replace(/\D/g, '').slice(0, 4));
-    window.location.replace(url.toString());
+    window.location.replace(last);
     return true;
   } catch {
     return false;

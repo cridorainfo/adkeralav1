@@ -1,15 +1,17 @@
-/** URL encoded in the bus display QR — opens /control on this bus PC (LAN only). */
-export function buildDriverJoinUrl(controlUrlHttp, pairingCode) {
-  const code = String(pairingCode ?? '')
-    .replace(/\D/g, '')
-    .slice(0, 4);
-
+/** QR on bus display — opens /driver on this bus PC (no pairing code in QR). */
+export function buildDriverJoinUrl(controlUrlHttp) {
   if (!controlUrlHttp) return null;
 
   try {
-    const url = new URL(controlUrlHttp);
-    if (code) url.searchParams.set('code', code);
-    return url.toString();
+    const control = new URL(controlUrlHttp);
+    if (!control.pathname.includes('/control')) {
+      control.pathname = `${control.pathname.replace(/\/$/, '')}/control`;
+    }
+    control.search = '';
+    control.hash = '';
+    const driver = new URL('/driver', control.origin);
+    driver.searchParams.set('control', control.toString());
+    return driver.toString();
   } catch {
     return null;
   }

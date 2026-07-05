@@ -1,55 +1,82 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
-import { controlUrlOnCurrentOrigin, readPairingCodeFromLocation } from '../lib/driverJoinUrl';
-import { isOnBusLanOrigin } from '../lib/driverBusApi';
-import { loadLastControlUrl } from '../lib/driverLanStorage';
+import { readBusControlFromLocation, loadBusControlUrl, saveBusControlUrl } from '../lib/driverLanStorage';
+import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow';
 
 /**
- * Driver phone entry — LAN only. Talks to this bus PC, never the cloud.
- * Scan the display QR (opens /control) or enter the pair code below.
+ * Driver app entry — scan display QR with phone camera (not in-app scanner).
+ * Saves bus URL, then admin pairing code. Auto-connects on next launch.
  */
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
   const [pairCode, setPairCode] = useState('');
-  const [lastControl, setLastControl] = useState(null);
-  const [formError, setFormError] = useState('');
+  const [busUrl, setBusUrl] = useState(null);
+  const [status, setStatus] = useState('Checking saved bus…');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const fromUrl = readPairingCodeFromLocation(location.search);
-    if (fromUrl) {
-      navigate(`/control?code=${fromUrl}`, { replace: true });
-      return;
-    }
-    setLastControl(loadLastControlUrl());
+    let cancelled = false;
+
+    (async () => {
+      const fromQr = readBusControlFromLocation(location.search);
+      if (fromQr) {
+        saveBusControlUrl(fromQr);
+        navigate('/driver', { replace: true });
+        return;
+      }
+
+      const saved = loadBusControlUrl();
+      if (!cancelled) setBusUrl(saved);
+
+      const auto = await tryStoredAutoConnect();
+      if (cancelled) return;
+
+      if (auto.ok) {
+        setStatus('Connecting to your bus…');
+        goToControl(auto.controlUrl);
+        return;
+      }
+
+      if (auto.reason === 'need-code' && saved) {
+        setStatus('Enter the pairing code from admin');
+        return;
+      }
+
+      if (saved) {
+        setStatus('Enter the pairing code from admin');
+      } else {
+        setStatus('Scan the QR on the bus display with your phone camera');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [location.search, navigate]);
 
-  const openWithCode = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setFormError('');
-    const digits = pairCode.replace(/\D/g, '').slice(0, 4);
-    if (digits.length !== 4) return;
-
-    const saved = loadLastControlUrl();
-    if (saved) {
-      try {
-        const url = new URL(saved);
-        url.searchParams.set('code', digits);
-        window.location.href = url.toString();
-        return;
-      } catch {
-        /* fall through */
-      }
-    }
-
-    if (isOnBusLanOrigin()) {
-      window.location.href = controlUrlOnCurrentOrigin(digits);
+    if (!busUrl) {
+      setError('Scan the QR on the bus display first — use your phone camera app.');
       return;
     }
 
-    setFormError('Scan the display QR first — it opens control on the bus PC.');
+    setBusy(true);
+    setError('');
+    try {
+      const result = await connectToBus(busUrl, pairCode);
+      if (!result.ok) {
+        setError(result.error ?? 'Could not connect');
+        return;
+      }
+      goToControl(result.controlUrl);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -58,56 +85,51 @@ export default function DriverConnect() {
         <div className="driver-connect-header">
           <AdKeralaLogo className="driver-connect-logo" size="lg" />
           <h1>{APP_NAME} Driver</h1>
-          <p>Connect on the bus Wi‑Fi — pair once with the display code. No cloud account needed.</p>
-        </div>
-
-        <div className="driver-connect-section">
-          <h2 className="driver-section-subtitle">1. Scan the display QR</h2>
-          <p className="hint">
-            Use your phone camera on the QR shown on the passenger screen. It opens control on this
-            bus PC automatically.
+          <p className="driver-connect-status" role="status">
+            {status}
           </p>
         </div>
 
-        <div className="driver-connect-section">
-          <h2 className="driver-section-subtitle">2. Or enter the pair code</h2>
-          <form onSubmit={openWithCode}>
-            <label htmlFor="pairCode">4-digit code from the display</label>
-            <input
-              id="pairCode"
-              type="text"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="e.g. 4821"
-              value={pairCode}
-              onChange={(e) => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-            />
-            <button type="submit" className="btn primary" disabled={pairCode.length !== 4}>
-              Open control
-            </button>
-            {formError && <p className="driver-connect-error">{formError}</p>}
-          </form>
-        </div>
-
-        {lastControl && (
-          <div className="driver-connect-actions">
-            <a className="btn secondary" href={lastControl}>
-              Open last bus control
-            </a>
+        {busUrl ? (
+          <div className="driver-connect-section">
+            <p className="hint">
+              Bus linked. Ask <strong>admin</strong> for the pairing code, then enter it below.
+            </p>
+            <form onSubmit={handleSubmit}>
+              <label htmlFor="pairCode">Pairing code from admin (4 digits)</label>
+              <input
+                id="pairCode"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={4}
+                placeholder="e.g. 4821"
+                value={pairCode}
+                onChange={(e) => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+              <button type="submit" className="btn primary" disabled={busy || pairCode.length !== 4}>
+                {busy ? 'Connecting…' : 'Connect to bus'}
+              </button>
+              {error && <p className="driver-connect-error">{error}</p>}
+            </form>
+          </div>
+        ) : (
+          <div className="driver-connect-section">
+            <h2 className="driver-section-subtitle">First time on this bus</h2>
+            <ol className="driver-connect-steps">
+              <li>Open your phone&apos;s <strong>camera</strong> app</li>
+              <li>Scan the QR on the passenger display</li>
+              <li>Open the link — this app saves the bus address</li>
+              <li>Ask admin for the pairing code and enter it here</li>
+            </ol>
+            {error && <p className="driver-connect-error">{error}</p>}
           </div>
         )}
 
         <p className="driver-connect-foot">
-          Stay on the same Wi‑Fi as this PC. Internet on the phone or bus does not affect driver
-          control — your phone only talks to this PC. The bus PC uses internet only to sync routes,
-          ads, and audio from the cloud.
+          After the first setup, this app connects automatically. Disconnect on the control screen to
+          switch buses — then scan the display QR again with your camera.
         </p>
-
-        {isOnBusLanOrigin() && (
-          <Link to="/control" className="driver-connect-foot driver-connect-foot-muted">
-            Already connected? Open control →
-          </Link>
-        )}
       </div>
     </div>
   );
