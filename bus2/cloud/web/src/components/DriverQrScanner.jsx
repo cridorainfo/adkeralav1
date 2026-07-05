@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-/** Camera QR scanner — parses bus display QR or cloud /driver?code= links. */
+/** Camera QR scanner — parses bus display QR or cloud /driver?control= links. */
 export default function DriverQrScanner({ open, onClose, onScan }) {
   const [error, setError] = useState('');
   const scannerRef = useRef(null);
   const runningRef = useRef(false);
+  const handledRef = useRef(false);
 
   useEffect(() => {
     if (!open) return undefined;
 
+    handledRef.current = false;
     const elementId = 'driver-qr-reader';
     let cancelled = false;
 
@@ -22,8 +24,15 @@ export default function DriverQrScanner({ open, onClose, onScan }) {
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 240, height: 240 } },
           (decoded) => {
-            onScan?.(decoded);
-            onClose?.();
+            if (handledRef.current) return;
+            handledRef.current = true;
+            void (async () => {
+              try {
+                await onScan?.(decoded);
+              } finally {
+                if (!cancelled) onClose?.();
+              }
+            })();
           },
           () => {}
         );

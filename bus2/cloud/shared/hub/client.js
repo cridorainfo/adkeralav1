@@ -1,4 +1,4 @@
-import { hubFetch } from './api.js';
+import { hubFetch, isOnBusLanOrigin } from './api.js';
 import {
   clearHubSetup,
   clearHubToken,
@@ -179,10 +179,18 @@ export async function connectAfterBusUrlSaved(controlUrl) {
   return tryStoredHubConnect();
 }
 
-export function goToHubControl(controlUrl) {
+/** Where to send the driver after pairing — PWA stays on /driver/control, bus LAN opens /control. */
+export function resolveHubControlDestination(controlUrl) {
   const url = saveHubControlUrl(controlUrl) || loadHubControlUrl();
-  if (!url) return false;
-  window.location.href = url;
+  if (!url) return null;
+  if (isOnBusLanOrigin()) return url;
+  return '/driver/control';
+}
+
+export function goToHubControl(controlUrl) {
+  const dest = resolveHubControlDestination(controlUrl);
+  if (!dest) return false;
+  window.location.href = dest;
   return true;
 }
 

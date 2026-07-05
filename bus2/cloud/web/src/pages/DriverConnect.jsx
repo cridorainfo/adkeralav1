@@ -83,6 +83,7 @@ export default function DriverConnect() {
       }
 
       setStatus('Enter the pairing code from admin');
+      setScannerOpen(false);
     } finally {
       setBusy(false);
     }
