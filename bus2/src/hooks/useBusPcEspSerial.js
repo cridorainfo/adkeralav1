@@ -12,8 +12,12 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
 
   const drive = useCallback(
     async (action, payload = {}) => {
-      await postDriveAction(action, payload);
-      await refreshRemoteState(applyRemoteState);
+      try {
+        await postDriveAction(action, payload);
+        await refreshRemoteState(applyRemoteState);
+      } catch (err) {
+        console.warn('AdKerala ESP serial drive failed:', err.message ?? err);
+      }
     },
     [applyRemoteState]
   );

@@ -14,12 +14,12 @@ export function createSerialValueParser(onValueChange, { textCommands = ['fullsc
     return /^[a-zA-Z]{2,}$/.test(value.trim());
   }
 
-  function emit(raw) {
+  function emit(raw, { fromLine = false } = {}) {
     const value = raw.trim();
     if (!value) return;
 
     const key = value.toLowerCase();
-    if (key === lastEmitted && !isMultiCharTextCommand(value)) return;
+    if (!fromLine && key === lastEmitted && !isMultiCharTextCommand(value)) return;
 
     lastEmitted = key;
     onValueChange(value);
@@ -55,7 +55,7 @@ export function createSerialValueParser(onValueChange, { textCommands = ['fullsc
     while (true) {
       const match = buffer.match(/^([^\r\n]*)\r?\n/);
       if (!match) break;
-      emit(match[1]);
+      emit(match[1], { fromLine: true });
       buffer = buffer.slice(match[0].length);
     }
 

@@ -5,6 +5,15 @@
 export function createSerialActionGate({ debounceMs = 500 } = {}) {
   let lastActionAt = 0;
   let readyForPress = true;
+  let rearmTimer = null;
+
+  function scheduleRearm() {
+    if (rearmTimer) clearTimeout(rearmTimer);
+    rearmTimer = setTimeout(() => {
+      rearmTimer = null;
+      readyForPress = true;
+    }, Math.max(debounceMs, 0));
+  }
 
   return {
     markIdle() {
@@ -20,10 +29,13 @@ export function createSerialActionGate({ debounceMs = 500 } = {}) {
 
       lastActionAt = now;
       readyForPress = false;
+      scheduleRearm();
       return true;
     },
 
     reset() {
+      if (rearmTimer) clearTimeout(rearmTimer);
+      rearmTimer = null;
       lastActionAt = 0;
       readyForPress = true;
     },

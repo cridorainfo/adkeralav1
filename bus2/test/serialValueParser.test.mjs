@@ -27,6 +27,15 @@ test('newline-delimited lines are parsed', () => {
   assert.deepEqual(values, ['1', '0', '3']);
 });
 
+test('repeat newline-delimited presses emit each time', () => {
+  const values = [];
+  const parser = createSerialValueParser((v) => values.push(v));
+
+  parser.feed('1\n');
+  parser.feed('1\n');
+  assert.deepEqual(values, ['1', '1']);
+});
+
 test('text commands fullscreen and exit emit on token', () => {
   const values = [];
   const parser = createSerialValueParser((v) => values.push(v), {
