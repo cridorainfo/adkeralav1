@@ -3,7 +3,11 @@ import { buildDriverJoinUrl } from '../lib/driverJoinUrl';
 import DriverPairingQr from './DriverPairingQr';
 
 /** Passenger display overlay — plate, pairing code, and LAN URL for driver phone. */
-export default function DriverPairingBanner({ busProfile, driverLink, compact = false }) {
+export default function DriverPairingBanner({
+  busProfile,
+  connectedDeviceCount = 0,
+  compact = false,
+}) {
   const network = useNetworkUrls();
   const plate = busProfile?.plateDisplay || busProfile?.plate || '';
   const code = busProfile?.pairingCode ?? '';
@@ -15,7 +19,7 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
   const lanProbeError = network?.lanProbeError;
   const allControlUrls = (network?.controlUrls ?? []).filter((u) => u.controlUrl);
 
-  if (driverLink?.driverId) {
+  if ((connectedDeviceCount ?? 0) > 0) {
     return null;
   }
 
@@ -65,9 +69,9 @@ export default function DriverPairingBanner({ busProfile, driverLink, compact = 
       </div>
       {!compact && (
         <p className="driver-pairing-hint">
-          Phone on <strong>same Wi‑Fi as this PC</strong> (turn off mobile data). Open the URL or scan
-          QR, then enter <strong>admin OTP</strong> from the fleet dashboard. Use <strong>http://</strong>
-          , not https.
+          Phone on <strong>same Wi‑Fi as this PC</strong> (turn off mobile data). Scan the QR or open the
+          URL, then enter the <strong>pair code</strong> once — no internet required. Use{' '}
+          <strong>http://</strong>, not https.
         </p>
       )}
       {showNoWifiWarning && !compact && (

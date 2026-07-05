@@ -1,0 +1,23 @@
+# AdKerala — routes, stops, settings (JSON below)
+# Edit this file in Notepad. Put media files in db/media/ subfolders.
+# Use "mediaFile" and "audioFile" for paths like "ads/promo.mp4" (relative to db/media/).
+{
+  "routes": [],
+  "activeRouteId": null,
+  "savedAt": 1783243683542,
+  "busProfile": {
+    "plate": "KL01AB1234",
+    "plateDisplay": "KL 01 AB 1234",
+    "pairingCode": "4821"
+  },
+  "connectedDeviceCount": 0,
+  "driverLink": null,
+  "lastCloudPushAt": 1783243683542,
+  "tripStarted": false,
+  "tripEnded": false,
+  "tripDeparted": false,
+  "currentStopIndex": 0,
+  "displayView": "route",
+  "announcementRequest": null,
+  "driveRevision": 1
+}

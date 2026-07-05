@@ -73,6 +73,8 @@ const defaultState = () => ({
   },
   /** Active driver session from cloud pair */
   driverLink: null,
+  /** Phones connected on LAN (pair code unlock) — display hides QR when > 0 */
+  connectedDeviceCount: 0,
   /** Shared stop names + GPS + ml — synced from cloud catalog */
   stopCatalog: [],
   serialSettings: {
@@ -552,7 +554,7 @@ export function saveState(state, { force = false } = {}) {
       console.warn('AdKerala: could not save to db/info.txt', err);
       const msg =
         err.code === 'DRIVER_LOCKED'
-          ? 'Driver unlock required — re-enter pairing code and admin OTP'
+          ? 'Not connected — re-enter the bus pair code on this phone'
           : (err.message ?? 'Could not save to bus');
       notifySaveError(msg);
     }

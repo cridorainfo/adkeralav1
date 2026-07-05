@@ -79,7 +79,7 @@ export default function DriverControlScreen({
       setConnected(false);
       setError(
         err.code === 'DRIVER_LOCKED'
-          ? 'Session expired — disconnect and unlock again with bus code + admin OTP'
+          ? 'Session expired — disconnect and connect again with the bus pair code'
           : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
       );
     } finally {

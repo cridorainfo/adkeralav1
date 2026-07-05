@@ -43,6 +43,7 @@ import {
   pairDriver,
   unlinkDriver,
   unlinkDriverByBusId,
+  disconnectAllPhonesForBus,
   getDriverSession,
   verifyLinkedDriverForBus,
   deleteBus,
@@ -959,12 +960,26 @@ app.post('/api/buses/:busId/unlink-driver', authFleet, async (req, res) => {
   res.json(result);
 });
 
+app.post('/api/buses/:busId/disconnect-all-phones', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const result = await disconnectAllPhonesForBus(req.params.busId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
 app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   const busId = req.params.busId;
   const { telemetry, state, displaySnapshot } = req.body ?? {};
   await upsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
   await maybeEnqueueAssignedRouteSync(busId, state ?? {});
-  res.json({ ok: true });
+  const profile = await getBusProfile(busId);
+  res.json({
+    ok: true,
+    devicesDisconnectAt: profile?.devicesDisconnectAt ?? null,
+  });
 });
 
 /** Assigned routes + stop catalog for bus PC pull sync (same pattern as stop audio). */

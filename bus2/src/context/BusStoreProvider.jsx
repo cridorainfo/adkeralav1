@@ -161,10 +161,12 @@ function useBusStoreLogic() {
         remoteHydrated.announcementRequest.id !== prev?.announcementRequest?.id;
       const driverLinkChanged =
         (remoteHydrated?.driverLink?.driverId ?? null) !== (prev?.driverLink?.driverId ?? null);
+      const deviceCountChanged =
+        (remoteHydrated?.connectedDeviceCount ?? 0) !== (prev?.connectedDeviceCount ?? 0);
       const cloudPushAdvanced =
         (remoteHydrated?.lastCloudPushAt ?? 0) > (prev?.lastCloudPushAt ?? 0);
       const authoritativeRemote =
-        tripAdvanced || announceNew || driverLinkChanged || cloudPushAdvanced;
+        tripAdvanced || announceNew || driverLinkChanged || deviceCountChanged || cloudPushAdvanced;
 
       if (!authoritativeRemote) {
         if (isDbWriteInFlight() || hasPendingDbWrites()) return prev;

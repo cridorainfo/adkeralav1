@@ -28,6 +28,7 @@ export function resetBusStateForUnclaim(current = {}) {
     stopAudio: {},
     driverLink: null,
     driverLocation: null,
+    connectedDeviceCount: 0,
     displayView: 'route',
     announcementRequest: null,
     announcementStatus: null,

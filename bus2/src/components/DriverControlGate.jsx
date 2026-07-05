@@ -11,13 +11,12 @@ import {
 import { isBusPcForSerial } from '../lib/appRole';
 import { DriverControlContext } from './DriverControlContext';
 
-/** Gate /control — requires bus pairing code + admin OTP before showing the panel. */
+/** Gate /control — connect once with the 4-digit pair code from the bus display (offline LAN). */
 export default function DriverControlGate({ children }) {
   const location = useLocation();
   const [checking, setChecking] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [pairingCode, setPairingCode] = useState('');
-  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [plate, setPlate] = useState('');
@@ -139,7 +138,6 @@ export default function DriverControlGate({ children }) {
     clearDriverCredentials();
     setUnlocked(false);
     setPlate('');
-    setOtp('');
   }, []);
 
   const handleSubmit = async (e) => {
@@ -147,22 +145,21 @@ export default function DriverControlGate({ children }) {
     setBusy(true);
     setError('');
     try {
-      const res = await fetch('/api/driver/verify', {
+      const res = await fetch('/api/driver/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairingCode, otp }),
+        body: JSON.stringify({ pairingCode }),
       });
       const json = await res.json();
       if (!json.ok) {
-        setError(json.error ?? 'Verification failed');
+        setError(json.error ?? 'Wrong code — check the bus display');
         return;
       }
       saveDriverCredentials({ token: json.token, plate: json.plate ?? '' });
       setPlate(json.plate ?? '');
       setUnlocked(true);
-      setOtp('');
     } catch {
-      setError('Could not reach bus — check Wi‑Fi');
+      setError('Could not reach bus — join the same Wi‑Fi as the display PC');
     } finally {
       setBusy(false);
     }
@@ -182,11 +179,11 @@ export default function DriverControlGate({ children }) {
     return (
       <div className="driver-control-gate">
         <div className="driver-control-gate-card">
-          <h1>Driver unlock</h1>
+          <h1>Connect to this bus</h1>
           <p className="driver-control-gate-lead">
             {pairingCode
-              ? 'Pair code from QR is filled in — enter admin OTP, or pair first at adkerala.com/driver and open this page from the app.'
-              : 'Scan the bus QR at adkerala.com/driver, or enter the pair code and admin OTP.'}
+              ? 'Pair code from QR is filled in — tap Connect.'
+              : 'Scan the QR on the bus display, or enter the 4-digit pair code shown there.'}
           </p>
           <form onSubmit={handleSubmit} className="driver-control-gate-form">
             <label className="driver-control-gate-field">
@@ -202,27 +199,14 @@ export default function DriverControlGate({ children }) {
                 required
               />
             </label>
-            <label className="driver-control-gate-field">
-              <span>Admin OTP (6 digits)</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="From admin dashboard"
-                required
-              />
-            </label>
             {error && <p className="driver-control-gate-error">{error}</p>}
             <button type="submit" className="btn btn-primary driver-control-gate-submit" disabled={busy}>
-              {busy ? 'Verifying…' : 'Unlock control panel'}
+              {busy ? 'Connecting…' : 'Connect'}
             </button>
           </form>
           <p className="driver-control-gate-hint">
-            Same bus Wi‑Fi as the display PC. Pair code + admin OTP work offline after the bus has synced
-            once online. Credentials stay on this phone until you disconnect.
+            Same bus Wi‑Fi as the display PC — no internet needed. Stays connected until you disconnect or
+            an admin clears phones from the fleet dashboard.
           </p>
         </div>
       </div>
@@ -233,7 +217,7 @@ export default function DriverControlGate({ children }) {
     <DriverControlContext.Provider value={ctx}>
       {plate && (
         <div className="driver-control-unlocked-bar" role="status">
-          <span>Unlocked — {plate}</span>
+          <span>Connected — {plate}</span>
           <button type="button" className="driver-control-disconnect-btn" onClick={disconnect}>
             Disconnect
           </button>

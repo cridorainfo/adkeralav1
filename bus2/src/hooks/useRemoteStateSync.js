@@ -14,6 +14,7 @@ export function useRemoteStateSync(enabled = true) {
     lastCloudPushAt: 0,
     driveRevision: 0,
     driverLinkId: null,
+    connectedDeviceCount: -1,
   });
 
   useEffect(() => {
@@ -33,13 +34,15 @@ export function useRemoteStateSync(enabled = true) {
         const cloudPush = remote?.lastCloudPushAt ?? 0;
         const driveRevision = remote?.driveRevision ?? 0;
         const driverLinkId = remote?.driverLink?.driverId ?? null;
+        const connectedDeviceCount = remote?.connectedDeviceCount ?? 0;
         const last = lastSeenRef.current;
         if (
           !force &&
           savedAt === last.savedAt &&
           cloudPush === last.lastCloudPushAt &&
           driveRevision === last.driveRevision &&
-          driverLinkId === last.driverLinkId
+          driverLinkId === last.driverLinkId &&
+          connectedDeviceCount === last.connectedDeviceCount
         ) {
           return;
         }
@@ -49,6 +52,7 @@ export function useRemoteStateSync(enabled = true) {
           lastCloudPushAt: cloudPush,
           driveRevision,
           driverLinkId,
+          connectedDeviceCount,
         };
         applyRemoteState(remote);
       } catch {

@@ -1,6 +1,7 @@
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
+import { notifyStateChanged } from './stateEvents.js';
 import { getActiveRoute, getAllStops, getTripStartIndex } from '../src/store/busStore.js';
 import { nextDriveRevision } from '../src/store/tripMerge.js';
 import {
@@ -124,6 +125,11 @@ export function hasActiveDriverSession() {
   return sessions.size > 0;
 }
 
+export function getConnectedDeviceCount() {
+  pruneExpiredSessions();
+  return sessions.size;
+}
+
 export function isDriverSessionValid(token) {
   if (!token) return false;
   const session = sessions.get(token);
@@ -147,7 +153,20 @@ export async function clearDriverSessionsForDriver(dataRoot, driverId) {
       removed = true;
     }
   }
-  if (removed) await saveSessionsToDisk(dataRoot ?? dataRootRef);
+  if (removed) {
+    await saveSessionsToDisk(dataRoot ?? dataRootRef);
+    await refreshConnectedDeviceCountInState(dataRoot ?? dataRootRef);
+  }
+}
+
+/** Admin "disconnect all phones" — every LAN session revoked (bus3-style). */
+export async function clearAllDriverSessions(dataRoot) {
+  pruneExpiredSessions();
+  if (sessions.size === 0) return false;
+  sessions.clear();
+  await saveSessionsToDisk(dataRoot ?? dataRootRef);
+  await refreshConnectedDeviceCountInState(dataRoot ?? dataRootRef);
+  return true;
 }
 
 function createDriverSession(driverIdOverride = null) {
@@ -243,12 +262,32 @@ function isLocalPhoneDriverId(driverId) {
   return Boolean(driverId && String(driverId).startsWith('phone-'));
 }
 
+async function refreshConnectedDeviceCountInState(dataRoot) {
+  if (!dataRoot) return;
+  const count = getConnectedDeviceCount();
+  const current = (await readInfoFile(dataRoot)) ?? {};
+  if ((current.connectedDeviceCount ?? 0) === count) return;
+
+  const pushAt = Date.now();
+  await writeInfoFileSerialized(
+    dataRoot,
+    {
+      ...current,
+      connectedDeviceCount: count,
+      savedAt: pushAt,
+    },
+    { source: 'device-count' }
+  );
+  notifyStateChanged(dataRoot, { savedAt: pushAt, source: 'device-count' });
+}
+
 async function setDriverLink(dataRoot, driverLink) {
   const current = (await readInfoFile(dataRoot)) ?? {};
   const pushAt = Date.now();
   let next = {
     ...current,
     driverLink,
+    connectedDeviceCount: getConnectedDeviceCount(),
     savedAt: pushAt,
     lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
   };
@@ -293,12 +332,42 @@ function startSessionCleanup(dataRoot) {
   if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
 }
 
+/** Offline-first LAN connect — 4-digit pair code only (same as bus3 connect code). */
+async function connectWithPairingCode(dataRoot, pairingCode) {
+  const code = normalizePairingCode(pairingCode);
+  if (!code || code.length !== 4) {
+    return { ok: false, status: 400, error: 'Enter the 4-digit code from the bus screen' };
+  }
+
+  const state = (await readInfoFile(dataRoot)) ?? {};
+  const localCode = normalizePairingCode(state.busProfile?.pairingCode);
+  if (!localCode || code !== localCode) {
+    return { ok: false, status: 403, error: 'Pair code does not match this bus' };
+  }
+
+  const session = createDriverSession();
+  await saveSessionsToDisk(dataRoot);
+  await setDriverLink(dataRoot, {
+    driverId: session.driverId,
+    linkedAt: Date.now(),
+  });
+
+  return {
+    ok: true,
+    token: session.token,
+    expiresAt: session.expiresAt,
+    plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
+    offline: true,
+  };
+}
+
 /**
- * Driver phone unlock — pairing code (display) + admin OTP (cloud).
+ * Driver phone unlock — connect code on LAN (primary), OTP verify (legacy), cloud-paired shortcut.
  */
 export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWithCloud }) {
   dataRootRef = dataRoot;
-  loadSessionsFromDisk(dataRoot).then(() => {
+  loadSessionsFromDisk(dataRoot).then(async () => {
+    await refreshConnectedDeviceCountInState(dataRoot);
     startSessionCleanup(dataRoot);
   });
 
@@ -308,11 +377,25 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
   });
 
   app.get('/api/driver/connected', async (_req, res) => {
-    const state = (await readInfoFile(dataRoot)) ?? {};
+    const count = getConnectedDeviceCount();
     res.json({
       ok: true,
-      connected: Boolean(state.driverLink?.driverId) || hasActiveDriverSession(),
+      connected: count > 0,
+      connectedDeviceCount: count,
     });
+  });
+
+  app.post('/api/driver/connect', async (req, res) => {
+    try {
+      const result = await connectWithPairingCode(dataRoot, req.body?.pairingCode ?? req.body?.code);
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ ok: false, error: result.error });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
   });
 
   app.post('/api/driver/heartbeat', async (req, res) => {
@@ -335,8 +418,12 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
     const token = getDriverTokenFromRequest(req);
     if (token) sessions.delete(token);
     await saveSessionsToDisk(dataRoot);
-    await setDriverLink(dataRoot, null);
-    res.json({ ok: true });
+    if (!hasActiveDriverSession()) {
+      await setDriverLink(dataRoot, null);
+    } else {
+      await refreshConnectedDeviceCountInState(dataRoot);
+    }
+    res.json({ ok: true, connectedDeviceCount: getConnectedDeviceCount() });
   });
 
   app.post('/api/driver/verify', async (req, res) => {
@@ -444,7 +531,7 @@ export function requireDriverAuthUnlessLocal(req, res, next) {
   if (isDriverSessionValid(token)) return next();
   res.status(403).json({
     ok: false,
-    error: 'Driver unlock required — enter pairing code and admin OTP',
+    error: 'Not connected — enter the bus pair code on this phone',
     code: 'DRIVER_LOCKED',
   });
 }

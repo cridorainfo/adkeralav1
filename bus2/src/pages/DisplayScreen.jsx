@@ -353,7 +353,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       {!showingAd && (
         <DriverPairingBanner
           busProfile={s.busProfile}
-          driverLink={s.driverLink}
+          connectedDeviceCount={s.connectedDeviceCount ?? 0}
           compact={pairingCompact}
         />
       )}

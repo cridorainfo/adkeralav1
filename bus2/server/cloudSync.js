@@ -13,7 +13,7 @@ import {
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
-import { clearDriverSessionsForDriver } from './driverAuth.js';
+import { clearAllDriverSessions } from './driverAuth.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -43,6 +43,7 @@ async function handleDeviceRemovedFromFleet(root, reason) {
   try {
     console.warn(`AdKerala cloud sync: bus removed from fleet (${reason}) — showing claim code`);
     clearDeviceClaim(root);
+    await clearAllDriverSessions(root);
 
     const current = (await readInfoFile(root)) ?? {};
     const oldMediaPaths = [
@@ -258,6 +259,38 @@ async function syncAssignedRoutesFromCloud(root, creds) {
   }
 }
 
+/** Apply admin "disconnect all phones" flag from cloud (bus3-style). */
+async function syncDevicesDisconnectFromCloud(root, cloudAt) {
+  if (!cloudAt) return;
+
+  const current = (await readInfoFile(root)) ?? {};
+  const applied = current.busProfile?.devicesDisconnectLastApplied ?? null;
+  if (cloudAt === applied) return;
+
+  await clearAllDriverSessions(root);
+
+  const pushAt = Date.now();
+  const merged = {
+    ...current,
+    driverLink: null,
+    connectedDeviceCount: 0,
+    busProfile: {
+      ...(current.busProfile ?? {}),
+      devicesDisconnectLastApplied: cloudAt,
+    },
+    savedAt: pushAt,
+    lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+  };
+
+  await writeInfoFileSerialized(root, merged, { source: 'devices-disconnect' });
+  notifyStateChanged(root, {
+    savedAt: pushAt,
+    lastCloudPushAt: merged.lastCloudPushAt,
+    source: 'devices-disconnect',
+  });
+  console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
+}
+
 /** Cache fleet admin OTP on the bus for offline driver unlock on LAN. */
 async function syncDriverControlOtpFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
@@ -381,6 +414,7 @@ export async function runCloudSync(root) {
   if (telemetryRes.ok) {
     revokeStrikeCount = 0;
     lastPushedAt = Date.now();
+    await syncDevicesDisconnectFromCloud(root, telemetryRes.json?.devicesDisconnectAt ?? null);
   } else if (isFleetRevoked(telemetryRes)) {
     await noteFleetRevokeAttempt(root, telemetryRes.json?.error ?? 'telemetry rejected');
     return;
@@ -413,7 +447,9 @@ export async function runCloudSync(root) {
       const merged = applyCloudCommands(current, stateCommands);
       const nextDriverId = merged.driverLink?.driverId ?? null;
       if (prevDriverId && !nextDriverId) {
-        await clearDriverSessionsForDriver(root, prevDriverId);
+        await clearAllDriverSessions(root);
+        merged.connectedDeviceCount = 0;
+        merged.driverLink = null;
       }
       const newAdPaths = new Set(collectAdMediaFromState(merged));
       const newAudioPaths = new Set(collectAudioMediaFromState(merged));

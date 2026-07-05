@@ -253,6 +253,7 @@ export async function pgGetBusProfile(busId) {
     linkedAt: row.linked_at ? Number(row.linked_at) : null,
     ownerId: row.owner_id,
     assignedRouteIds,
+    devicesDisconnectAt: row.devices_disconnect_at ?? null,
   };
 }
 
@@ -273,10 +274,13 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   if (patch.assignedRouteIds) {
     profile.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
   }
+  if (patch.devicesDisconnectAt !== undefined) {
+    profile.devicesDisconnectAt = patch.devicesDisconnectAt;
+  }
 
   await query(
-    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids, devices_disconnect_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
      ON CONFLICT (bus_id) DO UPDATE SET
        plate = EXCLUDED.plate,
        plate_display = EXCLUDED.plate_display,
@@ -285,7 +289,8 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
        linked_driver_id = EXCLUDED.linked_driver_id,
        linked_at = EXCLUDED.linked_at,
        owner_id = COALESCE(EXCLUDED.owner_id, bus_profiles.owner_id),
-       assigned_route_ids = EXCLUDED.assigned_route_ids`,
+       assigned_route_ids = EXCLUDED.assigned_route_ids,
+       devices_disconnect_at = COALESCE(EXCLUDED.devices_disconnect_at, bus_profiles.devices_disconnect_at)`,
     [
       busId,
       profile.plate ?? '',
@@ -296,6 +301,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
       profile.linkedAt,
       profile.ownerId,
       JSON.stringify(profile.assignedRouteIds ?? []),
+      profile.devicesDisconnectAt ?? null,
     ]
   );
   return profile;

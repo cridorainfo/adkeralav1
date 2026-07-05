@@ -1338,6 +1338,8 @@ export async function unlinkDriver(driverId) {
   }
 
   await saveStore();
+  const disconnectAt = new Date().toISOString();
+  await upsertBusProfile(busId, { devicesDisconnectAt: disconnectAt });
   await queueDriverLinkMerge(busId, {
     driverLink: null,
     busProfile: {
@@ -1347,7 +1349,15 @@ export async function unlinkDriver(driverId) {
     },
   });
 
-  return { ok: true, busId, pairingCode: newCode };
+  return { ok: true, busId, pairingCode: newCode, devicesDisconnectAt: disconnectAt };
+}
+
+/** Admin: revoke every phone session on this bus (LAN tokens cleared on next sync). */
+export async function disconnectAllPhonesForBus(busId) {
+  if (!busId) return { ok: false, error: 'Missing busId' };
+  const disconnectAt = new Date().toISOString();
+  await upsertBusProfile(busId, { devicesDisconnectAt: disconnectAt });
+  return { ok: true, busId, devicesDisconnectAt: disconnectAt };
 }
 
 export async function unlinkDriverByBusId(busId) {
