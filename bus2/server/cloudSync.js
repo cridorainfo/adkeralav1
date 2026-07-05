@@ -559,7 +559,7 @@ export function getCloudConfig(root) {
     enabled: Boolean(creds.cloudUrl || envCloud),
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
-    fleetClaimCode: creds.claimed ? null : creds.fleetClaimCode,
+    fleetClaimCode: creds.busId ? null : creds.fleetClaimCode,
   };
 }
 

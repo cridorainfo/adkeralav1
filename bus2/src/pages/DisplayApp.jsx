@@ -5,9 +5,9 @@ import { useAnnouncementPlayback } from '../hooks/useAnnouncementPlayback';
 import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useBusPcEspSerial } from '../hooks/useBusPcEspSerial';
 import { isKioskMode, isLaunchedByRunScript } from '../lib/appRole';
-import DriverConnectBanner from '../components/DriverConnectBanner';
 import FleetSetupOverlay from '../components/FleetSetupOverlay';
 import UpdateOverlay from '../components/UpdateOverlay';
+import ConsoleStatus from '../components/ConsoleStatus';
 import DisplayScreen from './DisplayScreen';
 
 /** Passenger screen — open on bus PC at /display */
@@ -53,14 +53,22 @@ export default function DisplayApp() {
     return () => document.documentElement.classList.remove('kiosk-hide-cursor');
   }, [kioskMode]);
 
+  const consoleRuntime = {
+    isConnected: serial?.isConnected,
+    portLabel: serial?.portLabel,
+    status: serial?.status,
+    error: serial?.error,
+    at: state.serialRuntime?.at,
+  };
+
   return (
     <>
       <FleetSetupOverlay />
       {kioskMode && <UpdateOverlay />}
       <DisplayScreen passengerMode />
-      {kioskMode && !state.driverLink?.driverId && (
-        <div className="display-kiosk-control-hint">
-          <DriverConnectBanner />
+      {kioskMode && (
+        <div className="display-console-status-wrap">
+          <ConsoleStatus serialRuntime={consoleRuntime} compact />
         </div>
       )}
       {kioskMode && needsUsbAuthorize && (
@@ -69,12 +77,12 @@ export default function DisplayApp() {
           className="display-esp-once-btn"
           onClick={() => authorizeUsbPort()}
         >
-          Connect ESP32 USB (one-time on bus PC)
+          Connect console USB (one-time)
         </button>
       )}
       {kioskMode && serial?.error && (
         <p className="display-esp-error" role="alert">
-          ESP32: {serial.error}
+          Console: {serial.error}
         </p>
       )}
     </>

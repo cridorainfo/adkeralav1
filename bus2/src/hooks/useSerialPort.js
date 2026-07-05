@@ -36,12 +36,11 @@ function isPortOpen(port) {
 function describeSerialError(err) {
   const msg = String(err?.message ?? err ?? '');
   if (/timed out/i.test(msg)) {
-    return 'Serial port open timed out. Unplug the ESP32, close other serial apps, plug back in, and retry.';
+    return 'Serial port open timed out. Unplug the console, close other serial apps, plug back in, and retry.';
   }
   if (/failed to open/i.test(msg)) {
     return (
-      'Could not open COM port. Close Arduino Serial Monitor, PuTTY, or any other app using this port, ' +
-      'then unplug/replug the ESP32 and click Select COM Port again.'
+      'Could not open COM port. Close other apps using this port, then unplug/replug the console and try again.'
     );
   }
   if (err?.name === 'InvalidStateError') {
@@ -343,12 +342,12 @@ export function useSerialPort({
 
   const findSavedPort = useCallback(async () => {
     const ports = await navigator.serial.getPorts();
+    if (!ports.length) return null;
     if (savedPortInfo) {
       const match = ports.find((p) => portMatchesInfo(p, savedPortInfo));
       if (match) return match;
     }
-    if (ports.length === 1) return ports[0];
-    return null;
+    return ports[0];
   }, [savedPortInfo]);
 
   const shouldStayConnected = enabled || locked || Boolean(savedPortInfo);
@@ -366,26 +365,39 @@ export function useSerialPort({
     return enqueue(async () => {
       if (abortRef.current || isConnectedNow()) return isConnectedNow();
 
-      const match = await findSavedPort();
-      if (!match) {
-        if (lockedRef.current || savedPortInfoRef.current) {
-          setStatus('waiting');
-        } else {
-          setStatus('idle');
-        }
+      const ports = await navigator.serial.getPorts();
+      if (!ports.length) {
+        setStatus('waiting');
         return false;
       }
 
+      const saved = savedPortInfoRef.current;
+      const ordered = [...ports].sort((a, b) => {
+        const aMatch = saved && portMatchesInfo(a, saved) ? 1 : 0;
+        const bMatch = saved && portMatchesInfo(b, saved) ? 1 : 0;
+        return bMatch - aMatch;
+      });
+
       abortRef.current = false;
       setError('');
-      await connectPortCore(match);
-      if (portRef.current) {
-        reconnectAttemptRef.current = 0;
-        return true;
+
+      for (const port of ordered) {
+        if (abortRef.current) break;
+        try {
+          await connectPortCore(port);
+          if (portRef.current) {
+            reconnectAttemptRef.current = 0;
+            return true;
+          }
+        } catch {
+          /* try next authorized port */
+        }
       }
+
+      setStatus('waiting');
       return false;
     });
-  }, [connectPortCore, enqueue, findSavedPort, isConnectedNow]);
+  }, [connectPortCore, enqueue, isConnectedNow]);
 
   const scheduleReconnect = useCallback(
     (immediate = false) => {

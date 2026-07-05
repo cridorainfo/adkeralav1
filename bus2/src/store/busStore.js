@@ -78,8 +78,8 @@ const defaultState = () => ({
   /** Shared stop names + GPS + ml — synced from cloud catalog */
   stopCatalog: [],
   serialSettings: {
-    enabled: false,
-    portLocked: false,
+    enabled: true,
+    portLocked: true,
     baudRate: 115200,
     savedPortInfo: null,
     buttonMappings: {
@@ -92,7 +92,7 @@ const defaultState = () => ({
     exitCommand: 'exit',
     debounceMs: 500,
   },
-  /** Live ESP32 connection on bus display PC — updated by /display, read on /control */
+  /** Live console USB on bus display PC — updated by /display, read on /control */
   serialRuntime: null,
   currentAdIndex: 0,
   nextAdIndex: 0,

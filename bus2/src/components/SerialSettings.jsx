@@ -4,7 +4,7 @@ const STATUS_LABELS = {
   reconnecting: 'Reconnecting…',
   connected: 'Connected',
   disconnected: 'Disconnected',
-  waiting: 'Waiting for ESP32…',
+  waiting: 'Waiting for console…',
   error: 'Connection error',
 };
 
@@ -49,7 +49,7 @@ export default function SerialSettings({
     try {
       const ok = await serial.reconnect?.();
       if (!ok) {
-        serial.setError?.('Saved port not found. Click Select COM Port and choose the ESP32 again.');
+        serial.setError?.('Saved port not found. Click Select COM Port and choose the console again.');
       }
     } catch (err) {
       const msg = serial.describeError?.(err) ?? err?.message ?? 'Could not reconnect';
@@ -68,12 +68,10 @@ export default function SerialSettings({
   if (remoteConfig) {
     return (
       <div className="serial-panel serial-panel--remote">
-        <h4 className="settings-section-title">ESP32 USB buttons</h4>
+        <h4 className="settings-section-title">Console USB buttons</h4>
         <p className="serial-panel-desc">
-          Configure everything here on your phone. The ESP32 USB cable plugs into the{' '}
-          <strong>bus PC</strong> (passenger display). When you enable serial below, the bus PC
-          connects automatically. Use <strong>Remember COM port</strong> so it reconnects after
-          restart.
+          The console USB cable plugs into the <strong>bus PC</strong> (passenger display). The bus PC
+          auto-connects to any authorized COM port.
         </p>
 
         <div className="serial-status-row">
@@ -95,8 +93,8 @@ export default function SerialSettings({
 
         {!serialRuntime?.at && (
           <p className="serial-hint">
-            Waiting for connection status from the bus PC. Enable serial input below — on first
-            setup, tap <strong>Connect ESP32 USB</strong> once on the passenger screen.
+            Waiting for connection status from the bus PC. On first setup, tap{' '}
+            <strong>Connect console USB</strong> once on the passenger screen.
           </p>
         )}
 
@@ -126,8 +124,8 @@ export default function SerialSettings({
         </div>
 
         <p className="serial-hint serial-hint--warning">
-          First time only: on the bus passenger screen, tap <strong>Connect ESP32 USB</strong> once
-          to authorize the COM port. After that, phone settings control everything.
+          First time only: on the bus passenger screen, tap <strong>Connect console USB</strong> once
+          to authorize the COM port. After that the bus PC reconnects automatically.
         </p>
 
         <div className="form-row">
@@ -236,8 +234,8 @@ export default function SerialSettings({
     return (
       <div className="serial-panel serial-panel--unsupported">
         <p>
-          Web Serial is not available in this browser. Use Chrome or Edge on desktop to connect an
-          ESP32.
+          Web Serial is not available in this browser. Use Chrome or Edge on desktop to connect the
+          console.
         </p>
       </div>
     );
@@ -248,7 +246,7 @@ export default function SerialSettings({
       <div className={`serial-status-bar ${serial.isConnected ? 'connected' : ''}`}>
         <span className="serial-status-dot" aria-hidden />
         <span className="serial-status-text">
-          ESP32: {STATUS_LABELS[serial.status] ?? serial.status}
+          Console: {STATUS_LABELS[serial.status] ?? serial.status}
           {serial.portLabel ? ` · ${serial.portLabel}` : ''}
         </span>
         {serial.lastLine && (
@@ -267,12 +265,11 @@ export default function SerialSettings({
 
   return (
     <div className="serial-panel">
-      <h4 className="settings-section-title">ESP32 serial control</h4>
+      <h4 className="settings-section-title">Console serial control</h4>
       <p className="serial-panel-desc">
-        Connect an ESP32 over USB on this PC (driver control page). Select COM port and enable{' '}
-        <strong>Remember this COM port</strong> for auto-connect after restart. Buttons{' '}
-        <code>1</code>/<code>2</code>/<code>3</code> map to Forward / Undo / Announce (same as the
-        on-screen buttons).
+        Connect the console over USB on this PC. Select COM port — the bus PC auto-connects to any
+        authorized port after restart. Buttons <code>1</code>/<code>2</code>/<code>3</code> map to
+        Forward / Undo / Announce (same as the on-screen buttons).
       </p>
 
       <div className="serial-status-row">
@@ -342,8 +339,8 @@ export default function SerialSettings({
       </div>
 
       <p className="serial-hint serial-hint--warning">
-        If open fails: close Arduino Serial Monitor / PuTTY, unplug the ESP32 USB cable, plug it
-        back in, then click <strong>Disconnect</strong> → <strong>Select COM Port</strong>.
+        If open fails: close other serial apps, unplug the console USB cable, plug it back in, then
+        click <strong>Disconnect</strong> → <strong>Select COM Port</strong>.
       </p>
 
       <div className="form-row">

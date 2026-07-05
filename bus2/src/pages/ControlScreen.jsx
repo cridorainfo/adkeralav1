@@ -262,7 +262,7 @@ export default function ControlScreen({
               >
                 <span className="serial-status-dot" aria-hidden />
                 <span className="serial-status-text">
-                  ESP32 on bus PC:{' '}
+                  Console on bus PC:{' '}
                   {state.serialRuntime?.status
                     ? (state.serialRuntime.isConnected ? 'Connected' : state.serialRuntime.status)
                     : 'No status yet'}

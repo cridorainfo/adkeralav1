@@ -16,13 +16,9 @@ import { BilingualStop } from '../components/BilingualStop';
 import { canPlayAnnouncement } from '../lib/audioFragments';
 import { useDriverControl } from '../components/DriverControlContext';
 import { busFetch } from '../lib/driverBusApi';
-import DriverEspSettingsPanel from '../components/DriverEspSettingsPanel';
+import ConsoleStatus from '../components/ConsoleStatus';
 
-export default function DriverControlScreen({
-  serialSettings = {},
-  serialRuntime = null,
-  onUpdateSerialSettings = () => {},
-}) {
+export default function DriverControlScreen({ serialRuntime = null }) {
   const { state, applyRemoteState } = useBusStore();
   const { disconnect, plate } = useDriverControl();
   const [busy, setBusy] = useState(false);
@@ -98,6 +94,14 @@ export default function DriverControlScreen({
     }
   }, [busy, applyRemoteState, pingConnection]);
 
+  useEffect(() => {
+    if (!busRoutes.length) return;
+    const valid = busRoutes.some((r) => r.id === state.activeRouteId);
+    if (!valid && busRoutes[0]?.id) {
+      runDrive('selectRoute', { routeId: busRoutes[0].id });
+    }
+  }, [state.activeRouteId, busRoutes, runDrive]);
+
   const handleAnnounce = () => {
     if (!announceTarget) return;
     const isTerminus = stopInfo.final && sameStop(announceTarget, stopInfo.final);
@@ -114,9 +118,12 @@ export default function DriverControlScreen({
             <small>{plate ? `Bus ${plate}` : 'Driver control'}</small>
           </div>
         </div>
-        <div className="driver-minimal-status" role="status">
-          <span className={`driver-minimal-dot ${connected ? 'on' : 'off'}`} aria-hidden />
-          {connected ? 'Connected' : 'Disconnected'}
+        <div className="driver-minimal-status-group">
+          <ConsoleStatus serialRuntime={serialRuntime ?? state.serialRuntime} compact />
+          <div className="driver-minimal-status" role="status">
+            <span className={`driver-minimal-dot ${connected ? 'on' : 'off'}`} aria-hidden />
+            {connected ? 'Connected' : 'Disconnected'}
+          </div>
         </div>
       </header>
 
@@ -278,12 +285,6 @@ export default function DriverControlScreen({
 
             </>
           )}
-
-          <DriverEspSettingsPanel
-            serialSettings={serialSettings}
-            serialRuntime={serialRuntime ?? state.serialRuntime}
-            onUpdateSerialSettings={onUpdateSerialSettings}
-          />
 
           <button type="button" className="btn secondary driver-minimal-disconnect" onClick={disconnect}>
             Disconnect from this bus

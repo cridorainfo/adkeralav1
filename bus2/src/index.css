@@ -4256,6 +4256,66 @@ html.kiosk-hide-cursor * {
   background: #22c55e;
 }
 
+.driver-minimal-status-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.console-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--kerala-muted);
+}
+
+.console-status--compact {
+  font-size: 0.78rem;
+}
+
+.console-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.console-status-dot.on {
+  background: #22c55e;
+}
+
+.console-status-port {
+  opacity: 0.75;
+  font-size: 0.75rem;
+}
+
+.display-console-status-wrap {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 10040;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.display-console-status-wrap .console-status {
+  color: inherit;
+}
+
+.display-console-status-wrap .console-status-dot {
+  background: #64748b;
+}
+
+.display-console-status-wrap .console-status-dot.on {
+  background: #4ade80;
+}
+
 .driver-minimal-panel {
   text-align: left;
 }

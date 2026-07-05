@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { isWebSerialSupported } from './useSerialPort';
 import { usePlatformSerial, isPlatformSerialSupported } from './usePlatformSerial';
 import { isAndroidSerialAvailable } from './useAndroidSerialBridge';
@@ -8,7 +8,7 @@ import { getStopEn } from '../store/busStore';
 import { postDriveAction } from '../lib/driverDriveApi';
 import { isBusPcForSerial } from '../lib/appRole';
 
-/** ESP32 USB on bus PC passenger display — settings come from driver phone via sync. */
+/** Console USB on bus PC passenger display — auto-connects any authorized COM port. */
 export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime, updateSerialSettings }) {
   const active = isBusPcForSerial() && isPlatformSerialSupported();
 
@@ -52,15 +52,15 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
   ];
 
   const serial = usePlatformSerial({
-    enabled:
-      active &&
-      (serialSettings.enabled ?? isAndroidSerialAvailable() ?? Boolean(serialSettings.savedPortInfo)),
-    locked: serialSettings.portLocked ?? Boolean(serialSettings.savedPortInfo),
+    enabled: active && serialSettings.enabled !== false,
+    locked: serialSettings.portLocked !== false,
     baudRate: serialSettings.baudRate,
     savedPortInfo: serialSettings.savedPortInfo,
     onValueChange: handleValueChange,
     textCommands: serialTextCommands,
   });
+
+  const savedPortRef = useRef(null);
 
   const authorizeUsbPort = useCallback(async () => {
     if (!active) return false;
@@ -109,6 +109,20 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
   ]);
 
   useEffect(() => {
+    if (!active || !updateSerialSettings || !serial.isConnected) return;
+    const info = serial.getPortInfo?.();
+    if (!info) return;
+    const key = JSON.stringify(info);
+    if (savedPortRef.current === key) return;
+    savedPortRef.current = key;
+    updateSerialSettings({
+      enabled: true,
+      portLocked: true,
+      savedPortInfo: info,
+    });
+  }, [active, serial.isConnected, serial.getPortInfo, updateSerialSettings, serial.status]);
+
+  useEffect(() => {
     if (!active) return undefined;
     const timer = window.setTimeout(() => {
       fetch('/api/state', {
@@ -144,8 +158,7 @@ export function useBusPcEspSerial({ state, applyRemoteState, updateSerialRuntime
       active &&
       isWebSerialSupported() &&
       !isAndroidSerialAvailable() &&
-      Boolean(serialSettings.enabled) &&
       !serial.isConnected &&
-      !serialSettings.savedPortInfo,
+      (serial.status === 'idle' || serial.status === 'waiting'),
   };
 }

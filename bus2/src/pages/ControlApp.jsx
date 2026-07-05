@@ -3,7 +3,7 @@ import { useBusStore } from '../hooks/useBusStore';
 import DriverControlScreen from './DriverControlScreen';
 import DriverControlGate from '../components/DriverControlGate';
 
-/** Driver control at /control — driver phone (Wi‑Fi). ESP32 USB runs on bus PC /display. */
+/** Driver control at /control — driver phone (Wi‑Fi). Console USB runs on bus PC /display. */
 export default function ControlApp() {
   return (
     <DriverControlGate>
@@ -13,14 +13,8 @@ export default function ControlApp() {
 }
 
 function ControlAppInner() {
-  const { state, updateSerialSettings } = useBusStore();
+  const { state } = useBusStore();
   useRemoteStateSync(true);
 
-  return (
-    <DriverControlScreen
-      serialSettings={state.serialSettings ?? {}}
-      serialRuntime={state.serialRuntime}
-      onUpdateSerialSettings={updateSerialSettings}
-    />
-  );
+  return <DriverControlScreen serialRuntime={state.serialRuntime} />;
 }
