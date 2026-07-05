@@ -503,6 +503,7 @@ export function setupHubSessions(app, { dataRoot }) {
         await setDriverLink(dataRoot, { driverId: session.driverId, linkedAt: Date.now() });
       }
     }
+    await refreshConnectedDeviceCountInState(dataRoot);
     const state = normalizeClientState((await readInfoFile(dataRoot)) ?? {});
     res.json({
       ok: true,

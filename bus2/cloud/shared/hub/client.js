@@ -16,7 +16,7 @@ import {
   saveHubSession,
 } from './persist.js';
 
-const PING_MS = 15_000;
+const PING_MS = 5_000;
 
 let pingTimer = null;
 let connectMutex = Promise.resolve();

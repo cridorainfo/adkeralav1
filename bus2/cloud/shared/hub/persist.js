@@ -9,6 +9,7 @@ export const HUB_PERSIST_KEYS = [
   'adkerala_hub_plate',
   'adkerala_hub_origin',
   'adkerala_hub_disconnect_ack',
+  'adkerala_hub_state_cache',
 ];
 
 const memoryStore = new Map();
@@ -180,6 +181,46 @@ export function loadDisconnectAck() {
 export function clearHubSetup() {
   for (const key of HUB_PERSIST_KEYS) {
     persist(key, null);
+  }
+}
+
+const HUB_STATE_CACHE_FIELDS = [
+  'savedAt',
+  'driveRevision',
+  'routes',
+  'activeRouteId',
+  'currentStopIndex',
+  'tripStarted',
+  'tripEnded',
+  'tripDeparted',
+  'routeDirection',
+  'busProfile',
+  'settingsSavedAt',
+];
+
+/** Last-known hub state for instant driver UI on reopen (stale-while-revalidate). */
+export function loadCachedHubState() {
+  try {
+    const raw = read('adkerala_hub_state_cache');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCachedHubState(state) {
+  if (!state || typeof state !== 'object') return;
+  try {
+    const slice = {};
+    for (const key of HUB_STATE_CACHE_FIELDS) {
+      if (state[key] !== undefined) slice[key] = state[key];
+    }
+    slice.cachedAt = Date.now();
+    persist('adkerala_hub_state_cache', JSON.stringify(slice));
+  } catch {
+    /* quota / private mode */
   }
 }
 

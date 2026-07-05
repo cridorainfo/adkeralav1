@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 /** Wait before showing QR after a drop in hub signals — ignores brief sync flicker. */
-const DISCONNECT_DEBOUNCE_MS = 2500;
+const DISCONNECT_DEBOUNCE_MS = 6000;
 
 function readDisconnectAt(state) {
   return (
@@ -13,6 +13,10 @@ function readDisconnectAt(state) {
 
 function isRawDriverConnected(state) {
   return (state?.connectedDeviceCount ?? 0) > 0 || Boolean(state?.driverLink?.driverId);
+}
+
+function hasStableDriverLink(state) {
+  return Boolean(state?.driverLink?.driverId);
 }
 
 /**
@@ -57,13 +61,21 @@ export function useShowDriverPairingQr(state) {
       return undefined;
     }
 
+    // Paired driver still linked — ignore connectedDeviceCount blips from sync.
+    if (hasStableDriverLink(state)) {
+      setShowQr(false);
+      return undefined;
+    }
+
     if (!hadSessionRef.current) {
       setShowQr(true);
       return undefined;
     }
 
     const timer = setTimeout(() => {
-      if (!isRawDriverConnected(stateRef.current)) {
+      const latest = stateRef.current;
+      if (hasStableDriverLink(latest)) return;
+      if (!isRawDriverConnected(latest)) {
         hadSessionRef.current = false;
         setShowQr(true);
       }

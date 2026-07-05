@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { hubFetch, isOnBusLanOrigin } from './api.js';
 import {
   clearHubSetup,
+  getHubToken,
+  hydrateHubStorage,
+  loadCachedHubState,
   loadHubControlUrl,
+  saveCachedHubState,
 } from './persist.js';
 import {
   ensureHubConnected,
@@ -11,8 +15,8 @@ import {
 } from './client.js';
 import { mergeHubPollState } from './mergeHubPollState.js';
 
-const POLL_MS = 2000;
-const POLL_MS_LIVE = 5000;
+const POLL_MS = 1000;
+const POLL_MS_LIVE = 3000;
 
 function canUseSameOriginEvents() {
   if (typeof window === 'undefined') return false;
@@ -28,12 +32,19 @@ function canUseSameOriginEvents() {
 
 /** Poll hub state and maintain session — single ping owner via startHubPing. */
 export function useHubState({ onRevoked } = {}) {
-  const [state, setState] = useState(null);
-  const [stateLoaded, setStateLoaded] = useState(false);
+  const cached = loadCachedHubState();
+  const [state, setState] = useState(cached);
+  const [stateLoaded, setStateLoaded] = useState(Boolean(cached));
   const [connected, setConnected] = useState(false);
   const [plate, setPlate] = useState('');
   const [error, setError] = useState('');
   const revokedRef = useRef(false);
+
+  const applyIncomingState = useCallback((prev, incoming) => {
+    const merged = mergeHubPollState(prev, incoming);
+    saveCachedHubState(merged);
+    return merged;
+  }, []);
 
   const refreshState = useCallback(async () => {
     try {
@@ -41,7 +52,7 @@ export function useHubState({ onRevoked } = {}) {
       const json = await res.json();
       if (json.ok) {
         const incoming = json.data ?? {};
-        setState((prev) => mergeHubPollState(prev, incoming));
+        setState((prev) => applyIncomingState(prev, incoming));
         setStateLoaded(true);
         setConnected(true);
         setError('');
@@ -52,7 +63,7 @@ export function useHubState({ onRevoked } = {}) {
       setError(err.message ?? 'Could not reach bus — stay on bus Wi‑Fi');
     }
     return null;
-  }, []);
+  }, [applyIncomingState]);
 
   const syncSession = useCallback(async () => {
     const result = await ensureHubConnected();
@@ -60,6 +71,8 @@ export function useHubState({ onRevoked } = {}) {
       revokedRef.current = true;
       clearHubSetup();
       setConnected(false);
+      setState(null);
+      setStateLoaded(false);
       onRevoked?.(result.error);
       return result;
     }
@@ -82,14 +95,40 @@ export function useHubState({ onRevoked } = {}) {
       }, delayMs);
     };
 
-    (async () => {
+    const bootstrap = async () => {
+      await hydrateHubStorage();
+      const cachedState = loadCachedHubState();
+      if (cachedState && !cancelled) {
+        setState(cachedState);
+        setStateLoaded(true);
+      }
+
+      const earlyRefresh = getHubToken() ? refreshState().catch(() => null) : null;
       const session = await syncSession();
       if (cancelled || revokedRef.current) return;
       if (session?.redirect) return;
-      await refreshState();
-    })();
+
+      if (earlyRefresh) {
+        await earlyRefresh;
+      } else {
+        await refreshState();
+      }
+    };
+
+    bootstrap().catch(() => {});
 
     schedulePoll(POLL_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      syncSession()
+        .then((session) => {
+          if (cancelled || revokedRef.current || session?.redirect) return;
+          return refreshState();
+        })
+        .catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     if (canUseSameOriginEvents() && typeof EventSource !== 'undefined') {
       try {
@@ -115,6 +154,8 @@ export function useHubState({ onRevoked } = {}) {
         revokedRef.current = true;
         clearHubSetup();
         setConnected(false);
+        setState(null);
+        setStateLoaded(false);
         onRevoked?.('Session ended — pair again');
         return;
       }
@@ -128,6 +169,7 @@ export function useHubState({ onRevoked } = {}) {
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
       eventSource?.close();
+      document.removeEventListener('visibilitychange', onVisible);
       stopHubPing();
     };
   }, [syncSession, refreshState, onRevoked]);
