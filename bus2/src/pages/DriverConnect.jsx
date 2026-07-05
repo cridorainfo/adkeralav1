@@ -34,7 +34,7 @@ export default function DriverConnect() {
 
       const fromQr = readHubControlFromLocation(location.search);
       if (fromQr) {
-        saveBusControlUrl(fromQr);
+        saveHubControlUrl(fromQr);
         if (!cancelled) setBusUrl(fromQr);
         navigate('/driver', { replace: true });
         return;
@@ -42,7 +42,7 @@ export default function DriverConnect() {
 
       if (isOnBusLanOrigin()) {
         const lanControl = `${window.location.origin}/control`;
-        saveBusControlUrl(lanControl);
+        saveHubControlUrl(lanControl);
         if (!cancelled) setBusUrl(lanControl);
       }
 

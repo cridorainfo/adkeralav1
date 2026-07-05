@@ -9,6 +9,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      '#hub/lan': path.resolve(__dirname, 'cloud/shared/hub/lan.js'),
       '#hub/persist': path.resolve(__dirname, 'cloud/shared/hub/persist.js'),
       '#hub/api': path.resolve(__dirname, 'cloud/shared/hub/api.js'),
       '#hub/client': path.resolve(__dirname, 'cloud/shared/hub/client.js'),

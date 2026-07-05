@@ -1,3 +1,4 @@
+import { isLanOrigin } from './lan.js';
 import {
   getHubOrigin,
   getHubToken,
@@ -6,21 +7,7 @@ import {
 
 /** True when this page is served from the bus PC on the local network. */
 export function isOnBusLanOrigin(origin = typeof window !== 'undefined' ? window.location.origin : '') {
-  try {
-    const url = new URL(origin);
-    const { hostname, protocol } = url;
-    if (protocol === 'capacitor:' || protocol === 'ionic:') return false;
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      if (protocol === 'https:' && (url.port === '' || url.port === '443')) return false;
-      return true;
-    }
-    if (/^192\.168\./.test(hostname)) return true;
-    if (/^10\./.test(hostname)) return true;
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return true;
-    return false;
-  } catch {
-    return false;
-  }
+  return isLanOrigin(origin);
 }
 
 export function getHubApiBase() {

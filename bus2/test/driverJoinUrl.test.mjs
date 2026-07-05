@@ -4,6 +4,8 @@ import { buildDriverJoinUrl, readPairingCodeFromLocation } from '../src/lib/driv
 import {
   normalizeControlUrl,
   readHubControlFromLocation,
+  saveHubControlUrl,
+  clearHubSetup,
 } from '../cloud/shared/hub/persist.js';
 
 test('buildDriverJoinUrl points to bus PC /driver on LAN (bus3-style)', () => {
@@ -15,15 +17,14 @@ test('buildDriverJoinUrl points to bus PC /driver on LAN (bus3-style)', () => {
   assert.equal(url.search, '');
 });
 
-test('buildDriverJoinUrl ignores cloud PWA base — LAN only', () => {
-  const join = buildDriverJoinUrl(
-    'http://192.168.1.50:5174/control',
-    'https://adkerala.com/driver',
-  );
-  assert.ok(join);
-  const url = new URL(join);
-  assert.equal(url.origin, 'http://192.168.1.50:5174');
-  assert.equal(url.pathname, '/driver');
+test('buildDriverJoinUrl rejects cloud URLs', () => {
+  assert.equal(buildDriverJoinUrl('https://adkerala.com/control'), null);
+  assert.equal(buildDriverJoinUrl('https://adkerala.com/driver'), null);
+});
+
+test('buildDriverJoinUrl accepts Windows hotspot gateway', () => {
+  const join = buildDriverJoinUrl('http://192.168.137.1:5174/control');
+  assert.equal(join, 'http://192.168.137.1:5174/driver');
 });
 
 test('normalizeControlUrl maps /driver to /control', () => {
@@ -43,6 +44,12 @@ test('normalizeControlUrl strips query params', () => {
 test('readHubControlFromLocation reads control query param', () => {
   const raw = readHubControlFromLocation('?control=http%3A%2F%2F192.168.1.50%3A5174%2Fcontrol');
   assert.equal(raw, 'http://192.168.1.50:5174/control');
+});
+
+test('saveHubControlUrl rejects cloud control URLs', () => {
+  clearHubSetup();
+  assert.equal(saveHubControlUrl('https://adkerala.com/control'), null);
+  assert.equal(saveHubControlUrl('http://192.168.1.50:5174/control'), 'http://192.168.1.50:5174/control');
 });
 
 test('readPairingCodeFromLocation reads legacy code param', () => {

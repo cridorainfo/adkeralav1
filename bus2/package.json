@@ -5,6 +5,7 @@
   "description": "AdKerala — bus route display and advertising platform",
   "type": "module",
   "imports": {
+    "#hub/lan": "./cloud/shared/hub/lan.js",
     "#hub/persist": "./cloud/shared/hub/persist.js",
     "#hub/api": "./cloud/shared/hub/api.js",
     "#hub/client": "./cloud/shared/hub/client.js",

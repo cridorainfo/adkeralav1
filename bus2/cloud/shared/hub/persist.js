@@ -1,5 +1,6 @@
 /** Hub client persistence — localStorage on web, Capacitor Preferences on native. */
 
+import { isLanOrigin } from './lan.js';
 export const HUB_PERSIST_KEYS = [
   'adkerala_hub_control_url',
   'adkerala_hub_pair_code',
@@ -97,6 +98,11 @@ export function normalizeControlUrl(raw) {
 export function saveHubControlUrl(raw) {
   const normalized = normalizeControlUrl(raw);
   if (!normalized) return null;
+  try {
+    if (!isLanOrigin(new URL(normalized).origin)) return null;
+  } catch {
+    return null;
+  }
   persist('adkerala_hub_control_url', normalized);
   return normalized;
 }
@@ -184,7 +190,9 @@ export function readHubControlFromLocation(search = '') {
   if (raw) return normalizeControlUrl(raw);
 
   if (typeof window !== 'undefined' && window.location.pathname.includes('/driver')) {
-    return normalizeControlUrl(`${window.location.origin}/control`);
+    if (isLanOrigin(window.location.origin)) {
+      return normalizeControlUrl(`${window.location.origin}/control`);
+    }
   }
 
   return null;

@@ -1,9 +1,13 @@
-/** QR on bus display — opens driver panel on the bus PC LAN (bus3-style, same Wi‑Fi origin). */
-export function buildDriverJoinUrl(controlUrlHttp, _driverPwaBaseUrl = null) {
+import { isPrivateLanHost } from '#hub/lan';
+
+/** QR on bus display — opens driver panel on the bus PC LAN (same Wi‑Fi origin). */
+export function buildDriverJoinUrl(controlUrlHttp) {
   if (!controlUrlHttp) return null;
 
   try {
     const control = new URL(controlUrlHttp);
+    if (!/^https?:$/i.test(control.protocol)) return null;
+    if (!isPrivateLanHost(control.hostname)) return null;
     if (!control.pathname.includes('/control')) {
       control.pathname = `${control.pathname.replace(/\/$/, '')}/control`;
     }

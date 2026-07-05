@@ -359,7 +359,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       </main>
 
       {isPassengerView && !driverConnected && (
-        <DriverPairingBanner connectedDeviceCount={0} compact />
+        <DriverPairingBanner connectedDeviceCount={s.connectedDeviceCount ?? 0} compact />
       )}
 
       {!showingAd && driverConnected && showBannerStrip && (

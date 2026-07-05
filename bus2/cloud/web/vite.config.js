@@ -57,6 +57,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@capacitor/preferences': path.resolve(__dirname, 'src/stubs/capacitor-preferences.js'),
+      '#hub/lan': path.resolve(__dirname, '../shared/hub/lan.js'),
       '#hub/persist': path.resolve(__dirname, '../shared/hub/persist.js'),
       '#hub/api': path.resolve(__dirname, '../shared/hub/api.js'),
       '#hub/client': path.resolve(__dirname, '../shared/hub/client.js'),
