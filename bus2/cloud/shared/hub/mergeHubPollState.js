@@ -1,5 +1,92 @@
-import { mergeTripFieldsFromSync } from '../../../src/store/tripMerge.js';
-import { mergeBusProfile } from '../../../src/store/busProfileMerge.js';
+const TRIP_FIELDS = [
+  'activeRouteId',
+  'currentStopIndex',
+  'tripStarted',
+  'tripEnded',
+  'tripDeparted',
+  'routeDirection',
+  'driveRevision',
+];
+
+function copyTripFields(source = {}, base = {}) {
+  for (const key of TRIP_FIELDS) {
+    if (source[key] !== undefined) base[key] = source[key];
+  }
+  return base;
+}
+
+function resolveTripFields(current = {}, incoming = {}, base = {}) {
+  const curRev = current.driveRevision ?? 0;
+  const incRev = incoming.driveRevision ?? 0;
+  let source = current;
+
+  if (incRev > curRev) source = incoming;
+  else if (curRev > incRev) source = current;
+  else {
+    source = (incoming.savedAt ?? 0) >= (current.savedAt ?? 0) ? incoming : current;
+  }
+
+  copyTripFields(source, base);
+  base.savedAt = Math.max(current.savedAt ?? 0, incoming.savedAt ?? 0, base.savedAt ?? 0);
+  return base;
+}
+
+function mergeTripFieldsFromSync(prev = {}, stored = {}, base = {}) {
+  const curRev = prev.driveRevision ?? 0;
+  const incRev = stored.driveRevision ?? 0;
+  const prevSaved = prev.savedAt ?? 0;
+  const remoteSaved = stored.savedAt ?? 0;
+
+  if (incRev > curRev) {
+    copyTripFields(stored, base);
+  } else if (curRev > incRev) {
+    resolveTripFields(prev, stored, base);
+  } else if (remoteSaved >= prevSaved) {
+    copyTripFields(stored, base);
+  } else {
+    resolveTripFields(prev, stored, base);
+  }
+
+  base.savedAt = Math.max(prevSaved, remoteSaved, base.savedAt ?? 0);
+  return base;
+}
+
+function mergeBusProfile(currentProfile = {}, incomingProfile = {}) {
+  const cur = currentProfile ?? {};
+  const inc = incomingProfile ?? {};
+  const merged = { ...cur, ...inc };
+
+  const curIds = Array.isArray(cur.assignedRouteIds) ? cur.assignedRouteIds : [];
+  const incIds = Array.isArray(inc.assignedRouteIds) ? inc.assignedRouteIds : [];
+
+  if (curIds.length) {
+    merged.assignedRouteIds = curIds;
+  } else if (incIds.length) {
+    merged.assignedRouteIds = incIds;
+  } else {
+    merged.assignedRouteIds = [];
+  }
+
+  if (cur.pairingCode) merged.pairingCode = cur.pairingCode;
+  else if (inc.pairingCode) merged.pairingCode = inc.pairingCode;
+
+  if (cur.plate) merged.plate = cur.plate;
+  else if (inc.plate) merged.plate = inc.plate;
+
+  if (cur.plateDisplay) merged.plateDisplay = cur.plateDisplay;
+  else if (inc.plateDisplay) merged.plateDisplay = inc.plateDisplay;
+
+  if (cur.displayName) merged.displayName = cur.displayName;
+  else if (inc.displayName) merged.displayName = inc.displayName;
+
+  if (cur.devicesDisconnectLastApplied) {
+    merged.devicesDisconnectLastApplied = cur.devicesDisconnectLastApplied;
+  } else if (inc.devicesDisconnectLastApplied) {
+    merged.devicesDisconnectLastApplied = inc.devicesDisconnectLastApplied;
+  }
+
+  return merged;
+}
 
 function coerceRoutesArray(routes) {
   if (Array.isArray(routes)) return routes;
