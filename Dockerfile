@@ -11,6 +11,7 @@ ENV VITE_CLOUD_URL=$VITE_CLOUD_URL
 COPY bus2/cloud/web/package.json bus2/cloud/web/package-lock.json* ./
 RUN npm install
 
+COPY bus2/cloud/shared/hub /app/shared/hub
 COPY bus2/cloud/web/ ./
 RUN npm run build
 

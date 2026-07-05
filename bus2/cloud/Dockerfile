@@ -8,6 +8,7 @@ ENV VITE_CLOUD_URL=$VITE_CLOUD_URL
 COPY web/package.json web/package-lock.json* ./
 RUN npm install
 
+COPY shared/hub /app/shared/hub
 COPY web/ ./
 RUN npm run build
 

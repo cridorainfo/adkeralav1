@@ -4,7 +4,7 @@ import { buildDriverJoinUrl, readPairingCodeFromLocation } from '../src/lib/driv
 import {
   normalizeControlUrl,
   readHubControlFromLocation,
-} from '../shared/hub/persist.js';
+} from '../cloud/shared/hub/persist.js';
 
 test('buildDriverJoinUrl points to bus PC /driver on LAN (bus3-style)', () => {
   const join = buildDriverJoinUrl('http://192.168.1.50:5174/control?code=4821');

@@ -5,7 +5,7 @@ import {
   saveDisconnectAck,
   clearHubSetup,
   normalizeControlUrl,
-} from '../shared/hub/persist.js';
+} from '../cloud/shared/hub/persist.js';
 
 test('normalizeControlUrl forces /control path', () => {
   assert.equal(

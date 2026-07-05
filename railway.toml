@@ -4,7 +4,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["bus2/cloud/**"]
+watchPatterns = ["bus2/cloud/**", "bus2/cloud/shared/hub/**"]
 
 # Build-time: bake primary cloud URL into the React portal.
 [build.args]

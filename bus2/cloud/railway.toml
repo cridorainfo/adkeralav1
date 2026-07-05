@@ -2,7 +2,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["**"]
+watchPatterns = ["**", "shared/hub/**"]
 
 # Build-time: bake primary cloud URL into the React portal (matches ADKERALA_PUBLIC_URL).
 [build.args]
