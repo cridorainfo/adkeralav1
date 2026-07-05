@@ -67,7 +67,7 @@ export function applyCloudCommands(current, commands) {
       }
 
       case 'MERGE_STATE': {
-        const { stopAudio, audioFragments, routes, savedAt, driverLink, busProfile, ...rest } =
+        const { stopAudio, audioFragments, routes, savedAt, driverLink, busProfile, settingsSavedAt, ...rest } =
           payload;
         if (Array.isArray(routes)) {
           const byId = new Map();
@@ -95,6 +95,7 @@ export function applyCloudCommands(current, commands) {
             : {}),
           savedAt: payload.savedAt ?? Date.now(),
           lastCloudPushAt: Math.max(next.lastCloudPushAt ?? 0, payload.lastCloudPushAt ?? Date.now()),
+          ...(settingsSavedAt ? { settingsSavedAt } : {}),
         };
         if ('driverLink' in payload) {
           next.driverLink = driverLink ?? null;

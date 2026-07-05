@@ -31,6 +31,7 @@ const defaultStore = () => ({
   stopAudioCatalog: {},
   stopAudioSavedAt: 0,
   busAdsCatalog: {},
+  busDisplaySettingsCatalog: {},
   globalAudioFragments: {},
   globalAudioSavedAt: 0,
   routeCatalog: [
@@ -296,9 +297,35 @@ export async function enqueueCommand(busId, type, payload) {
   return cmd;
 }
 
+const STALE_DELIVERED_MS = Number(process.env.ADKERALA_STALE_COMMAND_MS ?? 90000);
+
+function requeueStaleDeliveredCommands(commands, busId) {
+  const now = Date.now();
+  let changed = false;
+  for (const cmd of commands) {
+    if (cmd.busId !== busId || cmd.status !== 'delivered' || cmd.ackedAt) continue;
+    const deliveredAt = cmd.deliveredAt ?? cmd.createdAt ?? 0;
+    if (now - deliveredAt > STALE_DELIVERED_MS) {
+      cmd.status = 'pending';
+      delete cmd.deliveredAt;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+export async function countPendingCommands(busId) {
+  if (usePostgres()) return pg.pgCountPendingCommands(busId);
+  const store = await loadStore();
+  return (store.commands ?? []).filter((c) => c.busId === busId && c.status === 'pending').length;
+}
+
 export async function pullPendingCommands(busId) {
   if (usePostgres()) return pg.pgPullPendingCommands(busId);
   const store = await loadStore();
+  if (requeueStaleDeliveredCommands(store.commands ?? [], busId)) {
+    await saveStore();
+  }
   const pending = store.commands.filter((c) => c.busId === busId && c.status === 'pending');
   for (const cmd of pending) {
     cmd.status = 'delivered';
@@ -323,6 +350,24 @@ export async function ackCommand(commandId) {
 const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
 const PG_KEY_STOP_AUDIO = 'stop_audio_catalog';
 const PG_KEY_BUS_ADS_PREFIX = 'bus_ads:';
+const PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX = 'bus_display_settings:';
+
+const DISPLAY_SETTINGS_KEYS = [
+  'displaySettings',
+  'adSettings',
+  'bannerAdSettings',
+  'announcementSettings',
+  'driveSettings',
+];
+
+export function pickDisplaySettingsPatch(payload = {}) {
+  if (!payload || typeof payload !== 'object') return null;
+  const patch = {};
+  for (const key of DISPLAY_SETTINGS_KEYS) {
+    if (payload[key] !== undefined) patch[key] = payload[key];
+  }
+  return Object.keys(patch).length ? patch : null;
+}
 
 export async function getBusAdsCatalog(busId) {
   if (!busId) return { ads: [], bannerAds: [], savedAt: 0, adsSavedAt: 0, source: null };
@@ -387,6 +432,70 @@ export async function syncBusAdsCatalogFromTelemetry(busId, state = {}) {
     adsSavedAt: busAdsAt || Date.now(),
     source: 'bus',
   });
+}
+
+export async function getBusDisplaySettingsCatalog(busId) {
+  if (!busId) {
+    return { settingsSavedAt: 0, savedAt: 0, source: null };
+  }
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(`${PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX}${busId}`, null);
+    return {
+      displaySettings: row?.displaySettings ?? null,
+      adSettings: row?.adSettings ?? null,
+      bannerAdSettings: row?.bannerAdSettings ?? null,
+      announcementSettings: row?.announcementSettings ?? null,
+      driveSettings: row?.driveSettings ?? null,
+      settingsSavedAt: row?.settingsSavedAt ?? row?.savedAt ?? 0,
+      savedAt: row?.savedAt ?? 0,
+      source: row?.source ?? null,
+    };
+  }
+  const store = await loadStore();
+  if (!store.busDisplaySettingsCatalog) store.busDisplaySettingsCatalog = {};
+  const row = store.busDisplaySettingsCatalog[busId] ?? {};
+  return {
+    displaySettings: row.displaySettings ?? null,
+    adSettings: row.adSettings ?? null,
+    bannerAdSettings: row.bannerAdSettings ?? null,
+    announcementSettings: row.announcementSettings ?? null,
+    driveSettings: row.driveSettings ?? null,
+    settingsSavedAt: row.settingsSavedAt ?? row.savedAt ?? 0,
+    savedAt: row.savedAt ?? 0,
+    source: row.source ?? null,
+  };
+}
+
+export async function setBusDisplaySettingsCatalog(
+  busId,
+  patch = {},
+  { settingsSavedAt, source = 'dashboard' } = {}
+) {
+  if (!busId) throw new Error('busId required');
+  const savedAt = Date.now();
+  const stamp = settingsSavedAt ?? savedAt;
+  const current = await getBusDisplaySettingsCatalog(busId);
+  const payload = {
+    ...current,
+    ...patch,
+    settingsSavedAt: stamp,
+    savedAt,
+    source,
+  };
+  for (const key of DISPLAY_SETTINGS_KEYS) {
+    if (patch[key] === undefined && current[key] != null) {
+      payload[key] = current[key];
+    }
+  }
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(`${PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX}${busId}`, payload);
+    return payload;
+  }
+  const store = await loadStore();
+  if (!store.busDisplaySettingsCatalog) store.busDisplaySettingsCatalog = {};
+  store.busDisplaySettingsCatalog[busId] = payload;
+  await saveStore();
+  return payload;
 }
 
 export async function getGlobalPhraseAudio() {

@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { fleetBroadcast } from '../lib/api.js';
+import { useCallback, useEffect, useState } from 'react';
+import { api, fleetBroadcast } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
+import { isBusOnline } from './FleetMap.jsx';
 
 const defaultForm = () => ({
   displaySettings: {
@@ -33,10 +34,55 @@ const defaultForm = () => ({
   },
 });
 
+function mergeLoadedSettings(catalog = {}) {
+  const base = defaultForm();
+  if (catalog.displaySettings) {
+    base.displaySettings = {
+      ...base.displaySettings,
+      ...catalog.displaySettings,
+      theme: {
+        ...base.displaySettings.theme,
+        ...(catalog.displaySettings.theme ?? {}),
+      },
+    };
+  }
+  if (catalog.adSettings) base.adSettings = { ...base.adSettings, ...catalog.adSettings };
+  if (catalog.bannerAdSettings) {
+    base.bannerAdSettings = { ...base.bannerAdSettings, ...catalog.bannerAdSettings };
+  }
+  if (catalog.announcementSettings) {
+    base.announcementSettings = { ...base.announcementSettings, ...catalog.announcementSettings };
+  }
+  return base;
+}
+
 export default function DisplaySettingsPanel() {
-  const { targetBusIds, pushToBus } = useSelectedBus();
+  const { selectedBusId, targetBusIds, pushToBus, buses } = useSelectedBus();
   const [form, setForm] = useState(defaultForm);
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const loadCatalog = useCallback(async () => {
+    if (!selectedBusId) {
+      setForm(defaultForm());
+      return;
+    }
+    setLoading(true);
+    setMessage('');
+    try {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/display-settings/catalog`);
+      setForm(mergeLoadedSettings(json));
+    } catch (err) {
+      setMessage(err.message ?? 'Could not load saved settings');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedBusId]);
+
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
 
   function patch(path, value) {
     setForm((prev) => {
@@ -54,27 +100,54 @@ export default function DisplaySettingsPanel() {
       setMessage('Enable push and select at least one bus');
       return;
     }
-    setMessage('Queuing…');
-    const patchPayload = { ...form };
-    if (!patchPayload.displaySettings.brandTitle) {
-      delete patchPayload.displaySettings.brandTitle;
+    setBusy(true);
+    setMessage('Saving & pushing…');
+    try {
+      const patchPayload = { ...form };
+      if (!patchPayload.displaySettings.brandTitle) {
+        delete patchPayload.displaySettings.brandTitle;
+      }
+      const json = await fleetBroadcast({
+        targetBusIds,
+        commandType: 'MERGE_STATE',
+        payload: patchPayload,
+      });
+      const onlineNow = json.onlineNow ?? [];
+      const queuedFor = json.queuedFor ?? [];
+      if (onlineNow.length === queuedFor.length && queuedFor.length) {
+        setMessage(`Saved — delivering now to ${onlineNow.join(', ')} (within ~5s)`);
+      } else if (onlineNow.length) {
+        setMessage(
+          `Saved — ${onlineNow.join(', ')} online (delivering now); ${queuedFor.filter((id) => !onlineNow.includes(id)).join(', ') || 'others'} queued until online`
+        );
+      } else {
+        setMessage(`Saved — queued for ${queuedFor.join(', ')}. Applies on next bus sync when online.`);
+      }
+    } catch (err) {
+      setMessage(err.message ?? 'Could not save settings');
+    } finally {
+      setBusy(false);
     }
-    const json = await fleetBroadcast({
-      targetBusIds,
-      commandType: 'MERGE_STATE',
-      payload: patchPayload,
-    });
-    setMessage(`Queued for ${(json.queuedFor ?? []).join(', ')}`);
   }
 
   const t = form.displaySettings.theme;
+  const selectedOnline = buses.find((b) => b.busId === selectedBusId && isBusOnline(b.updatedAt));
 
   return (
     <div className="card">
       <h2>Display &amp; passenger screen settings</h2>
       <p className="hint">
         Push display timing, ad rotation, announcements, and theme colors to bus passenger screens.
+        Settings are saved on the server; online buses receive them on the next sync (~5s).
       </p>
+      {selectedBusId && (
+        <p className="hint">
+          Selected bus {selectedBusId}
+          {selectedOnline ? ' is online — push delivers immediately.' : ' is offline — push queues until it reconnects.'}
+        </p>
+      )}
+
+      {loading && <p className="hint">Loading saved settings…</p>}
 
       <h3>Display</h3>
       <div className="inline-form">
@@ -213,7 +286,7 @@ export default function DisplaySettingsPanel() {
       </div>
 
       <div className="editor-actions">
-        <button type="button" className="btn btn-primary" onClick={pushSettings}>
+        <button type="button" className="btn btn-primary" onClick={pushSettings} disabled={busy || loading}>
           Push settings ({targetBusIds.length || 0} bus{targetBusIds.length === 1 ? '' : 'es'})
         </button>
       </div>

@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes, createHash } from 'crypto';
-import { loadStore, saveStore, generatePairingCode, normalizePlate, getBusProfile, getBus, enqueueCommand, findBusIdByPlate } from './store.js';
+import { loadStore, saveStore, generatePairingCode, normalizePlate, getBusProfile, getBus, enqueueCommand, findBusIdByPlate, getBusDisplaySettingsCatalog, pickDisplaySettingsPatch } from './store.js';
 import { usePostgres, query } from './db/pool.js';
 import { pgUpsertBusProfile } from './storePg.js';
 import { pgEnsureUser, pgOwnerId, isValidUuid } from './usersPg.js';
@@ -102,8 +102,15 @@ function buildRestorePayload(state) {
 
 async function queueBusStateRestore(busId) {
   const row = await getBus(busId);
+  const catalog = await getBusDisplaySettingsCatalog(busId);
   const payload = buildRestorePayload(row?.state);
   if (!payload) return false;
+
+  const settingsPatch = pickDisplaySettingsPatch(catalog);
+  if (settingsPatch) {
+    Object.assign(payload, settingsPatch);
+    payload.settingsSavedAt = catalog.settingsSavedAt ?? payload.savedAt;
+  }
 
   const mediaFiles = collectMediaFromState(payload);
   await enqueueCommand(busId, 'MERGE_STATE', {

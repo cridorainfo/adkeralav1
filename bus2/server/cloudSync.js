@@ -355,15 +355,6 @@ async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = 
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
 }
 
-/**
- * Full-catalog reconciliation for ads/banner ads — mirrors syncAssignedRoutesFromCloud's
- * pattern instead of relying solely on the one-shot UPDATE_ADS command. The command queue
- * gives near-instant updates while online, but if a command is ever missed (bus offline
- * when it was queued, a queue reset, an admin edit that didn't trigger a push to every
- * bus already carrying that content, etc.) this periodic pull is what guarantees the bus
- * eventually converges to exactly what the cloud says it should have — including removing
- * ads/media that were deleted server-side, with no stale files left behind.
- */
 async function syncAdsFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
 
@@ -422,6 +413,162 @@ async function syncAdsFromCloud(root, creds) {
   } catch {
     /* cloud offline */
   }
+}
+
+function mergeDisplaySettingsFromCatalog(current = {}, catalog = {}) {
+  const next = { ...current };
+  if (catalog.displaySettings) {
+    next.displaySettings = {
+      ...(current.displaySettings ?? {}),
+      ...catalog.displaySettings,
+      theme: {
+        ...(current.displaySettings?.theme ?? {}),
+        ...(catalog.displaySettings?.theme ?? {}),
+      },
+    };
+  }
+  if (catalog.adSettings) {
+    next.adSettings = { ...(current.adSettings ?? {}), ...catalog.adSettings };
+  }
+  if (catalog.bannerAdSettings) {
+    next.bannerAdSettings = { ...(current.bannerAdSettings ?? {}), ...catalog.bannerAdSettings };
+  }
+  if (catalog.announcementSettings) {
+    next.announcementSettings = {
+      ...(current.announcementSettings ?? {}),
+      ...catalog.announcementSettings,
+    };
+  }
+  if (catalog.driveSettings) {
+    next.driveSettings = { ...(current.driveSettings ?? {}), ...catalog.driveSettings };
+  }
+  if (catalog.settingsSavedAt) {
+    next.settingsSavedAt = catalog.settingsSavedAt;
+  }
+  return next;
+}
+
+async function syncDisplaySettingsFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(
+      `${creds.cloudUrl}/api/buses/${encodeURIComponent(creds.busId)}/display-settings`,
+      {
+        headers: {
+          ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+          ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+        },
+      }
+    );
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const cloudAt = json.settingsSavedAt ?? 0;
+    if (!cloudAt) return;
+
+    const current = (await readInfoFile(root)) ?? {};
+    const localAt = current.settingsSavedAt ?? 0;
+    if (cloudAt <= localAt) return;
+
+    const pushAt = Date.now();
+    const merged = mergeDisplaySettingsFromCatalog(current, json);
+    merged.savedAt = Math.max(current.savedAt ?? 0, cloudAt, pushAt);
+    merged.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, pushAt);
+    merged.settingsSavedAt = cloudAt;
+
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-display-settings' });
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-display-settings',
+    });
+  } catch {
+    /* cloud offline */
+  }
+}
+
+async function applyPendingCloudCommands(root, creds, commands) {
+  if (!Array.isArray(commands) || !commands.length) return false;
+
+  const busId = creds.busId;
+  const kioskCommands = commands.filter((cmd) => KIOSK_COMMAND_TYPES.has(cmd.type));
+  const stateCommands = commands.filter((cmd) => !KIOSK_COMMAND_TYPES.has(cmd.type));
+
+  for (const cmd of kioskCommands) {
+    dispatchKioskCommand(cmd.type, cmd.payload ?? {});
+  }
+
+  const current = (await readInfoFile(root)) ?? {};
+
+  if (stateCommands.length) {
+    const oldAdPaths = new Set(collectAdMediaFromState(current));
+    const oldAudioPaths = new Set(collectAudioMediaFromState(current));
+    const prevDriverId = current.driverLink?.driverId ?? null;
+    const merged = applyCloudCommands(current, stateCommands);
+    const nextDriverId = merged.driverLink?.driverId ?? null;
+    if (prevDriverId && !nextDriverId) {
+      await clearAllHubSessions(root);
+      merged.driverLink = null;
+      merged.connectedDeviceCount = 0;
+      merged.busProfile = {
+        ...(merged.busProfile ?? {}),
+        devicesDisconnectLastApplied:
+          merged.busProfile?.devicesDisconnectLastApplied ??
+          readDevicesDisconnectAt(current) ??
+          new Date().toISOString(),
+      };
+    }
+    const newAdPaths = new Set(collectAdMediaFromState(merged));
+    const newAudioPaths = new Set(collectAudioMediaFromState(merged));
+    const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
+    const removedAudioPaths = [...oldAudioPaths].filter((p) => !newAudioPaths.has(p));
+    const explicitRemoved = stateCommands.flatMap((cmd) =>
+      Array.isArray(cmd.payload?.removedMediaFiles) ? cmd.payload.removedMediaFiles : []
+    );
+    const removedPaths = [
+      ...new Set([...removedAdPaths, ...removedAudioPaths, ...explicitRemoved].filter(Boolean)),
+    ];
+    const mediaPaths = [
+      ...new Set([
+        ...collectMediaDownloads(stateCommands),
+        ...collectAdMediaFromState(merged),
+        ...collectAudioMediaFromState(merged),
+      ]),
+    ];
+    const pushAt = Date.now();
+    merged.savedAt = pushAt;
+    merged.lastCloudPushAt = pushAt;
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
+    await syncCloudMedia(root, mediaPaths, creds);
+    await deleteLocalMediaFiles(root, removedPaths);
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-commands',
+    });
+  }
+
+  for (const cmd of commands) {
+    await cloudFetch(
+      creds,
+      `/api/buses/${encodeURIComponent(busId)}/commands/${encodeURIComponent(cmd.id)}/ack`,
+      { method: 'POST', body: '{}' }
+    );
+  }
+
+  const parts = [];
+  if (stateCommands.length) {
+    parts.push(`${stateCommands.length} content command(s)`);
+  }
+  if (kioskCommands.length) {
+    parts.push(`${kioskCommands.length} system command(s)`);
+  }
+  console.log(
+    `AdKerala cloud sync: applied ${parts.join(', ') || commands.length + ' command(s)'}`
+  );
+  return true;
 }
 
 async function syncStopAudioFromCloud(root, creds) {
@@ -521,88 +668,30 @@ async function runCloudSyncInner(root) {
     return;
   }
 
-  const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
-  if (!pending.ok && isFleetRevoked(pending)) {
-    await noteFleetRevokeAttempt(root, pending.json?.error ?? 'commands rejected');
-    return;
+  let commands = [];
+  if (telemetryRes.ok && Array.isArray(telemetryRes.json?.commands)) {
+    commands = telemetryRes.json.commands;
+    if (telemetryRes.json?.wasOffline && commands.length) {
+      console.log(`AdKerala cloud sync: bus back online — flushed ${commands.length} queued command(s)`);
+    }
+  } else if (telemetryRes.ok) {
+    const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
+    if (!pending.ok && isFleetRevoked(pending)) {
+      await noteFleetRevokeAttempt(root, pending.json?.error ?? 'commands rejected');
+      return;
+    }
+    if (pending.json?.ok && Array.isArray(pending.json.commands)) {
+      commands = pending.json.commands;
+    }
   }
-  if (pending.json?.ok && Array.isArray(pending.json.commands) && pending.json.commands.length) {
-    const kioskCommands = pending.json.commands.filter((cmd) => KIOSK_COMMAND_TYPES.has(cmd.type));
-    const stateCommands = pending.json.commands.filter((cmd) => !KIOSK_COMMAND_TYPES.has(cmd.type));
 
-    for (const cmd of kioskCommands) {
-      dispatchKioskCommand(cmd.type, cmd.payload ?? {});
-    }
-
-    const current = (await readInfoFile(root)) ?? {};
-
-    if (stateCommands.length) {
-      const oldAdPaths = new Set(collectAdMediaFromState(current));
-      const oldAudioPaths = new Set(collectAudioMediaFromState(current));
-      const prevDriverId = current.driverLink?.driverId ?? null;
-      const merged = applyCloudCommands(current, stateCommands);
-      const nextDriverId = merged.driverLink?.driverId ?? null;
-      if (prevDriverId && !nextDriverId) {
-        await clearAllHubSessions(root);
-        merged.driverLink = null;
-        merged.connectedDeviceCount = 0;
-        merged.busProfile = {
-          ...(merged.busProfile ?? {}),
-          devicesDisconnectLastApplied:
-            merged.busProfile?.devicesDisconnectLastApplied ??
-            readDevicesDisconnectAt(current) ??
-            new Date().toISOString(),
-        };
-      }
-      const newAdPaths = new Set(collectAdMediaFromState(merged));
-      const newAudioPaths = new Set(collectAudioMediaFromState(merged));
-      const removedAdPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
-      const removedAudioPaths = [...oldAudioPaths].filter((p) => !newAudioPaths.has(p));
-      const explicitRemoved = stateCommands.flatMap((cmd) =>
-        Array.isArray(cmd.payload?.removedMediaFiles) ? cmd.payload.removedMediaFiles : []
-      );
-      const removedPaths = [
-        ...new Set([...removedAdPaths, ...removedAudioPaths, ...explicitRemoved].filter(Boolean)),
-      ];
-      const mediaPaths = [
-        ...new Set([
-          ...collectMediaDownloads(stateCommands),
-          ...collectAdMediaFromState(merged),
-          ...collectAudioMediaFromState(merged),
-        ]),
-      ];
-      const pushAt = Date.now();
-      merged.savedAt = pushAt;
-      merged.lastCloudPushAt = pushAt;
-      await writeInfoFileSerialized(root, merged, { source: 'cloud-commands' });
-      await syncCloudMedia(root, mediaPaths, creds);
-      await deleteLocalMediaFiles(root, removedPaths);
-      notifyStateChanged(root, {
-        savedAt: merged.savedAt,
-        lastCloudPushAt: merged.lastCloudPushAt,
-        source: 'cloud-commands',
-      });
-    }
-
-    for (const cmd of pending.json.commands) {
-      await cloudFetch(
-        creds,
-        `/api/buses/${encodeURIComponent(busId)}/commands/${encodeURIComponent(cmd.id)}/ack`,
-        { method: 'POST', body: '{}' }
-      );
-    }
-    const parts = [];
-    if (stateCommands.length) {
-      parts.push(`${stateCommands.length} content command(s)`);
-    }
-    if (kioskCommands.length) {
-      parts.push(`${kioskCommands.length} system command(s)`);
-    }
-    console.log(`AdKerala cloud sync: applied ${parts.join(', ') || pending.json.commands.length + ' command(s)'}`);
+  if (commands.length) {
+    await applyPendingCloudCommands(root, creds, commands);
   }
 
   lastPushedAt = Date.now();
   await syncAssignedRoutesFromCloud(root, creds);
+  await syncDisplaySettingsFromCloud(root, creds);
   await syncAdsFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);

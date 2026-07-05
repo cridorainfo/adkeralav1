@@ -37,6 +37,10 @@ import {
   getBusAdsCatalog,
   setBusAdsCatalog,
   syncBusAdsCatalogFromTelemetry,
+  getBusDisplaySettingsCatalog,
+  setBusDisplaySettingsCatalog,
+  pickDisplaySettingsPatch,
+  countPendingCommands,
   getBusProfile,
   setBusProfilePlate,
   upsertBusProfile,
@@ -998,13 +1002,19 @@ app.post('/api/buses/:busId/disconnect-all-phones', authFleet, async (req, res) 
 app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   const busId = req.params.busId;
   const { telemetry, state, displaySnapshot } = req.body ?? {};
+  const prevRow = await getBus(busId);
+  const wasOffline = !prevRow?.updatedAt || Date.now() - prevRow.updatedAt > ONLINE_MS;
   await upsertBusTelemetry(busId, { telemetry, state, displaySnapshot });
   await maybeEnqueueAssignedRouteSync(busId, state ?? {});
   const profile = await getBusProfile(busId);
+  const commands = await pullPendingCommands(busId);
   res.json({
     ok: true,
     devicesDisconnectAt: profile?.devicesDisconnectAt ?? null,
     pairingCode: profile?.pairingCode ?? null,
+    pendingCommands: commands.length,
+    commands,
+    wasOffline,
   });
 });
 
@@ -1069,6 +1079,25 @@ app.get('/api/buses/:busId/ads', authBus, async (req, res) => {
     bannerAds: catalog.bannerAds,
     adsSavedAt: catalog.adsSavedAt,
     mediaFiles: collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds),
+  });
+});
+
+app.get('/api/buses/:busId/display-settings/catalog', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const catalog = await getBusDisplaySettingsCatalog(req.params.busId);
+  res.json({ ok: true, ...catalog });
+});
+
+app.get('/api/buses/:busId/display-settings', authBus, async (req, res) => {
+  const catalog = await getBusDisplaySettingsCatalog(req.params.busId);
+  res.json({
+    ok: true,
+    displaySettings: catalog.displaySettings,
+    adSettings: catalog.adSettings,
+    bannerAdSettings: catalog.bannerAdSettings,
+    announcementSettings: catalog.announcementSettings,
+    driveSettings: catalog.driveSettings,
+    settingsSavedAt: catalog.settingsSavedAt ?? 0,
   });
 });
 
@@ -1218,8 +1247,20 @@ app.post('/api/fleet/broadcast', authFleet, async (req, res) => {
     return;
   }
   const mergedPayload = withMediaFiles({ ...(payload ?? {}), savedAt: Date.now() });
+  const settingsPatch = commandType === 'MERGE_STATE' ? pickDisplaySettingsPatch(mergedPayload) : null;
+  const settingsSavedAt = settingsPatch ? Date.now() : null;
+  if (settingsPatch) {
+    mergedPayload.settingsSavedAt = settingsSavedAt;
+  }
   const commandIds = [];
+  const onlineNow = [];
   for (const busId of busIds) {
+    if (settingsPatch) {
+      await setBusDisplaySettingsCatalog(busId, settingsPatch, {
+        settingsSavedAt,
+        source: 'dashboard',
+      });
+    }
     if (commandType === 'UPDATE_ADS' && Array.isArray(payload?.ads) && Array.isArray(payload?.bannerAds)) {
       const adsSavedAt = payload.adsSavedAt ?? mergedPayload.savedAt ?? Date.now();
       await setBusAdsCatalog(busId, {
@@ -1232,8 +1273,12 @@ app.post('/api/fleet/broadcast', authFleet, async (req, res) => {
     }
     const cmd = await enqueueCommand(busId, commandType, mergedPayload);
     commandIds.push({ busId, commandId: cmd.id });
+    const row = await getBus(busId);
+    if (row?.updatedAt && Date.now() - row.updatedAt < ONLINE_MS) {
+      onlineNow.push(busId);
+    }
   }
-  res.json({ ok: true, queuedFor: busIds, commandIds });
+  res.json({ ok: true, queuedFor: busIds, commandIds, onlineNow });
 });
 
 app.post('/api/buses/:busId/drive', authFleet, async (req, res) => {

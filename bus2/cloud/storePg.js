@@ -342,7 +342,24 @@ export async function pgEnqueueCommand(busId, type, payload) {
   return cmd;
 }
 
+export async function pgCountPendingCommands(busId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS count FROM bus_commands WHERE bus_id = $1 AND status = 'pending'`,
+    [busId]
+  );
+  return rows[0]?.count ?? 0;
+}
+
+const STALE_DELIVERED_MS = Number(process.env.ADKERALA_STALE_COMMAND_MS ?? 90000);
+
 export async function pgPullPendingCommands(busId) {
+  const staleCutoff = Date.now() - STALE_DELIVERED_MS;
+  await query(
+    `UPDATE bus_commands
+     SET status = 'pending', delivered_at = NULL
+     WHERE bus_id = $1 AND status = 'delivered' AND acked_at IS NULL AND delivered_at < $2`,
+    [busId, staleCutoff]
+  );
   const { rows } = await query(
     `SELECT * FROM bus_commands WHERE bus_id = $1 AND status = 'pending' ORDER BY created_at`,
     [busId]
