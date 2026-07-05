@@ -215,6 +215,22 @@ function authFleet(req, res, next) {
   });
 }
 
+/**
+ * Some endpoints (e.g. GET .../routes) are called both by the admin/owner dashboard
+ * (session or admin key) and by the bus device itself (bus key/token) — route to whichever
+ * credential is actually present so neither caller shadows the other. IMPORTANT: only ever
+ * register ONE Express route per method+path when using this — a second `app.get()` for the
+ * same path is dead code, since Express stops at the first matching layer that sends a
+ * response and never falls through to a later duplicate registration.
+ */
+function authBusOrFleet(req, res, next) {
+  if (req.headers['x-bus-token'] || req.headers['x-bus-key']) {
+    authBus(req, res, next);
+    return;
+  }
+  authFleet(req, res, next);
+}
+
 function authBus(req, res, next) {
   const busToken = req.headers['x-bus-token'] ?? '';
   const busId = req.params.busId ?? req.body?.busId ?? null;
@@ -749,27 +765,51 @@ app.get('/api/buses', authSession, requireAuth, async (req, res) => {
   res.json({ ok: true, buses });
 });
 
-app.get('/api/buses/:busId/routes', authFleet, async (req, res) => {
-  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+// NOTE: this single route serves BOTH callers — the admin/owner dashboard (fleet session or
+// admin key) AND the bus device itself (bus key/token, for its own pull-reconcile sync). They
+// used to be two separate `app.get()` registrations for the exact same method+path; the second
+// (bus-facing) one was permanently unreachable because Express stops at the first layer that
+// sends a response and never tries a later duplicate route — so every bus-side call here was
+// silently returning 401 and the bus never actually reconciled its routes/stops against the
+// cloud. See authBusOrFleet's doc comment.
+app.get('/api/buses/:busId/routes', authBusOrFleet, async (req, res) => {
   const busId = req.params.busId;
-  const row = await getBus(busId);
+
+  if (req.user) {
+    // Admin/owner dashboard view — includes live trip/telemetry for the fleet map.
+    if (!(await assertBusAccess(req, res, busId))) return;
+    const row = await getBus(busId);
+    const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
+    const activeRouteId =
+      row?.state?.activeRouteId ?? row?.telemetry?.activeRouteId ?? null;
+    const activeRoute = routes.find((r) => r.id === activeRouteId) ?? null;
+    res.json({
+      ok: true,
+      busId,
+      assignedRouteIds: assignedIds,
+      routes,
+      activeRouteId,
+      activeRoute,
+      trip: {
+        tripStarted: Boolean(row?.state?.tripStarted ?? row?.telemetry?.tripStarted),
+        tripEnded: Boolean(row?.state?.tripEnded ?? row?.telemetry?.tripEnded),
+        routeDirection: row?.state?.routeDirection ?? row?.telemetry?.routeDirection ?? 'forward',
+        currentStopIndex: row?.state?.currentStopIndex ?? row?.telemetry?.currentStopIndex ?? 0,
+      },
+    });
+    return;
+  }
+
+  // Bus device pull sync (spec: full reconciliation, not deltas) — assigned routes + stop
+  // catalog + a revision stamp the bus compares against its own routesSavedAt.
   const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
-  const activeRouteId =
-    row?.state?.activeRouteId ?? row?.telemetry?.activeRouteId ?? null;
-  const activeRoute = routes.find((r) => r.id === activeRouteId) ?? null;
+  const store = await loadStore();
   res.json({
     ok: true,
-    busId,
-    assignedRouteIds: assignedIds,
     routes,
-    activeRouteId,
-    activeRoute,
-    trip: {
-      tripStarted: Boolean(row?.state?.tripStarted ?? row?.telemetry?.tripStarted),
-      tripEnded: Boolean(row?.state?.tripEnded ?? row?.telemetry?.tripEnded),
-      routeDirection: row?.state?.routeDirection ?? row?.telemetry?.routeDirection ?? 'forward',
-      currentStopIndex: row?.state?.currentStopIndex ?? row?.telemetry?.currentStopIndex ?? 0,
-    },
+    assignedRouteIds: assignedIds,
+    stopCatalog: store.stopCatalog ?? [],
+    routesSavedAt: await getRouteCatalogRevision(),
   });
 });
 
@@ -968,20 +1008,6 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
   });
 });
 
-/** Assigned routes + stop catalog for bus PC pull sync (same pattern as stop audio). */
-app.get('/api/buses/:busId/routes', authBus, async (req, res) => {
-  const busId = req.params.busId;
-  const { assignedIds, routes } = await buildAssignedRoutesPayload(busId);
-  const store = await loadStore();
-  res.json({
-    ok: true,
-    routes,
-    assignedRouteIds: assignedIds,
-    stopCatalog: store.stopCatalog ?? [],
-    routesSavedAt: await getRouteCatalogRevision(),
-  });
-});
-
 app.get('/api/buses/:busId/commands', authBus, async (req, res) => {
   const commands = await pullPendingCommands(req.params.busId);
   res.json({ ok: true, commands });
@@ -1023,6 +1049,25 @@ app.get('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
   res.json({
     ok: true,
     ...catalog,
+    mediaFiles: collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds),
+  });
+});
+
+// Bus device pull sync for ads/banner ads (full reconciliation, mirrors GET .../routes above).
+// The UPDATE_ADS command gives near-instant updates while the bus is online, but this periodic
+// pull is what guarantees the bus eventually converges to exactly what the cloud has — including
+// ads deleted server-side — even if a command was ever missed, expired, or never queued for this
+// specific bus.
+app.get('/api/buses/:busId/ads', authBus, async (req, res) => {
+  const busId = req.params.busId;
+  const row = await getBus(busId);
+  await syncBusAdsCatalogFromTelemetry(busId, row?.state ?? {});
+  const catalog = await getBusAdsCatalog(busId);
+  res.json({
+    ok: true,
+    ads: catalog.ads,
+    bannerAds: catalog.bannerAds,
+    adsSavedAt: catalog.adsSavedAt,
     mediaFiles: collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds),
   });
 });

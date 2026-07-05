@@ -10,11 +10,36 @@ export function tmpPathFor(filePath) {
   return `${filePath}.tmp`;
 }
 
+// On Windows, antivirus/OneDrive/a second app instance can briefly hold an exclusive
+// handle on the destination file — rename() or copyFile() then fails with EPERM/EBUSY
+// even though nothing is actually wrong. These locks are almost always released within
+// milliseconds, so retry a few times with backoff before treating it as a real failure.
+const RETRYABLE_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RETRY_DELAYS_MS = [50, 100, 250, 500, 1000];
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry(fn) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!RETRYABLE_CODES.has(err?.code) || attempt >= RETRY_DELAYS_MS.length) throw err;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
 async function replaceFile(tmp, filePath) {
   try {
-    await fs.rename(tmp, filePath);
+    await withRetry(() => fs.rename(tmp, filePath));
   } catch {
-    await fs.copyFile(tmp, filePath);
+    // rename() also fails (not just "not atomic on this volume") when the destination
+    // is a different drive — copyFile is the correct fallback for that case, and still
+    // benefits from the same retry treatment if the file is transiently locked.
+    await withRetry(() => fs.copyFile(tmp, filePath));
     await fs.unlink(tmp).catch(() => {});
   }
 }

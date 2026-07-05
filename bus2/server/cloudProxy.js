@@ -1,6 +1,6 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { applyCloudCommands } from './cloudCommands.js';
-import { getCloudConfig } from './cloudSync.js';
+import { getCloudConfig, getHubStatus } from './cloudSync.js';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { disconnectAllDrivers } from './driverAuth.js';
 
@@ -163,8 +163,21 @@ export function setupCloudProxy(app, root) {
   proxyRoot = root;
   const cloudConfig = () => getCloudConfig(root);
 
-  app.get('/api/cloud/config', (_req, res) => {
-    res.json({ ok: true, ...cloudConfig() });
+  app.get('/api/cloud/config', async (_req, res) => {
+    const hub = await getHubStatus(root);
+    res.json({ ok: true, ...cloudConfig(), ...hub });
+  });
+
+  /** PC hub status — local operation never depends on cloud; cloud is claim + asset sync only. */
+  app.get('/api/hub/status', async (_req, res) => {
+    const hub = await getHubStatus(root);
+    const cfg = cloudConfig();
+    res.json({
+      ok: true,
+      ...hub,
+      claimed: cfg.claimed,
+      cloudSyncEnabled: cfg.enabled && cfg.claimed,
+    });
   });
 
   app.get('/api/cloud/routes/search', async (req, res) => {

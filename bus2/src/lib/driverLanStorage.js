@@ -1,4 +1,4 @@
-import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+import { persistDriverValue, readDriverValue, removeDriverValues } from './driverPersistentStorage.js';
 
 const LAST_CONTROL_KEY = 'adkerala_last_control_url';
 const BUS_CONTROL_URL_KEY = 'adkerala_bus_control_url';
@@ -35,13 +35,9 @@ export function saveBusControlUrl(raw) {
 }
 
 export function loadBusControlUrl() {
-  try {
-    const value =
-      localStorage.getItem(BUS_CONTROL_URL_KEY) || localStorage.getItem(LAST_CONTROL_KEY);
-    return normalizeControlUrl(value);
-  } catch {
-    return null;
-  }
+  const value =
+    readDriverValue(BUS_CONTROL_URL_KEY) || readDriverValue(LAST_CONTROL_KEY);
+  return normalizeControlUrl(value);
 }
 
 export function savePairingCode(code) {
@@ -53,14 +49,10 @@ export function savePairingCode(code) {
 }
 
 export function loadPairingCode() {
-  try {
-    const value = localStorage.getItem(PAIRING_CODE_KEY);
-    if (!value) return null;
-    const digits = value.replace(/\D/g, '').slice(0, 4);
-    return digits.length === 4 ? digits : null;
-  } catch {
-    return null;
-  }
+  const value = readDriverValue(PAIRING_CODE_KEY);
+  if (!value) return null;
+  const digits = value.replace(/\D/g, '').slice(0, 4);
+  return digits.length === 4 ? digits : null;
 }
 
 /** Clear saved bus URL and pairing code (on disconnect — scan QR again). */

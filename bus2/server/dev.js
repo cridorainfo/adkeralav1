@@ -10,6 +10,7 @@ import {
   getCloudConfig,
   verifyDriverLinkedOnCloud,
 } from './cloudSync.js';
+import { startMediaGcLoop } from './cloudMediaSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { startHttpsMirror } from './tls.js';
@@ -75,6 +76,7 @@ const vite = await createViteServer({
 app.use(vite.middlewares);
 
 const stopCloud = startCloudSyncLoop(root);
+const stopMediaGc = startMediaGcLoop(root);
 
 let httpsMirror = { httpsServer: null, httpsPort: null, httpsEnabled: false };
 try {

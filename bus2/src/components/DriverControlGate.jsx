@@ -30,17 +30,11 @@ export default function DriverControlGate({ children }) {
       setReconnecting(false);
       return 'revoked';
     }
-    if (result.ok) {
+    if (result.ok || result.keepTrying) {
       setPlate(result.plate ?? getStoredDriverPlate());
       setUnlocked(true);
-      setReconnecting(false);
-      return true;
-    }
-    if (result.keepTrying && getStoredDriverToken()) {
-      setPlate(getStoredDriverPlate());
-      setUnlocked(true);
-      setReconnecting(true);
-      return true;
+      setReconnecting(Boolean(result.keepTrying && !result.ok));
+      return result.ok ? true : 'reconnecting';
     }
     setUnlocked(false);
     setPlate('');
@@ -84,7 +78,7 @@ export default function DriverControlGate({ children }) {
         setChecking(false);
         if (ok === 'revoked') {
           navigate('/driver', { replace: true, state: { revoked: true } });
-        } else if (!ok) {
+        } else if (ok === false) {
           navigate('/driver', { replace: true });
         }
       }
@@ -104,7 +98,11 @@ export default function DriverControlGate({ children }) {
       const token = getStoredDriverToken();
       if (!token) {
         const ok = await openSession();
-        if (!ok && maintainRef.current) navigate('/driver', { replace: true });
+        if (ok === 'revoked' && maintainRef.current) {
+          navigate('/driver', { replace: true, state: { revoked: true } });
+        } else if (ok === false && maintainRef.current) {
+          navigate('/driver', { replace: true });
+        }
         return;
       }
 
@@ -122,8 +120,8 @@ export default function DriverControlGate({ children }) {
           const ok = await openSession();
           if (ok === 'revoked' && maintainRef.current) {
             navigate('/driver', { replace: true, state: { revoked: true } });
-          } else if (!ok && maintainRef.current) {
-            navigate('/driver', { replace: true });
+          } else if (ok === false && maintainRef.current) {
+            setReconnecting(true);
           }
         }
       } catch {

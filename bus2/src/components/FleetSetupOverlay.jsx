@@ -3,10 +3,14 @@ import { APP_NAME } from '../lib/brand';
 
 const POLL_MS = 3000;
 
+/**
+ * First-time fleet claim only — blocks the display when this PC has no local content yet.
+ * Once routes/ads/audio exist in db/, the PC runs as an offline hub even without cloud.
+ * Driver phones always connect to this PC over LAN, never to the cloud server.
+ */
 export default function FleetSetupOverlay() {
   const [config, setConfig] = useState(null);
   const [status, setStatus] = useState('Connecting…');
-  const [dismissed, setDismissed] = useState(false);
   const pollRef = useRef(null);
 
   const stopPolling = useCallback(() => {
@@ -22,19 +26,17 @@ export default function FleetSetupOverlay() {
       const json = await res.json();
       setConfig(json);
 
-      if (json.claimed) {
-        setDismissed(true);
+      // Hub can run offline with local db/ content — no claim overlay needed.
+      if (json.claimed || json.hubReady) {
         stopPolling();
         return;
       }
 
-      setDismissed(false);
-
       if (!json.cloudUrl) {
-        setStatus('Connecting to cloud… restart the app if this persists.');
+        setStatus('No internet — add routes locally or connect to claim this bus in the fleet portal.');
         return;
       }
-      setStatus('Waiting for owner to claim this bus in the cloud portal.');
+      setStatus('Waiting for owner to claim this bus in the cloud portal (one-time setup).');
     } catch {
       setStatus('Could not reach bus server.');
     }
@@ -46,18 +48,8 @@ export default function FleetSetupOverlay() {
     return stopPolling;
   }, [refresh, stopPolling]);
 
-  if (dismissed || config?.claimed) return null;
-
-  if (config === null) {
-    return (
-      <div className="fleet-setup-overlay" role="dialog" aria-labelledby="fleet-setup-title">
-        <div className="fleet-setup-card">
-          <h1 id="fleet-setup-title">{APP_NAME} — Fleet setup</h1>
-          <p className="fleet-setup-status" role="status">{status}</p>
-        </div>
-      </div>
-    );
-  }
+  // Claimed or already has local routes/ads/audio — PC hub is operational.
+  if (!config || config.claimed || config.hubReady) return null;
 
   const claimBase = config.publicUrl || config.cloudUrl;
   const claimUrl = claimBase
@@ -69,7 +61,9 @@ export default function FleetSetupOverlay() {
       <div className="fleet-setup-card">
         <h1 id="fleet-setup-title">{APP_NAME} — Fleet setup</h1>
         <p className="fleet-setup-lead">
-          Enter this code in the admin portal to link this PC to your fleet.
+          One-time setup: enter this code in the admin portal so this PC can download routes, ads,
+          and audio. After that, the bus runs from local files — phones control it over Wi‑Fi even
+          without internet.
         </p>
         {config.fleetClaimCode && (
           <div className="fleet-setup-code" aria-label={`Fleet code ${config.fleetClaimCode}`}>

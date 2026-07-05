@@ -17,10 +17,18 @@ import { clearAllDriverSessions, disconnectAllDrivers } from './driverAuth.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
-import { DEFAULT_CLOUD_URLS, resolveCloudUrl } from '../shared/cloudUrls.js';
+import { DEFAULT_CLOUD_URLS, DEFAULT_PUBLIC_CLOUD_URL, resolveCloudUrl } from '../shared/cloudUrls.js';
 
 const require = createRequire(import.meta.url);
 const { dispatchKioskCommand } = require('../kiosk/kioskBridge.cjs');
+
+/**
+ * Cloud sync is optional and non-blocking. The bus PC is the hub — display, driver control,
+ * and db/info.txt + db/media/ all work offline. Cloud is used only for:
+ *   1) one-time fleet claim (busId + device token)
+ *   2) downloading/updating routes, ads, and audio when internet is available
+ * Driver phones never talk to cloud for control — they connect to this PC over LAN.
+ */
 
 const KIOSK_COMMAND_TYPES = new Set(['APPLY_UPDATE']);
 
@@ -314,6 +322,75 @@ async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = 
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
 }
 
+/**
+ * Full-catalog reconciliation for ads/banner ads — mirrors syncAssignedRoutesFromCloud's
+ * pattern instead of relying solely on the one-shot UPDATE_ADS command. The command queue
+ * gives near-instant updates while online, but if a command is ever missed (bus offline
+ * when it was queued, a queue reset, an admin edit that didn't trigger a push to every
+ * bus already carrying that content, etc.) this periodic pull is what guarantees the bus
+ * eventually converges to exactly what the cloud says it should have — including removing
+ * ads/media that were deleted server-side, with no stale files left behind.
+ */
+async function syncAdsFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(
+      `${creds.cloudUrl}/api/buses/${encodeURIComponent(creds.busId)}/ads`,
+      {
+        headers: {
+          ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+          ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+        },
+      }
+    );
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const current = (await readInfoFile(root)) ?? {};
+    const nextAds = Array.isArray(json.ads) ? json.ads : [];
+    const nextBannerAds = Array.isArray(json.bannerAds) ? json.bannerAds : [];
+    const cloudAdsSavedAt = json.adsSavedAt ?? 0;
+    const localAdsSavedAt = current.adsSavedAt ?? 0;
+
+    const catalogChanged =
+      cloudAdsSavedAt > localAdsSavedAt ||
+      JSON.stringify(current.ads ?? []) !== JSON.stringify(nextAds) ||
+      JSON.stringify(current.bannerAds ?? []) !== JSON.stringify(nextBannerAds);
+    if (!catalogChanged) return;
+
+    const oldAdPaths = new Set(collectAdMediaFromState(current));
+    const pushAt = Date.now();
+    const merged = {
+      ...current,
+      ads: nextAds,
+      bannerAds: nextBannerAds,
+      adsSavedAt: cloudAdsSavedAt || pushAt,
+      savedAt: Math.max(current.savedAt ?? 0, cloudAdsSavedAt, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    };
+    const newAdPaths = new Set(collectAdMediaFromState(merged));
+    const removedPaths = [...oldAdPaths].filter((p) => !newAdPaths.has(p));
+    const mediaPaths = Array.isArray(json.mediaFiles) && json.mediaFiles.length
+      ? json.mediaFiles
+      : [...newAdPaths];
+
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-ads' });
+    if (mediaPaths.length) {
+      await syncCloudMedia(root, mediaPaths, creds);
+    }
+    await deleteLocalMediaFiles(root, removedPaths);
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-ads',
+    });
+  } catch {
+    /* cloud offline */
+  }
+}
+
 async function syncStopAudioFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
 
@@ -497,6 +574,7 @@ async function runCloudSyncInner(root) {
 
   lastPushedAt = Date.now();
   await syncAssignedRoutesFromCloud(root, creds);
+  await syncAdsFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
 
@@ -567,6 +645,29 @@ export function getCloudConfig(root) {
     installId: creds.installId,
     fleetClaimCode: isDeviceClaimed(root ?? dataRootRef) ? null : creds.fleetClaimCode,
   };
+}
+
+/** True when db/info.txt + db/media/ already have enough content to run the bus offline. */
+export async function getHubStatus(dataRoot) {
+  try {
+    const state = (await readInfoFile(dataRoot ?? dataRootRef)) ?? {};
+    const routes = state.routes ?? [];
+    const ads = state.ads ?? [];
+    const bannerAds = state.bannerAds ?? [];
+    const stopAudio = state.stopAudio ?? {};
+    const hubReady =
+      routes.length > 0 ||
+      ads.length > 0 ||
+      bannerAds.length > 0 ||
+      Object.keys(stopAudio).length > 0;
+    return {
+      hubReady,
+      localRoutes: routes.length,
+      localAds: ads.length + bannerAds.length,
+    };
+  } catch {
+    return { hubReady: false, localRoutes: 0, localAds: 0 };
+  }
 }
 
 /** Cloud-paired driver unlock on bus LAN. */

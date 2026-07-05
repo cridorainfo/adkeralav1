@@ -9,7 +9,6 @@ import {
 } from './driverLanStorage';
 import {
   clearDriverCredentials,
-  clearDriverToken,
   getStoredDriverBusOrigin,
   getStoredDriverPlate,
   getStoredDriverToken,
@@ -98,8 +97,9 @@ export async function connectToBus(controlUrl, pairingCode) {
 }
 
 /**
- * Keep driver session alive on LAN — reuse token, or reconnect with saved admin code.
+ * Keep driver session alive on LAN — reuse token, or silently reconnect with saved pair code.
  * Never clears saved URL / pairing code (only explicit disconnect or admin revoke does).
+ * Stays "connected" in memory when the bus PC is briefly unreachable.
  */
 export async function ensureDriverSession() {
   await hydrateDriverStorage();
@@ -107,6 +107,7 @@ export async function ensureDriverSession() {
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 
   const token = getStoredDriverToken();
+  const code = loadPairingCode();
 
   try {
     const info = await readDriverSessionInfo(controlUrl, token);
@@ -120,21 +121,44 @@ export async function ensureDriverSession() {
       };
     }
 
-    if (token && !info.unlocked) {
-      clearDriverToken();
+    // Server lost the token (e.g. bus reboot) — silently reconnect with saved pair code.
+    if (code) {
+      const result = await connectToBus(controlUrl, code);
+      if (result.ok) return { ...result, reason: 'reconnected' };
+      return {
+        ok: false,
+        reason: 'connect-failed',
+        error: result.error,
+        controlUrl,
+        keepTrying: true,
+      };
     }
   } catch {
-    if (token) {
-      return { ok: false, reason: 'offline', controlUrl, keepTrying: true };
+    if (token || code) {
+      return {
+        ok: true,
+        controlUrl,
+        plate: getStoredDriverPlate(),
+        keepTrying: true,
+        offline: true,
+      };
     }
+    return { ok: false, reason: 'offline', controlUrl, keepTrying: Boolean(code) };
   }
 
-  const code = loadPairingCode();
-  if (!code) return { ok: false, reason: 'need-code', controlUrl };
+  if (code) {
+    const result = await connectToBus(controlUrl, code);
+    if (result.ok) return { ...result, reason: 'reconnected' };
+    return {
+      ok: false,
+      reason: 'connect-failed',
+      error: result.error,
+      controlUrl,
+      keepTrying: true,
+    };
+  }
 
-  const result = await connectToBus(controlUrl, code);
-  if (result.ok) return { ...result, reason: 'reconnected' };
-  return { ok: false, reason: 'connect-failed', error: result.error, controlUrl };
+  return { ok: false, reason: 'need-code', controlUrl };
 }
 
 /** If URL + code (+ token) are saved, connect and return control URL. */
@@ -142,8 +166,13 @@ export async function tryStoredAutoConnect() {
   const result = await ensureDriverSession();
   if (result.ok) return result;
   if (result.reason === 'revoked') return result;
-  if (result.reason === 'offline' && getStoredDriverToken()) {
-    return { ok: true, controlUrl: result.controlUrl, plate: getStoredDriverPlate(), offline: true };
+  if (result.keepTrying) {
+    return {
+      ok: true,
+      controlUrl: result.controlUrl,
+      plate: getStoredDriverPlate(),
+      offline: Boolean(result.offline),
+    };
   }
   return result;
 }

@@ -12,7 +12,8 @@ import {
 } from './safeFileWrite.js';
 import { archiveJsonContent, archiveRelativeLabel, readArchivedJson } from './stateArchive.js';
 
-const SESSION_MS = 12 * 60 * 60 * 1000;
+// Driver LAN sessions persist until the driver taps Disconnect or admin revokes them.
+// No idle timeout — phones stay connected across app backgrounding and bus PC reboots.
 const HEARTBEAT_MS = 45 * 1000;
 const SESSIONS_FILE = '.adkerala-driver-sessions.json';
 const CONNECT_RATE_LIMIT = 8;
@@ -117,31 +118,20 @@ async function saveSessionsToDisk(dataRoot) {
 }
 
 function pruneExpiredSessions() {
-  const now = Date.now();
-  for (const [token, session] of sessions) {
-    if (now > session.expiresAt) sessions.delete(token);
-  }
+  /* Sessions no longer expire by time — only explicit disconnect removes them. */
 }
 
 export function hasActiveDriverSession() {
-  pruneExpiredSessions();
   return sessions.size > 0;
 }
 
 export function getConnectedDeviceCount() {
-  pruneExpiredSessions();
   return sessions.size;
 }
 
 export function isDriverSessionValid(token) {
   if (!token) return false;
-  const session = sessions.get(token);
-  if (!session) return false;
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    return false;
-  }
-  return true;
+  return sessions.has(token);
 }
 
 /** Drop LAN unlock tokens when cloud unlinks the driver from this bus. */
@@ -243,21 +233,14 @@ function createDriverSession(driverIdOverride = null) {
     driverIdOverride && String(driverIdOverride).trim()
       ? String(driverIdOverride).trim()
       : `phone-${token.slice(0, 12)}`;
-  const expiresAt = Date.now() + SESSION_MS;
-  sessions.set(token, { expiresAt, driverId, lastSeenAt: Date.now() });
-  return { token, expiresAt, driverId };
+  sessions.set(token, { driverId, lastSeenAt: Date.now() });
+  return { token, driverId };
 }
 
 async function touchSession(token) {
   const session = sessions.get(token);
   if (!session) return false;
-  if (Date.now() > session.expiresAt) {
-    sessions.delete(token);
-    await saveSessionsToDisk(dataRootRef);
-    return false;
-  }
   session.lastSeenAt = Date.now();
-  session.expiresAt = Date.now() + SESSION_MS;
   await saveSessionsToDisk(dataRootRef);
   return true;
 }
@@ -305,10 +288,6 @@ function verifyLinkedDriverLocally(state, driverId) {
     offline: true,
     plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
   };
-}
-
-function isLocalPhoneDriverId(driverId) {
-  return Boolean(driverId && String(driverId).startsWith('phone-'));
 }
 
 async function refreshConnectedDeviceCountInState(dataRoot) {
@@ -360,17 +339,20 @@ async function setDriverLink(dataRoot, driverLink) {
   await writeInfoFileSerialized(dataRoot, next, { source: 'driver-link' });
 }
 
-async function clearLocalDriverLinkIfIdle(dataRoot) {
-  if (hasActiveDriverSession()) return;
-  const state = (await readInfoFile(dataRoot)) ?? {};
-  if (!isLocalPhoneDriverId(state.driverLink?.driverId)) return;
+async function clearLocalDriverLinkIfIdle(_dataRoot) {
+  /* Driver link stays until explicit disconnect — never auto-clear on idle. */
+}
 
-  const linkedAt = state.driverLink?.linkedAt ?? 0;
-  if (!linkedAt || Date.now() - linkedAt < SESSION_MS) {
-    // Session file may be empty after reboot — keep link until expiry or explicit disconnect.
-    return;
-  }
-  await setDriverLink(dataRoot, null);
+/** After reboot, restore driverLink from persisted sessions if info.txt lost the link. */
+async function restoreDriverLinkFromSessions(dataRoot) {
+  if (sessions.size === 0) return;
+  const state = (await readInfoFile(dataRoot)) ?? {};
+  if (state.driverLink?.driverId) return;
+
+  const first = sessions.values().next().value;
+  if (!first?.driverId) return;
+
+  await setDriverLink(dataRoot, { driverId: first.driverId, linkedAt: Date.now() });
 }
 
 function startSessionCleanup(dataRoot) {
@@ -413,7 +395,6 @@ async function connectWithPairingCode(dataRoot, pairingCode) {
   return {
     ok: true,
     token: session.token,
-    expiresAt: session.expiresAt,
     plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
     offline: true,
     devicesDisconnectAt: readDevicesDisconnectAt(fresh),
@@ -427,6 +408,7 @@ export function setupDriverAuth(app, { dataRoot, verifyLinkedWithCloud }) {
   sessions = new Map();
   connectAttempts.clear();
   loadSessionsFromDisk(dataRoot).then(async () => {
+    await restoreDriverLinkFromSessions(dataRoot);
     await refreshConnectedDeviceCountInState(dataRoot);
     startSessionCleanup(dataRoot);
   });
@@ -565,7 +547,6 @@ export function setupDriverAuth(app, { dataRoot, verifyLinkedWithCloud }) {
       res.json({
         ok: true,
         token: session.token,
-        expiresAt: session.expiresAt,
         plate:
           verified.plate ??
           cloud?.plate ??

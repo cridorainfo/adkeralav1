@@ -68,13 +68,15 @@ export default function DriverControlScreen({ serialRuntime = null }) {
       await refreshRemoteState(applyRemoteState);
       await pingConnection();
     } catch (err) {
-      if (err.code === 'DRIVER_LOCKED') {
+      if (err.code === 'DRIVER_LOCKED' || err.code === 'DRIVER_RECONNECTING') {
         setConnected(false);
       }
       setError(
-        err.code === 'DRIVER_LOCKED'
-          ? 'Session expired — disconnect and connect again with the bus pair code'
-          : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
+        err.code === 'DRIVER_RECONNECTING'
+          ? 'Reconnecting to bus — stay on bus Wi‑Fi'
+          : err.code === 'DRIVER_LOCKED'
+            ? 'Lost connection — reconnecting automatically…'
+            : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
       );
     } finally {
       setBusy(false);

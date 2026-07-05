@@ -1,4 +1,4 @@
-import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+import { persistDriverValue, readDriverValue, removeDriverValues } from './driverPersistentStorage.js';
 
 const TOKEN_KEY = 'adkerala-driver-token';
 const BUS_KEY = 'adkerala-driver-bus';
@@ -8,11 +8,7 @@ const DRIVER_ID_KEY = 'adkerala-driver-id';
 const CREDENTIAL_KEYS = [TOKEN_KEY, BUS_KEY, PLATE_KEY, DRIVER_ID_KEY];
 
 function read(key) {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
+  return readDriverValue(key);
 }
 
 function write(key, value) {

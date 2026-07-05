@@ -3,8 +3,9 @@ import { getStoredDriverBusOrigin } from './driverCredentials.js';
 
 /**
  * Driver phone ↔ bus PC control is always LAN-only.
- * Internet on the phone or bus Wi‑Fi does not affect it.
- * Only the bus PC uses internet to sync routes, ads, and audio from the cloud.
+ * The bus PC is the hub — phones log in to it with a pair code and control routes/trips locally.
+ * Cloud/internet on the phone is never required for control.
+ * Only the bus PC uses internet (when available) for fleet claim and downloading route/ad/audio updates.
  */
 
 /** True when this page is served from the bus PC on the local network (or local dev). */
