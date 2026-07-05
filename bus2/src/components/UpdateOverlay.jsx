@@ -1,13 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useKioskUpdateStatus } from '../hooks/useKioskUpdateStatus';
 
 /** Shown on the bus display when a PC app update is downloading or about to restart. */
 export default function UpdateOverlay() {
-  const [status, setStatus] = useState(null);
-
-  useEffect(() => {
-    if (!window.adKeralaKiosk?.onUpdateStatus) return undefined;
-    return window.adKeralaKiosk.onUpdateStatus(setStatus);
-  }, []);
+  const status = useKioskUpdateStatus();
 
   if (!status?.visible) return null;
 

@@ -7,7 +7,6 @@ import { useBusPcEspSerial } from '../hooks/useBusPcEspSerial';
 import { isKioskMode, isLaunchedByRunScript } from '../lib/appRole';
 import FleetSetupOverlay from '../components/FleetSetupOverlay';
 import UpdateOverlay from '../components/UpdateOverlay';
-import ConsoleStatus from '../components/ConsoleStatus';
 import DisplayScreen from './DisplayScreen';
 
 /** Passenger screen — open on bus PC at /display */
@@ -28,7 +27,7 @@ export default function DisplayApp() {
   useAnnouncementPlayback();
   useDisplayBrowserFullscreen(true, exitToControl, kioskMode);
 
-  const { serial } = useBusPcEspSerial({
+  useBusPcEspSerial({
     state,
     applyRemoteState,
     updateSerialRuntime,
@@ -53,23 +52,11 @@ export default function DisplayApp() {
     return () => document.documentElement.classList.remove('kiosk-hide-cursor');
   }, [kioskMode]);
 
-  const consoleRuntime = {
-    isConnected: serial?.isConnected,
-    portLabel: serial?.portLabel,
-    status: serial?.status,
-    at: state.serialRuntime?.at,
-  };
-
   return (
     <>
       <FleetSetupOverlay />
       {kioskMode && <UpdateOverlay />}
       <DisplayScreen passengerMode />
-      {kioskMode && (
-        <div className="display-console-status-wrap">
-          <ConsoleStatus serialRuntime={consoleRuntime} compact />
-        </div>
-      )}
     </>
   );
 }
