@@ -17,7 +17,7 @@ import {
   formatGpsAccuracy,
 } from '../lib/geoUtils';
 import { useDriverControl } from '../components/DriverControlContext';
-import { disconnectAllDriversOnBus } from '../lib/driverConnectFlow';
+import { disconnectAllHubDevices } from '#hub/client';
 import GpsPermissionBanner from '../components/GpsPermissionBanner';
 
 const DRIVER_TABS = ['drive', 'routes', 'settings'];
@@ -78,7 +78,7 @@ export default function ControlScreen({
 
   const handleDisconnectAllPhones = useCallback(async () => {
     setDisconnectAllStatus('Disconnecting all driver phones…');
-    const result = await disconnectAllDriversOnBus();
+    const result = await disconnectAllHubDevices();
     setDisconnectAllStatus(
       result.ok
         ? 'All driver phones disconnected — check Fleet for the new pairing code'

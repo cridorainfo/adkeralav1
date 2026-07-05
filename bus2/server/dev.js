@@ -8,14 +8,13 @@ import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
 import {
   startCloudSyncLoop,
   getCloudConfig,
-  verifyDriverLinkedOnCloud,
 } from './cloudSync.js';
 import { startMediaGcLoop } from './cloudMediaSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { startHttpsMirror } from './tls.js';
 import { ensureWindowsFirewallPorts } from './firewall.js';
-import { setupDriverAuth } from './driverAuth.js';
+import { initHubSessions, setupHubSessions } from './hubSessions.js';
 import { setupDriveApi } from './driveApi.js';
 import { setupBusCors } from './cors.js';
 
@@ -35,11 +34,9 @@ const httpServer = createHttpServer(app);
 app.use(express.json({ limit: '2mb' }));
 
 await ensureDbLayout(root);
+await initHubSessions(root);
 setupDbApi(app, root);
-setupDriverAuth(app, {
-  dataRoot: root,
-  verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(root, driverId),
-});
+setupHubSessions(app, { dataRoot: root });
 setupDriveApi(app, root);
 setupCloudProxy(app, root);
 

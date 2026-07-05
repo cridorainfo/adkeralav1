@@ -3,27 +3,25 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import DriverQrScanner from '../components/DriverQrScanner.jsx';
 import { APP_NAME } from '../lib/brand.js';
+import { isOnBusLanOrigin } from '#hub/api';
 import {
-  hydrateDriverStorage,
-  readBusControlFromLocation,
-  loadBusControlUrl,
-  loadPairingCode,
-  saveBusControlUrl,
-  savePairingCode,
-} from '../lib/driverLanStorage.js';
-import { isOnBusLanOrigin } from '../lib/driverBusApi.js';
-import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow.js';
+  hydrateHubStorage,
+  loadHubControlUrl,
+  loadHubPairCode,
+  readHubControlFromLocation,
+  saveHubControlUrl,
+  saveHubPairCode,
+} from '#hub/persist';
+import { goToHubControl, pairToHub, tryStoredHubConnect } from '#hub/client';
 import { parseControlFromScan } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
-/**
- * Driver phone — scan bus QR (opens LAN /driver), enter pairing code, then control on bus PC.
- */
+/** Driver phone — scan bus QR, pair with hub, open live control. */
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
   const revokedMessage = location.state?.revoked
-    ? location.state?.message ?? 'Admin disconnected all driver phones — scan the bus QR again'
+    ? location.state?.message ?? 'Admin disconnected all phones — scan the bus QR again'
     : '';
   const [pairCode, setPairCode] = useState('');
   const [busUrl, setBusUrl] = useState(null);
@@ -36,14 +34,14 @@ export default function DriverConnect() {
     let cancelled = false;
 
     (async () => {
-      await hydrateDriverStorage();
+      await hydrateHubStorage();
 
-      const savedCode = loadPairingCode();
+      const savedCode = loadHubPairCode();
       if (savedCode && !cancelled) setPairCode(savedCode);
 
-      const fromQr = readBusControlFromLocation(location.search);
+      const fromQr = readHubControlFromLocation(location.search);
       if (fromQr) {
-        saveBusControlUrl(fromQr);
+        saveHubControlUrl(fromQr);
         if (!cancelled) setBusUrl(fromQr);
         navigate('/driver', { replace: true });
         return;
@@ -51,36 +49,30 @@ export default function DriverConnect() {
 
       if (isOnBusLanOrigin()) {
         const lanControl = `${window.location.origin}/control`;
-        saveBusControlUrl(lanControl);
+        saveHubControlUrl(lanControl);
         if (!cancelled) setBusUrl(lanControl);
       }
 
-      const saved = loadBusControlUrl();
+      const saved = loadHubControlUrl();
       if (!cancelled) setBusUrl(saved);
 
-      const auto = await tryStoredAutoConnect();
+      const auto = await tryStoredHubConnect();
       if (cancelled) return;
 
-      if (auto.ok) {
+      if (auto.ok && auto.controlUrl) {
         setStatus('Connecting to your bus…');
-        goToControl(auto.controlUrl);
+        goToHubControl(auto.controlUrl);
         return;
       }
 
-      if (auto.reason === 'revoked') {
+      if (auto.status === 'revoked') {
         setStatus('Disconnected by admin');
         setError(auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
         return;
       }
 
-      if (auto.reason === 'need-code' && saved) {
+      if (auto.status === 'need-code' && saved) {
         setStatus('Enter the pairing code from admin');
-        return;
-      }
-
-      if (auto.reason === 'connect-failed' && saved) {
-        setStatus('Reconnecting to bus…');
-        setError(auto.error ?? 'Could not reach bus — check Wi‑Fi');
         return;
       }
 
@@ -94,19 +86,19 @@ export default function DriverConnect() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, navigate]);
+  }, [location.search, navigate, revokedMessage]);
 
   const handlePairCodeChange = (raw) => {
     const digits = raw.replace(/\D/g, '').slice(0, 4);
     setPairCode(digits);
-    if (digits.length === 4) savePairingCode(digits);
+    if (digits.length === 4) saveHubPairCode(digits);
   };
 
   const handleQrScan = (raw) => {
     setError('');
     const control = parseControlFromScan(raw);
     if (control) {
-      saveBusControlUrl(control);
+      saveHubControlUrl(control);
       setBusUrl(control);
       setStatus('Enter the pairing code from admin');
       return;
@@ -124,12 +116,12 @@ export default function DriverConnect() {
     setBusy(true);
     setError('');
     try {
-      const result = await connectToBus(busUrl, pairCode);
+      const result = await pairToHub(busUrl, pairCode);
       if (!result.ok) {
         setError(result.error ?? 'Could not connect');
         return;
       }
-      goToControl(result.controlUrl);
+      goToHubControl(busUrl);
     } finally {
       setBusy(false);
     }
@@ -181,11 +173,11 @@ export default function DriverConnect() {
                 {busy ? 'Connecting…' : 'Connect to bus'}
               </button>
               {error && <p className="driver-connect-error">{error}</p>}
-            {revokedMessage && !error && (
-              <p className="driver-connect-error" role="alert">
-                {revokedMessage}
-              </p>
-            )}
+              {revokedMessage && !error && (
+                <p className="driver-connect-error" role="alert">
+                  {revokedMessage}
+                </p>
+              )}
             </form>
             <button type="button" className="btn btn-ghost driver-rescan-btn" onClick={() => setScannerOpen(true)}>
               Scan a different bus
@@ -209,15 +201,11 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          Credentials stay saved in this browser/PWA until you tap Disconnect on the control screen.
+          Credentials stay saved until you tap Disconnect on the control screen.
         </p>
       </div>
 
-      <DriverQrScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleQrScan}
-      />
+      <DriverQrScanner open={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handleQrScan} />
     </div>
   );
 }

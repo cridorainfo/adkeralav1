@@ -3,7 +3,7 @@ import path from 'path';
 import { existsSync } from 'fs';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
-import { requireDriverAuthUnlessLocal } from './driverAuth.js';
+import { requireHubAuthUnlessLocal } from './hubSessions.js';
 import { notifyStateChanged, subscribeStateChanged } from './stateEvents.js';
 import {
   atomicWriteTextFile,
@@ -296,8 +296,9 @@ export function setupDbApi(app, root) {
   app.get('/api/state', async (_req, res) => {
     try {
       await ensureDbLayout(root);
-      const data = await readInfoFile(root);
-      res.json({ ok: true, data: data ?? {} });
+      const { normalizeClientState } = await import('./hubSessions.js');
+      const raw = (await readInfoFile(root)) ?? {};
+      res.json({ ok: true, data: normalizeClientState(raw) });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }
@@ -331,12 +332,12 @@ export function setupDbApi(app, root) {
     });
   });
 
-  app.post('/api/state', requireDriverAuthUnlessLocal, async (req, res) => {
+  app.post('/api/state', requireHubAuthUnlessLocal, async (req, res) => {
     try {
       await ensureDbLayout(root);
       const current = (await readInfoFile(root)) ?? {};
       const { mergeIncomingState } = await import('./stateMerge.js');
-      const { getConnectedDeviceCount } = await import('./driverAuth.js');
+      const { getConnectedDeviceCount, normalizeClientState } = await import('./hubSessions.js');
       const merged = mergeIncomingState(current, req.body ?? {});
       merged.connectedDeviceCount = getConnectedDeviceCount();
       const tripUnchanged =
@@ -358,7 +359,7 @@ export function setupDbApi(app, root) {
     }
   });
 
-  app.post('/api/media/:category', requireDriverAuthUnlessLocal, expressRawUpload, async (req, res) => {
+  app.post('/api/media/:category', requireHubAuthUnlessLocal, expressRawUpload, async (req, res) => {
     try {
       const category = req.params.category;
       if (!MEDIA_CATEGORIES.has(category)) {
@@ -377,7 +378,7 @@ export function setupDbApi(app, root) {
     }
   });
 
-  app.delete('/api/media/file', requireDriverAuthUnlessLocal, async (req, res) => {
+  app.delete('/api/media/file', requireHubAuthUnlessLocal, async (req, res) => {
     try {
       const relPath = String(req.query.path ?? '').trim();
       if (!relPath) {

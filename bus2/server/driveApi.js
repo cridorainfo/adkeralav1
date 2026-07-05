@@ -1,10 +1,10 @@
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
-import { requireDriverAuthUnlessLocal } from './driverAuth.js';
+import { requireHubAuthUnlessLocal } from './hubSessions.js';
 import { applyDriveAction, isDriveAction } from '../src/store/driveActions.js';
 
 /** Lightweight drive commands — small POST bodies, authoritative server-side merge. */
 export function setupDriveApi(app, dataRoot) {
-  app.post('/api/drive', requireDriverAuthUnlessLocal, async (req, res) => {
+  app.post('/api/drive', requireHubAuthUnlessLocal, async (req, res) => {
     try {
       const action = String(req.body?.action ?? '').trim();
       if (!isDriveAction(action)) {

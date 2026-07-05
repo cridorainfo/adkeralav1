@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { APP_NAME } from '../lib/brand.js';
-import { useBusLanState } from '../hooks/useBusLanState.js';
-import { postDriveAction } from '../lib/driverDriveApi.js';
-import { disconnectFromBus, ensureDriverSession } from '../lib/driverConnectFlow.js';
-import { loadBusControlUrl } from '../lib/driverLanStorage.js';
+import { useHubState } from '#hub/useHubState';
+import { postDriveAction } from '#hub/drive';
+import { disconnectFromHub } from '#hub/client';
+import { loadHubControlUrl } from '#hub/persist';
 import {
   getDriverVisibleRoutes,
   getStopEn,
@@ -35,29 +35,15 @@ export default function DriverControl() {
     },
     [navigate]
   );
-  const { state, connected, plate, error, setError, refreshState, pingSession } = useBusLanState({
+  const { state, stateLoaded, connected, plate, error, setError, refreshState } = useHubState({
     onRevoked: handleRevoked,
   });
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
 
   useEffect(() => {
-    if (loadBusControlUrl()) return;
+    if (loadHubControlUrl()) return;
     navigate('/driver', { replace: true });
-  }, [navigate]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const result = await ensureDriverSession();
-      if (cancelled) return;
-      if (!result.ok && result.reason === 'need-code') {
-        navigate('/driver', { replace: true });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
   }, [navigate]);
 
   const s = state ?? {};
@@ -86,9 +72,8 @@ export default function DriverControl() {
       try {
         await postDriveAction(action, payload);
         await refreshState();
-        await pingSession();
       } catch (err) {
-        if (err.code === 'DRIVER_LOCKED') {
+        if (err.code === 'HUB_LOCKED') {
           navigate('/driver', { replace: true });
           return;
         }
@@ -97,16 +82,8 @@ export default function DriverControl() {
         setBusy(false);
       }
     },
-    [busy, navigate, pingSession, refreshState]
+    [busy, navigate, refreshState]
   );
-
-  useEffect(() => {
-    if (!busRoutes.length) return;
-    const valid = busRoutes.some((r) => r.id === s.activeRouteId);
-    if (!valid && busRoutes[0]?.id) {
-      runDrive('selectRoute', { routeId: busRoutes[0].id });
-    }
-  }, [s.activeRouteId, busRoutes, runDrive]);
 
   const handleAnnounce = () => {
     if (!announceTarget) return;
@@ -115,7 +92,7 @@ export default function DriverControl() {
   };
 
   const handleDisconnect = async () => {
-    await disconnectFromBus();
+    await disconnectFromHub();
     navigate('/driver', { replace: true });
   };
 
@@ -141,15 +118,22 @@ export default function DriverControl() {
         {displayError && (
           <div className="driver-control-error" role="alert">
             <span>{displayError}</span>
-            <button type="button" className="btn btn-ghost" onClick={() => { setLocalError(''); setError(''); }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setLocalError('');
+                setError('');
+              }}
+            >
               Dismiss
             </button>
           </div>
         )}
 
         <div className="panel driver-panel driver-minimal-panel">
-          {!state ? (
-            <p className="driver-connect-status">Loading bus state…</p>
+          {!stateLoaded ? (
+            <p className="driver-connect-status">Loading live status from bus hub…</p>
           ) : !busRoutes.length ? (
             <div className="drive-no-route">
               <p>No routes on this bus yet.</p>

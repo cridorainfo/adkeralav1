@@ -2,21 +2,18 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
+import { isOnBusLanOrigin } from '#hub/api';
 import {
-  hydrateDriverStorage,
-  readBusControlFromLocation,
-  loadBusControlUrl,
-  loadPairingCode,
-  saveBusControlUrl,
-  savePairingCode,
-} from '../lib/driverLanStorage';
-import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow';
-import { isOnBusLanOrigin } from '../lib/driverBusApi';
+  hydrateHubStorage,
+  loadHubControlUrl,
+  loadHubPairCode,
+  readHubControlFromLocation,
+  saveHubControlUrl,
+  saveHubPairCode,
+} from '#hub/persist';
+import { goToHubControl, pairToHub, tryStoredHubConnect } from '#hub/client';
 
-/**
- * Driver entry — scan display QR with phone camera (opens cloud PWA or bus /driver in browser).
- * Saves bus URL, then admin pairing code. Auto-connects on next launch.
- */
+/** Driver entry — scan display QR, save bus hub URL, enter pairing code. */
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -30,12 +27,12 @@ export default function DriverConnect() {
     let cancelled = false;
 
     (async () => {
-      await hydrateDriverStorage();
+      await hydrateHubStorage();
 
-      const savedCode = loadPairingCode();
+      const savedCode = loadHubPairCode();
       if (savedCode && !cancelled) setPairCode(savedCode);
 
-      const fromQr = readBusControlFromLocation(location.search);
+      const fromQr = readHubControlFromLocation(location.search);
       if (fromQr) {
         saveBusControlUrl(fromQr);
         if (!cancelled) setBusUrl(fromQr);
@@ -49,26 +46,26 @@ export default function DriverConnect() {
         if (!cancelled) setBusUrl(lanControl);
       }
 
-      const saved = loadBusControlUrl();
+      const saved = loadHubControlUrl();
       if (!cancelled) setBusUrl(saved);
 
-      const auto = await tryStoredAutoConnect();
+      const auto = await tryStoredHubConnect();
       if (cancelled) return;
 
       if (auto.ok) {
         setStatus('Connecting to your bus…');
-        goToControl(auto.controlUrl);
+        goToHubControl(auto.controlUrl ?? saved);
         return;
       }
 
-      if (auto.reason === 'need-code' && saved) {
+      if (auto.status === 'revoked') {
+        setStatus('Disconnected by admin');
+        setError(auto.error ?? 'Scan the bus QR and pair again');
+        return;
+      }
+
+      if (auto.status === 'need-code' && saved) {
         setStatus('Enter the pairing code from admin');
-        return;
-      }
-
-      if (auto.reason === 'connect-failed' && saved) {
-        setStatus('Reconnecting to bus…');
-        setError(auto.error ?? 'Could not reach bus — check Wi‑Fi');
         return;
       }
 
@@ -87,7 +84,7 @@ export default function DriverConnect() {
   const handlePairCodeChange = (raw) => {
     const digits = raw.replace(/\D/g, '').slice(0, 4);
     setPairCode(digits);
-    if (digits.length === 4) savePairingCode(digits);
+    if (digits.length === 4) saveHubPairCode(digits);
   };
 
   const handleSubmit = async (e) => {
@@ -100,12 +97,12 @@ export default function DriverConnect() {
     setBusy(true);
     setError('');
     try {
-      const result = await connectToBus(busUrl, pairCode);
+      const result = await pairToHub(busUrl, pairCode);
       if (!result.ok) {
         setError(result.error ?? 'Could not connect');
         return;
       }
-      goToControl(result.controlUrl);
+      goToHubControl(busUrl);
     } finally {
       setBusy(false);
     }
@@ -149,9 +146,8 @@ export default function DriverConnect() {
           <div className="driver-connect-section">
             <h2 className="driver-section-subtitle">First time on this bus</h2>
             <ol className="driver-connect-steps">
-              <li>Install the driver app from your cloud URL (Add to Home Screen)</li>
               <li>Open your phone&apos;s <strong>camera</strong> and scan the QR on the passenger display</li>
-              <li>Open the link — the app saves the bus address</li>
+              <li>Open the link — the app saves the bus hub address</li>
               <li>Ask admin for the pairing code and enter it here</li>
             </ol>
             {error && <p className="driver-connect-error">{error}</p>}
@@ -159,7 +155,7 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          Credentials stay saved in this browser/PWA until you tap Disconnect on the control screen.
+          Credentials stay saved until you tap Disconnect on the control screen.
         </p>
       </div>
     </div>

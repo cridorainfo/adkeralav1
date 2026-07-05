@@ -13,7 +13,7 @@ import {
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
-import { clearAllDriverSessions, disconnectAllDrivers } from './driverAuth.js';
+import { clearAllHubSessions, disconnectAllDrivers } from './hubSessions.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -52,7 +52,7 @@ async function handleDeviceRemovedFromFleet(root, reason) {
   try {
     console.warn(`AdKerala cloud sync: bus removed from fleet (${reason}) — showing claim code`);
     clearDeviceClaim(root);
-    await clearAllDriverSessions(root);
+    await clearAllHubSessions(root);
 
     const current = (await readInfoFile(root)) ?? {};
     const oldMediaPaths = [
@@ -511,7 +511,7 @@ async function runCloudSyncInner(root) {
       const merged = applyCloudCommands(current, stateCommands);
       const nextDriverId = merged.driverLink?.driverId ?? null;
       if (prevDriverId && !nextDriverId) {
-        await clearAllDriverSessions(root);
+        await clearAllHubSessions(root);
         const stamp = new Date().toISOString();
         merged.driverLink = null;
         merged.connectedDeviceCount = 0;

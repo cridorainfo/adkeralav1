@@ -3,7 +3,7 @@ import { usePlatformSerial, isPlatformSerialSupported } from './usePlatformSeria
 import { useEspSerialControl } from './useEspSerialControl';
 import { refreshRemoteState } from './useRemoteStateSync';
 import { getStopEn } from '../store/busStore';
-import { postDriveAction } from '../lib/driverDriveApi';
+import { postDriveAction } from '#hub/drive';
 import { isBusPcForSerial } from '../lib/appRole';
 
 /** Console USB on bus PC — auto-detects and connects any port; no driver setup. */

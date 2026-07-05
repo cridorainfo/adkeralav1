@@ -1,5 +1,5 @@
 /** Convert db/info.txt JSON into app state shape (paths → URLs). */
-import { getStoredDriverToken } from './driverCredentials.js';
+import { getHubToken } from '#hub/persist';
 
 export const MEDIA_BASE = '/db/media';
 
@@ -200,8 +200,8 @@ export function serializeStateForFile(state) {
 export async function saveStateToDb(state) {
   const body = serializeStateForFile(state);
   const headers = { 'Content-Type': 'application/json' };
-  const token = getStoredDriverToken();
-  if (token) headers['X-Driver-Token'] = token;
+  const token = getHubToken();
+  if (token) headers['X-Hub-Token'] = token;
   const res = await fetch('/api/state', {
     method: 'POST',
     headers,
@@ -228,8 +228,8 @@ export async function uploadMediaFile(category, file, suggestedName) {
   const form = new FormData();
   form.append('file', file, suggestedName || file.name || 'upload.bin');
   const headers = {};
-  const token = getStoredDriverToken();
-  if (token) headers['X-Driver-Token'] = token;
+  const token = getHubToken();
+  if (token) headers['X-Hub-Token'] = token;
   const res = await fetch(`/api/media/${category}`, { method: 'POST', headers, body: form });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'Upload failed');

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { buildDriverJoinUrl, readPairingCodeFromLocation } from '../src/lib/driverJoinUrl.js';
 import {
   normalizeControlUrl,
-  readBusControlFromLocation,
-} from '../src/lib/driverLanStorage.js';
+  readHubControlFromLocation,
+} from '../shared/hub/persist.js';
 
 test('buildDriverJoinUrl points to bus PC /driver on LAN (bus3-style)', () => {
   const join = buildDriverJoinUrl('http://192.168.1.50:5174/control?code=4821');
@@ -40,8 +40,8 @@ test('normalizeControlUrl strips query params', () => {
   );
 });
 
-test('readBusControlFromLocation reads control query param', () => {
-  const raw = readBusControlFromLocation('?control=http%3A%2F%2F192.168.1.50%3A5174%2Fcontrol');
+test('readHubControlFromLocation reads control query param', () => {
+  const raw = readHubControlFromLocation('?control=http%3A%2F%2F192.168.1.50%3A5174%2Fcontrol');
   assert.equal(raw, 'http://192.168.1.50:5174/control');
 });
 

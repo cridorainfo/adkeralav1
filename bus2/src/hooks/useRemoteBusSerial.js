@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getStoredDriverToken } from '../lib/driverCredentials';
+import { getHubToken } from '#hub/persist';
+import { hubFetch } from '#hub/api';
 
 /** Load / save ESP32 settings on the bus PC from the driver phone (same Wi‑Fi). */
 export function useRemoteBusSerial({ lanIp, port = 5174, enabled = true }) {
@@ -48,8 +49,8 @@ export function useRemoteBusSerial({ lanIp, port = 5174, enabled = true }) {
       setSerialSettings(next);
 
       const headers = { 'Content-Type': 'application/json' };
-      const token = getStoredDriverToken();
-      if (token) headers['X-Driver-Token'] = token;
+      const token = getHubToken();
+      if (token) headers['X-Hub-Token'] = token;
 
       try {
         const res = await fetch(`${baseUrl}/api/state`, {

@@ -6,14 +6,13 @@ import { buildNetworkUrls, logNetworkStartup, findBestControlIp } from './networ
 import {
   startCloudSyncLoop,
   getCloudConfig,
-  verifyDriverLinkedOnCloud,
 } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
 import { startHttpsMirror } from './tls.js';
 import { ensureWindowsFirewallPorts, checkFirewallPorts } from './firewall.js';
-import { setupDriverAuth } from './driverAuth.js';
+import { initHubSessions, setupHubSessions } from './hubSessions.js';
 import { setupDriveApi } from './driveApi.js';
 import { setupBusCors } from './cors.js';
 
@@ -48,11 +47,9 @@ export async function startBusServer(options = {}) {
   } catch (err) {
     console.warn('AdKerala: db/info.txt could not be loaded at startup —', err.message);
   }
+  await initHubSessions(dataRoot);
   setupDbApi(app, dataRoot);
-  setupDriverAuth(app, {
-    dataRoot,
-    verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(dataRoot, driverId),
-  });
+  setupHubSessions(app, { dataRoot });
   setupDriveApi(app, dataRoot);
   setupCloudProxy(app, dataRoot);
 

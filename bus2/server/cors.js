@@ -8,7 +8,7 @@ export function setupBusCors(app) {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, X-Driver-Token, x-driver-token'
+        'Content-Type, X-Hub-Token, x-hub-token, X-Driver-Token, x-driver-token'
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     }

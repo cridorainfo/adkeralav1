@@ -51,6 +51,7 @@ $wipe = @(
   'db',
   'certs',
   'adkerala.device.json',
+  '.adkerala-hub-sessions.json',
   '.adkerala-driver-sessions.json',
   '.adkerala-firewall-v1',
   '.adkerala-state-archive'

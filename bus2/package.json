@@ -4,6 +4,13 @@
   "version": "1.0.0",
   "description": "AdKerala — bus route display and advertising platform",
   "type": "module",
+  "imports": {
+    "#hub/persist": "./shared/hub/persist.js",
+    "#hub/api": "./shared/hub/api.js",
+    "#hub/client": "./shared/hub/client.js",
+    "#hub/drive": "./shared/hub/drive.js",
+    "#hub/useHubState": "./shared/hub/useHubState.js"
+  },
   "main": "kiosk/main.cjs",
   "scripts": {
     "dev": "node server/dev.js",

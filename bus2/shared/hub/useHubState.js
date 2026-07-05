@@ -1,58 +1,70 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { busFetch, getBusOrigin, isOnBusLanOrigin } from '../lib/driverBusApi.js';
-import { ensureDriverSession } from '../lib/driverConnectFlow.js';
+import { hubFetch, isOnBusLanOrigin } from './api.js';
+import {
+  clearHubSetup,
+  loadHubControlUrl,
+} from './persist.js';
+import {
+  ensureHubConnected,
+  startHubPing,
+  stopHubPing,
+} from './client.js';
 
 const POLL_MS = 2000;
 const POLL_MS_LIVE = 5000;
-const HEARTBEAT_MS = 20000;
 
 function canUseSameOriginEvents() {
   if (typeof window === 'undefined') return false;
   if (isOnBusLanOrigin()) return true;
-  const busOrigin = getBusOrigin();
-  return Boolean(busOrigin && busOrigin === window.location.origin);
+  const control = loadHubControlUrl();
+  if (!control) return false;
+  try {
+    return new URL(control).origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
-/** Poll bus PC state over LAN and keep driver session alive. */
-export function useBusLanState({ onRevoked } = {}) {
+/** Poll hub state and maintain session — single ping owner via startHubPing. */
+export function useHubState({ onRevoked } = {}) {
   const [state, setState] = useState(null);
-  const [connected, setConnected] = useState(true);
+  const [stateLoaded, setStateLoaded] = useState(false);
+  const [connected, setConnected] = useState(false);
   const [plate, setPlate] = useState('');
   const [error, setError] = useState('');
+  const revokedRef = useRef(false);
 
   const refreshState = useCallback(async () => {
     try {
-      const res = await busFetch('/api/state');
+      const res = await hubFetch('/api/state');
       const json = await res.json();
       if (json.ok) {
         setState(json.data ?? {});
+        setStateLoaded(true);
         setError('');
-        setConnected(true);
         return json.data ?? {};
       }
       setError(json.error ?? 'Could not load bus state');
-      setConnected(false);
     } catch (err) {
       setError(err.message ?? 'Could not reach bus — stay on bus Wi‑Fi');
-      setConnected(false);
     }
     return null;
   }, []);
 
-  const pingSession = useCallback(async () => {
-    const result = await ensureDriverSession();
-    if (result.reason === 'revoked') {
+  const syncSession = useCallback(async () => {
+    const result = await ensureHubConnected();
+    if (result.status === 'revoked') {
+      revokedRef.current = true;
+      clearHubSetup();
       setConnected(false);
       onRevoked?.(result.error);
-      return { redirect: '/driver', revoked: true };
+      return result;
     }
     const online = Boolean(result.ok || result.keepTrying);
     setConnected(online);
     if (result.plate) setPlate(result.plate);
-    if (!online && result.reason === 'need-code') {
-      return { redirect: '/driver' };
-    }
-    return { ok: online };
+    if (result.status === 'need-code') return { redirect: '/driver' };
+    return result;
   }, [onRevoked]);
 
   useEffect(() => {
@@ -68,9 +80,9 @@ export function useBusLanState({ onRevoked } = {}) {
     };
 
     (async () => {
-      const session = await pingSession();
-      if (cancelled) return;
-      if (session.redirect) return;
+      const session = await syncSession();
+      if (cancelled || revokedRef.current) return;
+      if (session?.redirect) return;
       await refreshState();
     })();
 
@@ -94,41 +106,35 @@ export function useBusLanState({ onRevoked } = {}) {
       }
     }
 
-    const heartbeatId = setInterval(async () => {
-      try {
-        const res = await busFetch('/api/driver/heartbeat', { method: 'POST' });
-        const json = await res.json().catch(() => ({}));
-        if (json.expired) {
-          const session = await pingSession();
-          if (session?.revoked) return;
-        } else if (json.ok) {
-          setConnected(true);
-        }
-      } catch {
+    startHubPing(async (ping) => {
+      if (cancelled) return;
+      if (ping.revoked) {
+        revokedRef.current = true;
+        clearHubSetup();
         setConnected(false);
+        onRevoked?.('Session ended — pair again');
+        return;
       }
-    }, HEARTBEAT_MS);
-
-    const sessionId = setInterval(() => {
-      pingSession().catch(() => {});
-    }, 5000);
+      if (ping.ok) setConnected(true);
+      else if (ping.offline) setConnected(false);
+    });
 
     return () => {
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
-      clearInterval(heartbeatId);
-      clearInterval(sessionId);
       eventSource?.close();
+      stopHubPing();
     };
-  }, [pingSession, refreshState]);
+  }, [syncSession, refreshState, onRevoked]);
 
   return {
     state,
+    stateLoaded,
     connected,
     plate,
     error,
     setError,
     refreshState,
-    pingSession,
+    syncSession,
   };
 }

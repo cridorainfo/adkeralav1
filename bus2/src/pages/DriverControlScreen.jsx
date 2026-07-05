@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
 import { refreshRemoteState } from '../hooks/useRemoteStateSync';
 import {
@@ -7,14 +7,14 @@ import {
   sameStop,
   getUpcomingPassengerStop,
   getDriverVisibleRoutes,
+  isPersistenceReady,
 } from '../store/busStore';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
-import { postDriveAction } from '../lib/driverDriveApi';
+import { postDriveAction } from '#hub/drive';
 import { BilingualStop } from '../components/BilingualStop';
 import { canPlayAnnouncement } from '../lib/audioFragments';
 import { useDriverControl } from '../components/DriverControlContext';
-import { ensureDriverSession } from '../lib/driverConnectFlow';
 import ConsoleStatus from '../components/ConsoleStatus';
 
 export default function DriverControlScreen({ serialRuntime = null }) {
@@ -22,19 +22,8 @@ export default function DriverControlScreen({ serialRuntime = null }) {
   const { disconnect, plate } = useDriverControl();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [connected, setConnected] = useState(true);
 
-  const pingConnection = useCallback(async () => {
-    const result = await ensureDriverSession();
-    setConnected(Boolean(result.ok || result.keepTrying));
-  }, []);
-
-  useEffect(() => {
-    pingConnection();
-    const id = setInterval(pingConnection, 5000);
-    return () => clearInterval(id);
-  }, [pingConnection, state.savedAt, state.driveRevision, state.driverLink?.driverId]);
-
+  const hubStateReady = isPersistenceReady() && (state.savedAt ?? 0) > 0;
   const busRoutes = getDriverVisibleRoutes(state);
   const activeRouteId =
     busRoutes.some((r) => r.id === state.activeRouteId)
@@ -59,37 +48,26 @@ export default function DriverControlScreen({ serialRuntime = null }) {
     tripStarted &&
     !tripEnded;
 
-  const runDrive = useCallback(async (action, payload = {}) => {
-    if (busy) return;
-    setBusy(true);
-    setError('');
-    try {
-      await postDriveAction(action, payload);
-      await refreshRemoteState(applyRemoteState);
-      await pingConnection();
-    } catch (err) {
-      if (err.code === 'DRIVER_LOCKED' || err.code === 'DRIVER_RECONNECTING') {
-        setConnected(false);
-      }
-      setError(
-        err.code === 'DRIVER_RECONNECTING'
-          ? 'Reconnecting to bus — stay on bus Wi‑Fi'
-          : err.code === 'DRIVER_LOCKED'
-            ? 'Lost connection — reconnecting automatically…'
+  const runDrive = useCallback(
+    async (action, payload = {}) => {
+      if (busy) return;
+      setBusy(true);
+      setError('');
+      try {
+        await postDriveAction(action, payload);
+        await refreshRemoteState(applyRemoteState);
+      } catch (err) {
+        setError(
+          err.code === 'HUB_RECONNECTING' || err.code === 'HUB_BOOT' || err.code === 'HUB_LOCKED'
+            ? 'Reconnecting to bus — stay on bus Wi‑Fi'
             : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
-      );
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, applyRemoteState, pingConnection]);
-
-  useEffect(() => {
-    if (!busRoutes.length) return;
-    const valid = busRoutes.some((r) => r.id === state.activeRouteId);
-    if (!valid && busRoutes[0]?.id) {
-      runDrive('selectRoute', { routeId: busRoutes[0].id });
-    }
-  }, [state.activeRouteId, busRoutes, runDrive]);
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, applyRemoteState]
+  );
 
   const handleAnnounce = () => {
     if (!announceTarget) return;
@@ -107,13 +85,7 @@ export default function DriverControlScreen({ serialRuntime = null }) {
             <small>{plate ? `Bus ${plate}` : 'Driver control'}</small>
           </div>
         </div>
-        <div className="driver-minimal-status-group">
-          <ConsoleStatus serialRuntime={serialRuntime ?? state.serialRuntime} compact />
-          <div className="driver-minimal-status" role="status">
-            <span className={`driver-minimal-dot ${connected ? 'on' : 'off'}`} aria-hidden />
-            {connected ? 'Connected' : 'Disconnected'}
-          </div>
-        </div>
+        <ConsoleStatus serialRuntime={serialRuntime ?? state.serialRuntime} compact />
       </header>
 
       <div className="screen-body">
@@ -127,15 +99,13 @@ export default function DriverControlScreen({ serialRuntime = null }) {
         )}
 
         <div className="panel driver-panel driver-minimal-panel">
-          {!busRoutes.length ? (
+          {!hubStateReady ? (
+            <p className="driver-connect-status">Loading live status from bus hub…</p>
+          ) : !busRoutes.length ? (
             <div className="drive-no-route">
               <p>No routes on this bus yet.</p>
               <p className="drive-no-route-hint">
                 Assign routes from the Fleet dashboard — they sync to the bus PC within a few seconds.
-              </p>
-              <p className="drive-no-route-hint">
-                Admin assigns routes from the cloud dashboard — they appear here after the bus PC syncs
-                (needs internet on the PC only; driver control still works on Wi‑Fi).
               </p>
             </div>
           ) : (
@@ -272,13 +242,16 @@ export default function DriverControlScreen({ serialRuntime = null }) {
 
               <p className="driver-minimal-hint">
                 Press <strong>Forward</strong> when the bus leaves each stop. Stay on the same Wi‑Fi as
-                the bus PC — internet on the phone or bus does not affect these buttons.
+                the bus PC.
               </p>
-
             </>
           )}
 
-          <button type="button" className="btn secondary driver-minimal-disconnect" onClick={() => disconnect()}>
+          <button
+            type="button"
+            className="btn secondary driver-minimal-disconnect"
+            onClick={() => disconnect()}
+          >
             Disconnect from this bus
           </button>
         </div>

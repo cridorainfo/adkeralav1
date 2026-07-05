@@ -2,7 +2,7 @@ import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { applyCloudCommands } from './cloudCommands.js';
 import { getCloudConfig, getHubStatus } from './cloudSync.js';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
-import { disconnectAllDrivers } from './driverAuth.js';
+import { disconnectAllDrivers } from './hubSessions.js';
 
 let proxyRoot = null;
 
