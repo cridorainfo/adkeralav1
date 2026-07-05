@@ -51,14 +51,16 @@ export async function pgFindEnrollmentByCode(code) {
   return rowToEnrollment(rows[0]);
 }
 
-export async function pgListPendingEnrollments() {
+export async function pgListPendingEnrollments(activeSince = 0) {
   const now = Date.now();
   const { rows } = await query(
     `SELECT install_id, fleet_claim_code, expires_at, updated_at, app_version
      FROM fleet_enrollments
-     WHERE claimed = FALSE AND expires_at > $1
+     WHERE claimed = FALSE
+       AND expires_at > $1
+       AND updated_at > $2
      ORDER BY updated_at DESC`,
-    [now]
+    [now, activeSince]
   );
   return rows.map((row) => ({
     installId: String(row.install_id),
@@ -67,6 +69,23 @@ export async function pgListPendingEnrollments() {
     updatedAt: Number(row.updated_at),
     appVersion: row.app_version ?? null,
   }));
+}
+
+/** Drop expired unclaimed rows (old app starts / stale codes). */
+export async function pgCleanupExpiredEnrollments() {
+  const now = Date.now();
+  await query(`DELETE FROM fleet_enrollments WHERE claimed = FALSE AND expires_at <= $1`, [now]);
+}
+
+/** One fleet code → one live enrollment (latest install wins when code moves). */
+export async function pgSupersedeEnrollmentByCode(fleetClaimCode, keepInstallId) {
+  await query(
+    `DELETE FROM fleet_enrollments
+     WHERE claimed = FALSE
+       AND fleet_claim_code = $1
+       AND install_id <> $2::uuid`,
+    [fleetClaimCode, keepInstallId]
+  );
 }
 
 export async function pgClaimEnrollment({

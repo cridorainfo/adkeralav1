@@ -1,178 +1,56 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
-import { APP_VERSION, isNewerVersion } from '../lib/version';
-import {
-  controlUrlForSession,
-  ensureDriverId,
-  fetchDriverSession,
-  loadCloudUrl,
-  pairDriver,
-  sendDriverHeartbeat,
-  setCloudUrl,
-  unlinkDriver,
-} from '../lib/driverCloud';
-import { downloadAndInstallApk } from '../lib/driverUpdate';
-import DriverBusInfo from '../components/DriverBusInfo';
-import DriverEspSettingsPanel from '../components/DriverEspSettingsPanel';
-import { useRemoteBusSerial } from '../hooks/useRemoteBusSerial';
+import { controlUrlOnCurrentOrigin, readPairingCodeFromLocation } from '../lib/driverJoinUrl';
+import { isOnBusLanOrigin } from '../lib/driverBusApi';
+import { loadLastControlUrl } from '../lib/driverLanStorage';
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
+/**
+ * Driver phone entry — LAN only. Talks to this bus PC, never the cloud.
+ * Scan the display QR (opens /control) or enter the pair code below.
+ */
 export default function DriverConnect() {
-  const [driverId, setDriverId] = useState('');
-  const [cloudUrl, setCloudUrlState] = useState('');
-  const [cloudDraft, setCloudDraft] = useState('');
-  const [session, setSession] = useState(null);
-  const [plateOrCode, setPlateOrCode] = useState('');
-  const [status, setStatus] = useState('Loading…');
-  const [busy, setBusy] = useState(false);
-  const [needsCloudUrl, setNeedsCloudUrl] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [driverUpdate, setDriverUpdate] = useState(null);
-  const linked = Boolean(session?.linked);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [pairCode, setPairCode] = useState('');
+  const [lastControl, setLastControl] = useState(null);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [id, url] = await Promise.all([ensureDriverId(), loadCloudUrl()]);
-      if (cancelled) return;
-      setDriverId(id);
-      setCloudUrlState(url);
-      setCloudDraft(url);
-      setNeedsCloudUrl(!url);
-      setReady(true);
-
-      if (url) {
-        try {
-          const res = await fetch(`${url}/api/releases/driver/latest`);
-          const json = await res.json();
-          const latest = json?.release?.version;
-          if (latest && isNewerVersion(latest, APP_VERSION)) {
-            setDriverUpdate(json.release);
-          } else if (json?.minVersion && isNewerVersion(json.minVersion, APP_VERSION)) {
-            setDriverUpdate({ ...json.release, version: json.minVersion, required: true });
-          }
-        } catch {
-          /* cloud offline */
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refreshSession = useCallback(async () => {
-    if (!driverId) return null;
-    const url = cloudUrl || (await loadCloudUrl());
-    if (!url) {
-      setNeedsCloudUrl(true);
-      setStatus('Set your cloud URL to continue.');
-      return null;
-    }
-    setNeedsCloudUrl(false);
-    setCloudUrlState(url);
-    try {
-      const json = await fetchDriverSession(driverId, url);
-      if (!json.ok && !json.linked) {
-        setStatus(json.error ?? 'Could not reach cloud');
-        setSession(null);
-        return null;
-      }
-      setSession(json);
-      if (json.linked) {
-        setStatus(json.online ? 'Linked — bus online' : 'Linked — waiting for bus Wi‑Fi');
-      } else {
-        setStatus('Not linked — enter plate or code from the bus display');
-      }
-      return json;
-    } catch {
-      setStatus('Cloud unreachable. Check URL and network.');
-      setSession(null);
-      return null;
-    }
-  }, [driverId, cloudUrl]);
-
-  useEffect(() => {
-    if (!ready || !driverId) return undefined;
-    refreshSession();
-    sendDriverHeartbeat(driverId, APP_VERSION, cloudUrl).catch(() => {});
-    const id = setInterval(() => {
-      refreshSession();
-      sendDriverHeartbeat(driverId, APP_VERSION, cloudUrl).catch(() => {});
-    }, 5000);
-    return () => clearInterval(id);
-  }, [ready, driverId, refreshSession, cloudUrl]);
-
-  const saveCloudUrl = async () => {
-    await setCloudUrl(cloudDraft);
-    const url = cloudDraft.trim().replace(/\/$/, '');
-    setCloudUrlState(url);
-    setNeedsCloudUrl(false);
-    refreshSession();
-  };
-
-  const handlePair = async (e) => {
-    e.preventDefault();
-    if (!plateOrCode.trim() || !driverId) return;
-    if (driverUpdate?.required) {
-      setStatus('Update required before pairing. Install the latest driver app.');
+    const fromUrl = readPairingCodeFromLocation(location.search);
+    if (fromUrl) {
+      navigate(`/control?code=${fromUrl}`, { replace: true });
       return;
     }
-    setBusy(true);
-    setStatus('Pairing…');
-    try {
-      const json = await pairDriver(driverId, plateOrCode, cloudUrl);
-      if (!json.ok) {
-        setStatus(json.error ?? 'Pair failed');
+    setLastControl(loadLastControlUrl());
+  }, [location.search, navigate]);
+
+  const openWithCode = (e) => {
+    e.preventDefault();
+    setFormError('');
+    const digits = pairCode.replace(/\D/g, '').slice(0, 4);
+    if (digits.length !== 4) return;
+
+    const saved = loadLastControlUrl();
+    if (saved) {
+      try {
+        const url = new URL(saved);
+        url.searchParams.set('code', digits);
+        window.location.href = url.toString();
         return;
+      } catch {
+        /* fall through */
       }
-      setStatus('Linked — finding bus on Wi‑Fi…');
-      for (let i = 0; i < 12; i += 1) {
-        const next = await fetchDriverSession(driverId, cloudUrl);
-        if (next?.linked && next.lanIp) {
-          setSession(next);
-          setStatus('Linked — tap Open control when on bus Wi‑Fi');
-          return;
-        }
-        await sleep(2000);
-      }
-      await refreshSession();
-      setStatus('Linked — tap Open control when on bus Wi‑Fi');
-    } finally {
-      setBusy(false);
     }
-  };
 
-  const handleUnlink = async () => {
-    if (!driverId) return;
-    setBusy(true);
-    try {
-      const json = await unlinkDriver(driverId, cloudUrl);
-      setStatus(json.ok ? 'Unlinked' : (json.error ?? 'Unlink failed'));
-      await refreshSession();
-    } finally {
-      setBusy(false);
+    if (isOnBusLanOrigin()) {
+      window.location.href = controlUrlOnCurrentOrigin(digits);
+      return;
     }
-  };
 
-  const openControl = () => {
-    const url = controlUrlForSession(session);
-    if (url) window.location.href = url;
-    else setStatus('Bus LAN address not available yet. Stay on bus Wi‑Fi.');
+    setFormError('Scan the display QR first — it opens control on the bus PC.');
   };
-
-  const controlReady = linked && session?.lanIp;
-  const busLan = session?.lanIp;
-  const busPort = session?.controlPort ?? 5174;
-  const remoteSerial = useRemoteBusSerial({
-    lanIp: busLan,
-    port: busPort,
-    enabled: linked && Boolean(busLan),
-  });
 
   return (
     <div className="driver-connect-page">
@@ -180,122 +58,56 @@ export default function DriverConnect() {
         <div className="driver-connect-header">
           <AdKeralaLogo className="driver-connect-logo" size="lg" />
           <h1>{APP_NAME} Driver</h1>
-          <p>Pair with your bus, then open control over Wi‑Fi.</p>
-          <p className="driver-connect-foot">App v{APP_VERSION}</p>
+          <p>Connect on the bus Wi‑Fi — pair once with the display code. No cloud account needed.</p>
         </div>
 
-        {driverUpdate?.downloadUrl && (
-          <div className="driver-connect-section update-banner">
-            <strong>
-              {driverUpdate.required ? 'Update required' : 'Update available'} — v{driverUpdate.version}
-            </strong>
-            {driverUpdate.releaseNotes && <p>{driverUpdate.releaseNotes}</p>}
-            <a
-              className="btn primary"
-              href={driverUpdate.downloadUrl}
-              onClick={(e) => {
-                if (window.Capacitor?.isNativePlatform?.()) {
-                  e.preventDefault();
-                  downloadAndInstallApk(driverUpdate.downloadUrl);
-                }
-              }}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {driverUpdate.required ? 'Update required' : 'Download update'}
+        <div className="driver-connect-section">
+          <h2 className="driver-section-subtitle">1. Scan the display QR</h2>
+          <p className="hint">
+            Use your phone camera on the QR shown on the passenger screen. It opens control on this
+            bus PC automatically.
+          </p>
+        </div>
+
+        <div className="driver-connect-section">
+          <h2 className="driver-section-subtitle">2. Or enter the pair code</h2>
+          <form onSubmit={openWithCode}>
+            <label htmlFor="pairCode">4-digit code from the display</label>
+            <input
+              id="pairCode"
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="e.g. 4821"
+              value={pairCode}
+              onChange={(e) => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            <button type="submit" className="btn primary" disabled={pairCode.length !== 4}>
+              Open control
+            </button>
+            {formError && <p className="driver-connect-error">{formError}</p>}
+          </form>
+        </div>
+
+        {lastControl && (
+          <div className="driver-connect-actions">
+            <a className="btn secondary" href={lastControl}>
+              Open last bus control
             </a>
           </div>
         )}
 
-        {needsCloudUrl && !import.meta.env.VITE_CLOUD_URL && (
-          <div className="driver-connect-section">
-            <label htmlFor="cloudUrl">Cloud URL</label>
-            <input
-              id="cloudUrl"
-              type="url"
-              placeholder="https://your-app.up.railway.app"
-              value={cloudDraft}
-              onChange={(e) => setCloudDraft(e.target.value)}
-            />
-            <button type="button" className="btn primary" onClick={saveCloudUrl}>
-              Save cloud URL
-            </button>
-          </div>
-        )}
-
-        <p className="driver-connect-status" role="status">
-          {status}
-        </p>
-
-        {linked ? (
-          <div className="driver-connect-section">
-            <DriverBusInfo session={session} />
-            {session.lanIp && (
-              <p>
-                <strong>LAN:</strong> {session.lanIp}:{session.controlPort ?? 5174}
-              </p>
-            )}
-            <div className="driver-connect-actions">
-              <button
-                type="button"
-                className="btn primary"
-                disabled={!controlReady || busy}
-                onClick={openControl}
-              >
-                Open control
-              </button>
-              <button type="button" className="btn secondary" disabled={busy} onClick={handleUnlink}>
-                Unlink
-              </button>
-            </div>
-
-            {controlReady && (
-              <DriverEspSettingsPanel
-                compact
-                serialSettings={remoteSerial.serialSettings}
-                serialRuntime={remoteSerial.serialRuntime}
-                onUpdateSerialSettings={remoteSerial.updateSerialSettings}
-              />
-            )}
-
-            <p className="driver-connect-foot">
-              On bus Wi‑Fi, tap Open control — or scan the QR on the bus display.
-            </p>
-          </div>
-        ) : (
-          <form className="driver-connect-section" onSubmit={handlePair}>
-            <label htmlFor="plateOrCode">Number plate or 4-digit code</label>
-            <input
-              id="plateOrCode"
-              type="text"
-              autoComplete="off"
-              inputMode="text"
-              placeholder="KL07AB1234 or 7291"
-              value={plateOrCode}
-              onChange={(e) => setPlateOrCode(e.target.value)}
-              disabled={busy || needsCloudUrl || !ready}
-            />
-            <button type="submit" className="btn primary" disabled={busy || needsCloudUrl || !ready}>
-              Connect to bus
-            </button>
-          </form>
-        )}
-
         <p className="driver-connect-foot">
-          {driverId ? (
-            <>
-              Device ID: <code>{driverId.slice(0, 8)}…</code>
-            </>
-          ) : (
-            'Preparing device…'
-          )}
-          {cloudUrl && (
-            <>
-              {' · '}
-              Cloud: <code>{cloudUrl.replace(/^https?:\/\//, '')}</code>
-            </>
-          )}
+          Stay on the same Wi‑Fi as this PC. Internet on the phone or bus does not affect driver
+          control — your phone only talks to this PC. The bus PC uses internet only to sync routes,
+          ads, and audio from the cloud.
         </p>
+
+        {isOnBusLanOrigin() && (
+          <Link to="/control" className="driver-connect-foot driver-connect-foot-muted">
+            Already connected? Open control →
+          </Link>
+        )}
       </div>
     </div>
   );

@@ -1289,6 +1289,9 @@ export async function pairDriver(driverId, plateOrCode) {
     },
   });
 
+  const busRow = await getBus(busId);
+  const telemetry = busRow?.telemetry ?? {};
+
   return {
     ok: true,
     busId,
@@ -1297,6 +1300,8 @@ export async function pairDriver(driverId, plateOrCode) {
     displayName: profile.displayName ?? '',
     pairingCode: profile.pairingCode,
     linkedAt,
+    lanIp: telemetry.lanIp ?? null,
+    controlPort: telemetry.controlPort ?? 5174,
   };
 }
 

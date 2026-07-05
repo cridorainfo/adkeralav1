@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useBusStore } from '../hooks/useBusStore';
 import { refreshRemoteState } from '../hooks/useRemoteStateSync';
+import { getStoredDriverToken } from '../lib/driverCredentials';
 import {
   getStopInfo,
   getStopEn,
@@ -14,6 +15,7 @@ import { postDriveAction } from '../lib/driverDriveApi';
 import { BilingualStop } from '../components/BilingualStop';
 import { canPlayAnnouncement } from '../lib/audioFragments';
 import { useDriverControl } from '../components/DriverControlContext';
+import { busFetch } from '../lib/driverBusApi';
 import DriverEspSettingsPanel from '../components/DriverEspSettingsPanel';
 
 export default function DriverControlScreen({
@@ -28,12 +30,19 @@ export default function DriverControlScreen({
   const [connected, setConnected] = useState(true);
 
   const pingConnection = useCallback(async () => {
-    try {
-      const res = await fetch('/api/driver/connected');
-      const json = await res.json();
-      setConnected(Boolean(json.connected));
-    } catch {
+    const token = getStoredDriverToken();
+    if (!token) {
       setConnected(false);
+      return;
+    }
+    try {
+      const res = await busFetch('/api/driver/unlock-status', {
+        headers: { 'X-Driver-Token': token },
+      });
+      const json = await res.json();
+      setConnected(Boolean(json.unlocked));
+    } catch {
+      /* transient Wi‑Fi glitch — keep last status */
     }
   }, []);
 
@@ -76,7 +85,9 @@ export default function DriverControlScreen({
       await refreshRemoteState(applyRemoteState);
       await pingConnection();
     } catch (err) {
-      setConnected(false);
+      if (err.code === 'DRIVER_LOCKED') {
+        setConnected(false);
+      }
       setError(
         err.code === 'DRIVER_LOCKED'
           ? 'Session expired — disconnect and connect again with the bus pair code'
@@ -105,7 +116,7 @@ export default function DriverControlScreen({
         </div>
         <div className="driver-minimal-status" role="status">
           <span className={`driver-minimal-dot ${connected ? 'on' : 'off'}`} aria-hidden />
-          {connected ? 'Connected' : 'Offline'}
+          {connected ? 'Connected' : 'Disconnected'}
         </div>
       </header>
 
@@ -124,8 +135,8 @@ export default function DriverControlScreen({
             <div className="drive-no-route">
               <p>No routes assigned yet.</p>
               <p className="drive-no-route-hint">
-                Admin assigns routes from the cloud dashboard — they appear here when the bus PC
-                syncs (internet on the PC only).
+                Admin assigns routes from the cloud dashboard — they appear here after the bus PC syncs
+                (needs internet on the PC only; driver control still works on Wi‑Fi).
               </p>
             </div>
           ) : (
@@ -261,8 +272,8 @@ export default function DriverControlScreen({
               </div>
 
               <p className="driver-minimal-hint">
-                Press <strong>Forward</strong> when the bus leaves each stop. Same Wi‑Fi as the bus
-                PC — mobile data off.
+                Press <strong>Forward</strong> when the bus leaves each stop. Stay on the same Wi‑Fi as
+                the bus PC — internet on the phone or bus does not affect these buttons.
               </p>
 
             </>

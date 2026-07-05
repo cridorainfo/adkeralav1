@@ -12,10 +12,14 @@ import {
   pgGetDeviceForInstall,
   pgRevokeDevicesForBus,
   pgResetEnrollmentsForBus,
+  pgCleanupExpiredEnrollments,
+  pgSupersedeEnrollmentByCode,
 } from './fleetPg.js';
 
 const ENROLL_TTL_MS = 30 * 60 * 1000;
 const ONLINE_THRESHOLD_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+/** Only list unclaimed devices that polled enroll recently (not every past app start). */
+const ENROLL_ACTIVE_MS = Number(process.env.ADKERALA_ENROLL_ACTIVE_MS ?? 120000);
 
 function hashToken(token) {
   return createHash('sha256').update(token).digest('hex');
@@ -115,6 +119,20 @@ function ensureFleetStore(store) {
   return store;
 }
 
+function pruneStaleEnrollments(store, { keepInstallId = null, keepCode = null } = {}) {
+  const now = Date.now();
+  for (const [id, row] of Object.entries(store.fleetEnrollments ?? {})) {
+    if (!row || row.claimed) continue;
+    if (row.expiresAt && now > row.expiresAt) {
+      delete store.fleetEnrollments[id];
+      continue;
+    }
+    if (keepCode && row.fleetClaimCode === keepCode && id !== keepInstallId) {
+      delete store.fleetEnrollments[id];
+    }
+  }
+}
+
 export async function enrollDevice({ installId, fleetClaimCode, appVersion = null }) {
   const id = String(installId ?? '').trim();
   const code = String(fleetClaimCode ?? '').replace(/\D/g, '');
@@ -124,6 +142,13 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
 
   const store = await loadStore();
   ensureFleetStore(store);
+
+  if (usePostgres() && isValidUuid(id)) {
+    await pgCleanupExpiredEnrollments();
+    await pgSupersedeEnrollmentByCode(code, id);
+  } else {
+    pruneStaleEnrollments(store, { keepInstallId: id, keepCode: code });
+  }
 
   const existing = store.fleetEnrollments[id];
   if (existing?.claimed && existing.busId) {
@@ -140,26 +165,36 @@ export async function enrollDevice({ installId, fleetClaimCode, appVersion = nul
     return { ok: true, installId: id, claimed: true, busId: existing.busId };
   }
 
+  const now = Date.now();
+  const sameCode = existing && !existing.claimed && existing.fleetClaimCode === code;
+
   store.fleetEnrollments[id] = {
     installId: id,
     fleetClaimCode: code,
-    expiresAt: Date.now() + ENROLL_TTL_MS,
+    expiresAt: now + ENROLL_TTL_MS,
     claimed: false,
     busId: null,
     ownerId: null,
-    appVersion,
-    updatedAt: Date.now(),
+    appVersion: appVersion ?? existing?.appVersion ?? null,
+    updatedAt: now,
+    lastSeenAt: now,
   };
   if (usePostgres() && isValidUuid(id)) {
     await pgUpsertEnrollment({
       installId: id,
       fleetClaimCode: code,
       expiresAt: store.fleetEnrollments[id].expiresAt,
-      appVersion,
+      appVersion: store.fleetEnrollments[id].appVersion,
     });
   }
   await saveStore();
-  return { ok: true, installId: id, claimed: false, expiresAt: store.fleetEnrollments[id].expiresAt };
+  return {
+    ok: true,
+    installId: id,
+    claimed: false,
+    expiresAt: store.fleetEnrollments[id].expiresAt,
+    refreshed: Boolean(sameCode),
+  };
 }
 
 export async function getEnrollmentStatus(installId) {
@@ -384,17 +419,22 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
 }
 
 export async function listPendingEnrollments({ ownerId = null } = {}) {
+  const activeSince = Date.now() - ENROLL_ACTIVE_MS;
+
   if (usePostgres()) {
-    const rows = await pgListPendingEnrollments();
+    await pgCleanupExpiredEnrollments();
+    const rows = await pgListPendingEnrollments(activeSince);
     return rows.filter((row) => !ownerId || !row.ownerId || row.ownerId === ownerId);
   }
 
   const store = await loadStore();
   ensureFleetStore(store);
+  pruneStaleEnrollments(store);
   const rows = [];
   for (const row of Object.values(store.fleetEnrollments)) {
     if (row.claimed) continue;
     if (row.expiresAt && Date.now() > row.expiresAt) continue;
+    if ((row.updatedAt ?? row.lastSeenAt ?? 0) < activeSince) continue;
     if (ownerId && row.ownerId && row.ownerId !== ownerId) continue;
     rows.push({
       installId: row.installId,
@@ -404,6 +444,7 @@ export async function listPendingEnrollments({ ownerId = null } = {}) {
       appVersion: row.appVersion ?? null,
     });
   }
+  rows.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
   return rows;
 }
 

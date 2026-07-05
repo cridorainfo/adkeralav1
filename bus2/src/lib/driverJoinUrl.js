@@ -1,20 +1,11 @@
-/** URL encoded in the bus display QR — opens /control with pair code pre-filled. */
-export function buildDriverJoinUrl(controlUrlHttp, pairingCode, cloudDriverBase) {
+/** URL encoded in the bus display QR — opens /control on this bus PC (LAN only). */
+export function buildDriverJoinUrl(controlUrlHttp, pairingCode) {
   const code = String(pairingCode ?? '')
     .replace(/\D/g, '')
     .slice(0, 4);
 
-  if (cloudDriverBase && code) {
-    try {
-      const cloud = new URL(String(cloudDriverBase).replace(/\/$/, '') + '/driver');
-      cloud.searchParams.set('code', code);
-      return cloud.toString();
-    } catch {
-      /* fall through */
-    }
-  }
-
   if (!controlUrlHttp) return null;
+
   try {
     const url = new URL(controlUrlHttp);
     if (code) url.searchParams.set('code', code);
@@ -28,4 +19,14 @@ export function readPairingCodeFromLocation(search = '') {
   const params = new URLSearchParams(search);
   const raw = params.get('code') || params.get('pair') || '';
   return raw.replace(/\D/g, '').slice(0, 4);
+}
+
+/** Build /control URL on the current bus PC origin. */
+export function controlUrlOnCurrentOrigin(code) {
+  const digits = String(code ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 4);
+  const url = new URL('/control', window.location.origin);
+  if (digits.length === 4) url.searchParams.set('code', digits);
+  return url.toString();
 }

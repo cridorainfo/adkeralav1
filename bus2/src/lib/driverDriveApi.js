@@ -1,4 +1,5 @@
 import { getStoredDriverToken } from './driverCredentials';
+import { busFetch } from './driverBusApi';
 
 /** Send a small drive command to the bus PC (LAN). State updates arrive via SSE/poll. */
 export async function postDriveAction(action, payload = {}) {
@@ -6,7 +7,7 @@ export async function postDriveAction(action, payload = {}) {
   const token = getStoredDriverToken();
   if (token) headers['X-Driver-Token'] = token;
 
-  const res = await fetch('/api/drive', {
+  const res = await busFetch('/api/drive', {
     method: 'POST',
     headers,
     body: JSON.stringify({ action, ...payload }),

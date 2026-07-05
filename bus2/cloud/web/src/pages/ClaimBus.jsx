@@ -11,9 +11,20 @@ export default function ClaimBus() {
   const [pending, setPending] = useState([]);
 
   useEffect(() => {
-    api('/api/fleet/pending')
-      .then((json) => setPending(json.pending ?? []))
-      .catch(() => {});
+    let cancelled = false;
+    const load = () => {
+      api('/api/fleet/pending')
+        .then((json) => {
+          if (!cancelled) setPending(json.pending ?? []);
+        })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   async function handleClaim(e) {
@@ -57,7 +68,25 @@ export default function ClaimBus() {
 
       {pending.length > 0 && (
         <div className="hint" style={{ marginBottom: '1rem' }}>
-          <strong>{pending.length}</strong> bus(es) waiting to be claimed.
+          <strong>{pending.length}</strong> unclaimed bus PC{pending.length === 1 ? '' : 's'} online
+          now (showing fleet code on display):
+          <ul className="fleet-pending-codes">
+            {pending.slice(0, 8).map((row) => (
+              <li key={row.installId}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setCode(row.fleetClaimCode ?? '')}
+                >
+                  {row.fleetClaimCode}
+                </button>
+                {row.appVersion ? ` · v${row.appVersion}` : ''}
+              </li>
+            ))}
+          </ul>
+          {pending.length > 8 && (
+            <span>…and {pending.length - 8} more — enter the code from the bus screen.</span>
+          )}
         </div>
       )}
 

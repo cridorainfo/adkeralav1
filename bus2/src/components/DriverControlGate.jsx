@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readPairingCodeFromLocation } from '../lib/driverJoinUrl';
 import {
@@ -9,6 +9,8 @@ import {
   saveDriverCredentials,
 } from '../lib/driverCredentials';
 import { isBusPcForSerial } from '../lib/appRole';
+import { saveLastControlUrl } from '../lib/driverLanStorage';
+import { busFetch, isOnBusLanOrigin, redirectToSavedBusControl } from '../lib/driverBusApi';
 import { DriverControlContext } from './DriverControlContext';
 
 /** Gate /control — connect once with the 4-digit pair code from the bus display (offline LAN). */
@@ -20,60 +22,40 @@ export default function DriverControlGate({ children }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [plate, setPlate] = useState('');
+  const autoConnectKeyRef = useRef('');
 
-  const checkUnlock = useCallback(async () => {
-    const token = getStoredDriverToken();
-    if (!token) {
-      setUnlocked(false);
-      setPlate('');
-      setChecking(false);
-      return false;
-    }
-    try {
-      const res = await fetch('/api/driver/unlock-status', {
-        headers: { 'X-Driver-Token': token },
-      });
-      const json = await res.json();
-      if (json.unlocked) {
-        setPlate(getStoredDriverPlate());
-        setUnlocked(true);
-        return true;
-      }
-      clearDriverCredentials();
-      setUnlocked(false);
-      setPlate('');
-      return false;
-    } catch {
-      setUnlocked(false);
-      return false;
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  const tryCloudPairedUnlock = useCallback(async (driverIdOverride) => {
-    const params = new URLSearchParams(location.search);
-    const driverId =
-      String(driverIdOverride ?? params.get('driverId') ?? getStoredDriverId() ?? '').trim();
-    if (!driverId) return false;
+  const connectWithCode = useCallback(async (code, { driverId } = {}) => {
+    const normalized = String(code ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 4);
+    if (normalized.length !== 4) return false;
 
     try {
-      const res = await fetch('/api/driver/unlock-paired', {
+      const res = await busFetch('/api/driver/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driverId }),
+        body: JSON.stringify({ pairingCode: normalized }),
       });
       const json = await res.json();
-      if (!json.ok) return false;
-      saveDriverCredentials({ token: json.token, plate: json.plate ?? '', driverId });
+      if (!json.ok) {
+        setError(json.error ?? 'Wrong code — check the bus display');
+        return false;
+      }
+      saveDriverCredentials({
+        token: json.token,
+        plate: json.plate ?? '',
+        driverId: driverId || getStoredDriverId() || undefined,
+      });
+      saveLastControlUrl(`${window.location.origin}/control`);
       setPlate(json.plate ?? '');
       setUnlocked(true);
-      setChecking(false);
+      setError('');
       return true;
     } catch {
+      setError('Could not reach bus — join the same Wi‑Fi as the display PC');
       return false;
     }
-  }, [location.search]);
+  }, []);
 
   useEffect(() => {
     if (isBusPcForSerial()) {
@@ -83,23 +65,56 @@ export default function DriverControlGate({ children }) {
       return;
     }
 
+    if (!isOnBusLanOrigin()) {
+      if (redirectToSavedBusControl(location.search)) return undefined;
+      setChecking(false);
+      setError('Open the control link from the bus display QR (http://192.168… on bus Wi‑Fi).');
+      return undefined;
+    }
+
     let cancelled = false;
+
     (async () => {
-      const hadToken = await checkUnlock();
-      if (cancelled || hadToken) return;
-      await tryCloudPairedUnlock();
+      const token = getStoredDriverToken();
+      if (token) {
+        try {
+          const res = await busFetch('/api/driver/unlock-status', {
+            headers: { 'X-Driver-Token': token },
+          });
+          const json = await res.json();
+          if (!cancelled && json.unlocked) {
+            setPlate(getStoredDriverPlate());
+            setUnlocked(true);
+            setChecking(false);
+            return;
+          }
+          clearDriverCredentials();
+        } catch {
+          clearDriverCredentials();
+        }
+      }
+
+      const fromQr = readPairingCodeFromLocation(location.search);
+      if (fromQr) setPairingCode(fromQr);
+
+      const autoKey = `${location.search}|${fromQr}`;
+      if (fromQr && autoConnectKeyRef.current !== autoKey) {
+        autoConnectKeyRef.current = autoKey;
+        const params = new URLSearchParams(location.search);
+        const driverId = params.get('driverId') || getStoredDriverId() || undefined;
+        if (!cancelled && (await connectWithCode(fromQr, { driverId }))) {
+          setChecking(false);
+          return;
+        }
+      }
+
       if (!cancelled) setChecking(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [checkUnlock, tryCloudPairedUnlock]);
-
-  useEffect(() => {
-    const fromQr = readPairingCodeFromLocation(location.search);
-    if (fromQr) setPairingCode(fromQr);
-  }, [location.search]);
+  }, [location.search, connectWithCode]);
 
   useEffect(() => {
     if (!unlocked) return undefined;
@@ -107,7 +122,7 @@ export default function DriverControlGate({ children }) {
     if (!token) return undefined;
 
     const ping = () => {
-      fetch('/api/driver/heartbeat', {
+      busFetch('/api/driver/heartbeat', {
         method: 'POST',
         headers: { 'X-Driver-Token': token },
       })
@@ -130,7 +145,7 @@ export default function DriverControlGate({ children }) {
   const disconnect = useCallback(async () => {
     const token = getStoredDriverToken();
     if (token) {
-      await fetch('/api/driver/disconnect', {
+      await busFetch('/api/driver/disconnect', {
         method: 'POST',
         headers: { 'X-Driver-Token': token },
       }).catch(() => {});
@@ -145,21 +160,7 @@ export default function DriverControlGate({ children }) {
     setBusy(true);
     setError('');
     try {
-      const res = await fetch('/api/driver/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairingCode }),
-      });
-      const json = await res.json();
-      if (!json.ok) {
-        setError(json.error ?? 'Wrong code — check the bus display');
-        return;
-      }
-      saveDriverCredentials({ token: json.token, plate: json.plate ?? '' });
-      setPlate(json.plate ?? '');
-      setUnlocked(true);
-    } catch {
-      setError('Could not reach bus — join the same Wi‑Fi as the display PC');
+      await connectWithCode(pairingCode);
     } finally {
       setBusy(false);
     }
@@ -170,7 +171,7 @@ export default function DriverControlGate({ children }) {
   if (checking) {
     return (
       <div className="driver-control-gate">
-        <p className="driver-control-gate-status">Loading…</p>
+        <p className="driver-control-gate-status">Connecting to bus…</p>
       </div>
     );
   }
@@ -205,8 +206,9 @@ export default function DriverControlGate({ children }) {
             </button>
           </form>
           <p className="driver-control-gate-hint">
-            Same bus Wi‑Fi as the display PC — no internet needed. Stays connected until you disconnect or
-            an admin clears phones from the fleet dashboard.
+            Same bus Wi‑Fi as the display PC. Internet on the phone or bus does not affect control — it
+            stays on this PC. The bus PC only uses internet to sync routes, ads, and audio from the
+            cloud.
           </p>
         </div>
       </div>

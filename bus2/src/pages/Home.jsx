@@ -24,12 +24,13 @@ export default function Home() {
       <div className="home-cards">
         <div className="home-card">
           <span className="home-card-icon">📱</span>
-          <h2>Driver app — Pair &amp; control</h2>
+          <h2>Driver phone</h2>
           <p>
-            Enter the plate or 4-digit code from the bus display, then open control over bus Wi‑Fi.
+            Scan the QR on the display (same bus Wi‑Fi). Control runs on this PC — internet on the
+            phone does not matter.
           </p>
           <Link to="/driver" className="home-card-btn control">
-            Open Driver connect →
+            Driver setup →
           </Link>
         </div>
 
@@ -80,7 +81,8 @@ export default function Home() {
 
       <p className="home-hint">
         Bus PC: open <strong>/display</strong> (fullscreen). Driver phone: open{' '}
-        <strong>/control</strong> on the same Wi‑Fi.
+        <strong>/control</strong> on the same Wi‑Fi. Driver ↔ bus PC control never needs internet —
+        only the bus PC uses internet to sync routes, ads, and audio.
         {adminUrl && (
           <>
             {' '}

@@ -36,5 +36,5 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   echo   http://!IP!:%PORT%/control
 )
 echo.
-echo If phone still fails: phone must be on the SAME Wi-Fi (not mobile data).
+echo If phone still fails: phone must be on the SAME Wi-Fi as this PC (internet on/off does not matter).
 exit /b 0

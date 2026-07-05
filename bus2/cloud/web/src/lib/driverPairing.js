@@ -23,6 +23,20 @@ export function parsePairCodeFromScan(raw) {
   return text.replace(/\s/g, '').toUpperCase();
 }
 
+/** If the QR is a direct bus LAN /control link, return it for immediate navigation. */
+export function parseControlUrlFromScan(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  try {
+    const url = new URL(text);
+    if (!/^https?:$/i.test(url.protocol)) return null;
+    if (!/\/control\/?$/i.test(url.pathname) && !url.pathname.includes('/control')) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function readPairCodeFromLocation(search = '') {
   const params = new URLSearchParams(search);
   const raw = params.get('code') || params.get('pair') || '';

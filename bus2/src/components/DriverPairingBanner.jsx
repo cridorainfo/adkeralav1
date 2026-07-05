@@ -28,8 +28,7 @@ export default function DriverPairingBanner({
   const controlLabel =
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
-  const cloudDriverBase = network?.cloudDriverUrl?.replace(/\/driver\/?$/, '') ?? null;
-  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code, cloudDriverBase);
+  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, code);
   const qrSize = compact ? 88 : 132;
   const showBlockedWarning = lanReachable === false || firewallBlocked || lanProbeError === 'probe_failed';
   const showNoWifiWarning = lanProbeError === 'no_lan_ip' || (!controlUrlHttp && !allControlUrls.length);
@@ -45,9 +44,7 @@ export default function DriverPairingBanner({
           <div className="driver-pairing-qr-wrap">
             <DriverPairingQr value={joinUrl} size={qrSize} />
             {!compact && (
-              <span className="driver-pairing-qr-caption">
-                Scan with {cloudDriverBase ? 'AdKerala Driver app' : 'phone'}
-              </span>
+              <span className="driver-pairing-qr-caption">Scan with phone camera</span>
             )}
           </div>
         )}
@@ -69,9 +66,9 @@ export default function DriverPairingBanner({
       </div>
       {!compact && (
         <p className="driver-pairing-hint">
-          Phone on <strong>same Wi‑Fi as this PC</strong> (turn off mobile data). Scan the QR or open the
-          URL, then enter the <strong>pair code</strong> once — no internet required. Use{' '}
-          <strong>http://</strong>, not https.
+          Phone on <strong>same Wi‑Fi as this PC</strong>. Scan the QR or open the URL, then enter the{' '}
+          <strong>pair code</strong> once. Internet on the phone or bus does not affect control — it
+          stays on this PC. Use <strong>http://</strong>, not https.
         </p>
       )}
       {showNoWifiWarning && !compact && (

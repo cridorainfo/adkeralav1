@@ -23,7 +23,8 @@ export default function DriverConnectBanner() {
         <a href={controlUrl} className="driver-connect-link">
           {controlUrl}
         </a>{' '}
-        on the same Wi‑Fi (turn off mobile data; use <strong>http://</strong>, not https).
+        on the same Wi‑Fi (internet on phone or bus is fine — control stays on this PC; use{' '}
+        <strong>http://</strong>, not https).
       </p>
       {driverUrl && (
         <p>

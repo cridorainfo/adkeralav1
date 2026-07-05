@@ -4,5 +4,11 @@
 {
   "routes": [],
   "activeRouteId": null,
-  "savedAt": 1783243683086
+  "savedAt": 1783245273528,
+  "busProfile": {
+    "plate": "KL01AB1234",
+    "plateDisplay": "KL 01 AB 1234",
+    "pairingCode": "4821"
+  },
+  "connectedDeviceCount": 0
 }
