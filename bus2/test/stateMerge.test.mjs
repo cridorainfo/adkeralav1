@@ -181,3 +181,46 @@ test('mergeRemoteState keeps newer driveRevision over stale poll', () => {
   assert.equal(merged.driveRevision, 8);
   assert.equal(merged.savedAt, 7100);
 });
+
+test('mergeRemoteState applies server trip reset at same driveRevision when savedAt is newer', () => {
+  const prev = {
+    savedAt: 7000,
+    driveRevision: 4,
+    currentStopIndex: 5,
+    tripStarted: true,
+    tripDeparted: true,
+    tripEnded: false,
+    activeRouteId: 'route-a',
+  };
+  const remote = {
+    savedAt: 8000,
+    driveRevision: 4,
+    currentStopIndex: 0,
+    tripStarted: false,
+    tripDeparted: false,
+    tripEnded: false,
+    activeRouteId: 'route-a',
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.tripStarted, false);
+  assert.equal(merged.currentStopIndex, 0);
+  assert.equal(merged.tripDeparted, false);
+});
+
+test('mergeRemoteState keeps assigned routes when remote poll omits routes array', () => {
+  const prev = {
+    savedAt: 7000,
+    routes: [{ id: 'route-a', name: 'A', startStop: { en: 'X' }, endStop: { en: 'Y' }, stops: [] }],
+    busProfile: { assignedRouteIds: ['route-a'] },
+  };
+  const remote = {
+    savedAt: 8000,
+    routes: [],
+    busProfile: { assignedRouteIds: ['route-a'] },
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.routes.length, 1);
+  assert.equal(merged.routes[0].id, 'route-a');
+});

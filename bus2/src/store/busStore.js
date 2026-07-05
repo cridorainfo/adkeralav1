@@ -1,6 +1,6 @@
 import { readIdbState, writeIdbState } from '../lib/idbStorage.js';
 import { fetchStateFromDb, hydrateStateFromFile, isDbApiAvailable, saveStateToDb } from '../lib/fileStorage.js';
-import { resolveTripFields } from './tripMerge.js';
+import { mergeTripFieldsFromSync } from './tripMerge.js';
 import { mergeBusProfile } from './busProfileMerge.js';
 
 const STORAGE_KEY = 'kerala-bus-state';
@@ -298,13 +298,22 @@ function mergeStoredState(parsed) {
   }
 }
 
-function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved) {
+function mergeRoutesFromSync(prevRoutes, storedRoutes, prevSaved, remoteSaved, options = {}) {
   const remoteIsNewer = remoteSaved >= prevSaved;
   const stored = dedupeRoutes(storedRoutes ?? []);
   const prev = dedupeRoutes(prevRoutes ?? []);
 
   // When bus db / cloud push is newer, trust it — do not union with stale browser routes.
-  if (remoteIsNewer) return stored;
+  if (remoteIsNewer) {
+    if (stored.length) return stored;
+    const assignedIds = options.assignedRouteIds ?? [];
+    if (Array.isArray(assignedIds) && assignedIds.length && prev.length) {
+      const idSet = new Set(assignedIds);
+      const kept = prev.filter((r) => idSet.has(r.id));
+      if (kept.length) return kept;
+    }
+    return stored;
+  }
 
   return prev.length ? prev : stored;
 }
@@ -348,7 +357,11 @@ function mergeStoredIntoPrev(prev, parsed) {
       prev?.routes ?? [],
       stored.routes ?? [],
       prevSaved,
-      remoteSaved
+      remoteSaved,
+      {
+        assignedRouteIds:
+          stored.busProfile?.assignedRouteIds ?? prev?.busProfile?.assignedRouteIds ?? [],
+      }
     );
     const stopAudio = mergeHydratedAudioMap(prev?.stopAudio, stored.stopAudio);
     const audioFragments = mergeHydratedAudioMap(prev?.audioFragments, stored.audioFragments);
@@ -392,7 +405,7 @@ function mergeStoredIntoPrev(prev, parsed) {
       merged.announcementRequest = prev.announcementRequest;
     }
 
-    resolveTripFields(prev, stored, merged);
+    mergeTripFieldsFromSync(prev, stored, merged);
     merged._cloudPushAdvanced = cloudPushAdvanced;
     return merged;
   } catch {
@@ -429,14 +442,21 @@ export function loadState() {
 
 /** Load persisted state: db/info.txt when the API is up, else browser storage fallback. */
 export async function loadStateAsync() {
-  try {
-    if (await isDbApiAvailable()) {
-      usingDbStorage = true;
-      const fromDb = await fetchStateFromDb();
-      return applyRouteCacheFallback(mergeStoredState(fromDb));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      if (await isDbApiAvailable()) {
+        usingDbStorage = true;
+        const fromDb = await fetchStateFromDb();
+        return applyRouteCacheFallback(mergeStoredState(fromDb));
+      }
+    } catch (err) {
+      if (attempt === 4) {
+        console.warn('AdKerala: could not load db/info.txt', err);
+      }
     }
-  } catch (err) {
-    console.warn('AdKerala: could not load db/info.txt', err);
+    if (attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   const localState = readLocalStorageState();
@@ -735,6 +755,7 @@ export function getDriverVisibleRoutes(state = {}) {
     const idSet = new Set(assignedIds);
     const filtered = routes.filter((r) => idSet.has(r.id));
     if (filtered.length) return filtered;
+    if (routes.length) return routes;
   }
   const shared = routes.filter(isAssignedRoute);
   if (shared.length) return shared;

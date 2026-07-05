@@ -19,6 +19,8 @@ function snapshotFingerprint(remote) {
     currentStopIndex: remote?.currentStopIndex ?? 0,
     activeRouteId: remote?.activeRouteId ?? null,
     routeDirection: remote?.routeDirection ?? 'forward',
+    routesCount: (remote?.routes ?? []).length,
+    assignedRouteCount: (remote?.busProfile?.assignedRouteIds ?? []).length,
   };
 }
 
@@ -34,7 +36,9 @@ function fingerprintsEqual(a, b) {
     a.tripDeparted === b.tripDeparted &&
     a.currentStopIndex === b.currentStopIndex &&
     a.activeRouteId === b.activeRouteId &&
-    a.routeDirection === b.routeDirection
+    a.routeDirection === b.routeDirection &&
+    a.routesCount === b.routesCount &&
+    a.assignedRouteCount === b.assignedRouteCount
   );
 }
 

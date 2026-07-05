@@ -33,6 +33,7 @@ import {
 import { collectUsedStopAudioKeys } from '../lib/audioFragments';
 import { runAnnouncementPlayback } from '../lib/runAnnouncementPlayback';
 import { isDisplayRole, isControlRole } from '../lib/appRole';
+import { copyTripFields } from '../store/tripMerge.js';
 import { nextPlayableAdIndex, adHasPlayableMedia } from '../lib/adPlayback';
 import {
   mergeStopWithCatalog,
@@ -71,6 +72,7 @@ function useBusStoreLogic() {
       .then((stored) => {
         if (cancelled || typeof stored !== 'object' || stored === null) return;
         setState(stored);
+        syncLocalCacheFromServer(stored);
         setPersistenceReady(true);
         lastWriteAtRef.current = stored.savedAt ?? 0;
       })
@@ -202,6 +204,10 @@ function useBusStoreLogic() {
 
       const merged = mergeRemoteState(prev, remoteHydrated);
       delete merged._cloudPushAdvanced;
+
+      if (authoritativeRemote) {
+        copyTripFields(remoteHydrated, merged);
+      }
 
       if (prev?.announcementRequest?.id && !merged.announcementRequest?.id) {
         merged.announcementRequest = prev.announcementRequest;

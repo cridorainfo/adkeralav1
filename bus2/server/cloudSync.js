@@ -243,6 +243,10 @@ async function syncAssignedRoutesFromCloud(root, creds) {
     const assignedIds = json.assignedRouteIds ?? [];
     const assignedSet = new Set(assignedIds);
     const localAssigned = (current.routes ?? []).filter((r) => assignedSet.has(r.id));
+    const cloudRoutes = json.routes ?? [];
+    if (!cloudRoutes.length && localAssigned.length) {
+      return;
+    }
     const catalogChanged =
       JSON.stringify(current.stopCatalog ?? []) !== JSON.stringify(json.stopCatalog ?? []);
     const routesChanged =

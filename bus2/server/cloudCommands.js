@@ -203,6 +203,11 @@ export function applyCloudCommands(current, commands) {
           );
           finalRoutes = dedupeRoutes([...finalRoutes, ...localOnly]);
         }
+        if (!finalRoutes.length && assignedIds.length) {
+          finalRoutes = dedupeRoutes(
+            (next.routes ?? []).filter((r) => r?.id && assignedSet.has(r.id))
+          );
+        }
         next.routes = finalRoutes;
         if (Array.isArray(payload.stopCatalog)) {
           next.stopCatalog = payload.stopCatalog;
