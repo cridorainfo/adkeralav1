@@ -77,6 +77,7 @@ export function getDriverVisibleRoutes(state = {}) {
     const idSet = new Set(assignedIds);
     const filtered = routes.filter((r) => idSet.has(r.id));
     if (filtered.length) return filtered;
+    if (routes.length) return routes;
   }
   const shared = routes.filter(isAssignedRoute);
   if (shared.length) return shared;

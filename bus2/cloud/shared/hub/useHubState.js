@@ -9,6 +9,7 @@ import {
   startHubPing,
   stopHubPing,
 } from './client.js';
+import { mergeHubPollState } from './mergeHubPollState.js';
 
 const POLL_MS = 2000;
 const POLL_MS_LIVE = 5000;
@@ -39,10 +40,12 @@ export function useHubState({ onRevoked } = {}) {
       const res = await hubFetch('/api/state');
       const json = await res.json();
       if (json.ok) {
-        setState(json.data ?? {});
+        const incoming = json.data ?? {};
+        setState((prev) => mergeHubPollState(prev, incoming));
         setStateLoaded(true);
+        setConnected(true);
         setError('');
-        return json.data ?? {};
+        return incoming;
       }
       setError(json.error ?? 'Could not load bus state');
     } catch (err) {
@@ -115,8 +118,10 @@ export function useHubState({ onRevoked } = {}) {
         onRevoked?.('Session ended — pair again');
         return;
       }
-      if (ping.ok) setConnected(true);
-      else if (ping.offline) setConnected(false);
+      if (ping.ok) {
+        setConnected(true);
+        refreshState().catch(() => {});
+      }
     });
 
     return () => {
