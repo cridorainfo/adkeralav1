@@ -188,35 +188,52 @@ export default function DriverControl() {
 
               {hasRoute && (
                 <div className="stop-display-mini driver-minimal-stops">
-                  <div className="current-label">
-                    {!tripStarted
-                      ? 'Ready — press Start'
-                      : tripEnded
-                        ? 'Trip complete'
-                        : stopInfo.atTripStart
-                          ? 'At origin'
-                          : 'Last departed'}
-                  </div>
-                  <div className="current-stop">
-                    <StopLabel
-                      stop={
-                        tripEnded
-                          ? stopInfo.final
-                          : !tripStarted || stopInfo.atTripStart
-                            ? stopInfo.start
-                            : stopInfo.current
-                      }
-                      size="sm"
-                    />
-                  </div>
-                  <div className="stop-meta">
-                    <div className="stop-meta-item">
-                      <span>Next</span>
-                      <strong>
-                        {announceTarget ? <StopLabel stop={announceTarget} size="sm" /> : '—'}
-                      </strong>
-                    </div>
-                  </div>
+                  {tripStarted && !tripEnded && !stopInfo.atTripStart ? (
+                    <>
+                      <div className="current-label">Next</div>
+                      <div className="current-stop">
+                        <StopLabel stop={announceTarget} size="sm" />
+                      </div>
+                      <div className="stop-meta">
+                        <div className="stop-meta-item">
+                          <span>Last departed</span>
+                          <strong>
+                            <StopLabel stop={stopInfo.current} size="sm" />
+                          </strong>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="current-label">
+                        {!tripStarted
+                          ? 'Ready — press Start'
+                          : tripEnded
+                            ? 'Trip complete'
+                            : 'At origin'}
+                      </div>
+                      <div className="current-stop">
+                        <StopLabel
+                          stop={
+                            tripEnded
+                              ? stopInfo.final
+                              : stopInfo.start
+                          }
+                          size="sm"
+                        />
+                      </div>
+                      {tripStarted && !tripEnded && (
+                        <div className="stop-meta">
+                          <div className="stop-meta-item">
+                            <span>Next</span>
+                            <strong>
+                              {announceTarget ? <StopLabel stop={announceTarget} size="sm" /> : '—'}
+                            </strong>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 
