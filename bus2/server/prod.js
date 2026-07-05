@@ -16,6 +16,7 @@ import { startHttpsMirror } from './tls.js';
 import { ensureWindowsFirewallPorts, checkFirewallPorts } from './firewall.js';
 import { setupDriverAuth } from './driverAuth.js';
 import { setupDriveApi } from './driveApi.js';
+import { setupBusCors } from './cors.js';
 
 /**
  * Production bus server — static SPA + same API as dev.js (no Vite).
@@ -38,6 +39,7 @@ export async function startBusServer(options = {}) {
   }
 
   const app = express();
+  setupBusCors(app);
   const httpServer = createHttpServer(app);
   app.use(express.json({ limit: '2mb' }));
 

@@ -1836,6 +1836,245 @@ tr.route-row-assigned {
   border-radius: 12px;
 }
 
+.driver-scan-btn,
+.driver-rescan-btn {
+  width: 100%;
+}
+
+.driver-rescan-btn {
+  margin-top: 0.5rem;
+}
+
+/* In-PWA driver control (/driver/control) */
+.driver-control-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, #ecfdf5 0%, #f8fafc 45%, #e0f2fe 100%);
+}
+
+.driver-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(11, 92, 74, 0.1);
+}
+
+.driver-control-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.driver-control-brand h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--kerala-green);
+}
+
+.driver-control-brand small {
+  color: var(--kerala-muted);
+  font-size: 0.8rem;
+}
+
+.driver-control-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem 2rem;
+  max-width: 480px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.driver-control-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.88rem;
+}
+
+.driver-minimal-shell .driver-control-body {
+  padding-bottom: 2rem;
+}
+
+.driver-minimal-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--kerala-muted);
+}
+
+.driver-minimal-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.driver-minimal-dot.on {
+  background: #22c55e;
+}
+
+.driver-minimal-panel {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 8px 28px rgba(11, 92, 74, 0.1);
+  text-align: left;
+}
+
+.driver-minimal-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--kerala-muted);
+  margin-bottom: 0.35rem;
+}
+
+.driver-minimal-select {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(11, 92, 74, 0.2);
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+
+.drive-mode-toggle {
+  display: inline-flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(11, 92, 74, 0.2);
+}
+
+.drive-mode-toggle button {
+  border: 0;
+  background: #fff;
+  color: var(--kerala-green);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.drive-mode-toggle button.active {
+  background: var(--kerala-green);
+  color: #fff;
+}
+
+.stop-display-mini {
+  background: linear-gradient(135deg, var(--kerala-green-dark) 0%, var(--kerala-green) 100%);
+  color: white;
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.stop-display-mini .current-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+
+.stop-display-mini .current-stop {
+  font-size: 1.5rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.stop-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.stop-meta-item {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+}
+
+.stop-meta-item span {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.driver-buttons {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.btn-lg {
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  border-radius: 12px;
+  border: 0;
+  cursor: pointer;
+}
+
+.btn-start {
+  background: linear-gradient(135deg, var(--kerala-gold) 0%, #d4a017 100%);
+  color: #1a1a1a;
+  font-weight: 700;
+}
+
+.btn-forward {
+  background: linear-gradient(135deg, var(--kerala-teal) 0%, var(--kerala-green-light) 100%);
+  color: white;
+}
+
+.btn-reverse {
+  background: linear-gradient(135deg, var(--kerala-coral) 0%, #c04a2a 100%);
+  color: white;
+}
+
+.btn-announce {
+  background: #1e293b;
+  color: white;
+}
+
+.btn-end {
+  background: linear-gradient(135deg, #2d6a4f 0%, var(--kerala-green-light) 100%);
+  color: white;
+  font-weight: 700;
+}
+
+.driver-minimal-hint {
+  font-size: 0.85rem;
+  color: var(--kerala-muted);
+  line-height: 1.45;
+}
+
+.driver-minimal-disconnect {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.driver-stop-ml {
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
+.drive-no-route-hint {
+  font-size: 0.85rem;
+  color: var(--kerala-muted);
+}
+
 /* ——— Stops hub ——— */
 
 .stops-hub-layout {

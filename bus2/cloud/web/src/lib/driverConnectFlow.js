@@ -9,6 +9,11 @@ import {
 } from './driverLanStorage.js';
 
 import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+import {
+  applyDriverSessionInfo,
+  clearDisconnectAck,
+  saveDisconnectAck,
+} from './driverSessionGuard.js';
 
 const TOKEN_KEY = 'adkerala-driver-token';
 const BUS_KEY = 'adkerala-driver-bus';
@@ -70,6 +75,23 @@ function clearDriverToken() {
   write(TOKEN_KEY, null);
 }
 
+function clearAllDriverSetup() {
+  clearDriverCredentials();
+  clearDriverBusSetup();
+  clearDisconnectAck();
+}
+
+function revokedResult(error = 'All driver phones were disconnected by admin') {
+  clearAllDriverSetup();
+  return { ok: false, reason: 'revoked', error };
+}
+
+async function readDriverSessionInfo(controlUrl, token = null) {
+  const headers = token ? { 'X-Driver-Token': token } : {};
+  const res = await fetchBusApi(controlUrl, '/api/driver/unlock-status', { headers });
+  return res.json();
+}
+
 export async function connectToBus(controlUrl, pairingCode) {
   const normalized = normalizeControlUrl(controlUrl);
   const code = String(pairingCode ?? '')
@@ -96,6 +118,7 @@ export async function connectToBus(controlUrl, pairingCode) {
     saveBusControlUrl(normalized);
     savePairingCode(code);
     saveDriverCredentials({ token: json.token, plate: json.plate ?? '', busOrigin: origin });
+    if (json.devicesDisconnectAt) saveDisconnectAck(json.devicesDisconnectAt);
 
     return { ok: true, controlUrl: normalized, plate: json.plate ?? '' };
   } catch {
@@ -109,17 +132,23 @@ export async function ensureDriverSession() {
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 
   const token = getStoredDriverToken();
-  if (token) {
-    try {
-      const res = await fetchBusApi(controlUrl, '/api/driver/unlock-status', {
-        headers: { 'X-Driver-Token': token },
-      });
-      const json = await res.json();
-      if (json.unlocked) {
-        return { ok: true, controlUrl, plate: json.plate ?? getStoredDriverPlate() };
-      }
+
+  try {
+    const info = await readDriverSessionInfo(controlUrl, token);
+    const session = applyDriverSessionInfo(info);
+    if (session.revoked) return revokedResult();
+
+    if (token && info.unlocked) {
+      return { ok: true, controlUrl, plate: info.plate ?? getStoredDriverPlate() };
+    }
+
+    if (token && !info.unlocked) {
       clearDriverToken();
-    } catch {
+      const afterRevoke = applyDriverSessionInfo(info);
+      if (afterRevoke.revoked) return revokedResult();
+    }
+  } catch {
+    if (token) {
       return { ok: false, reason: 'offline', controlUrl, keepTrying: true };
     }
   }
@@ -135,28 +164,38 @@ export async function ensureDriverSession() {
 export async function tryStoredAutoConnect() {
   const result = await ensureDriverSession();
   if (result.ok) return result;
+  if (result.reason === 'revoked') return result;
   if (result.reason === 'offline' && getStoredDriverToken()) {
     return { ok: true, controlUrl: result.controlUrl, plate: getStoredDriverPlate(), offline: true };
   }
   return result;
 }
 
-export function goToControl(controlUrl) {
+export function goToControl(controlUrl, options = {}) {
+  const { navigate } = options;
+  if (typeof navigate === 'function') {
+    navigate('/driver/control');
+    return true;
+  }
   const url = normalizeControlUrl(controlUrl) || loadBusControlUrl();
   if (!url) return false;
   window.location.href = url;
   return true;
 }
 
-export function disconnectFromBus() {
+export async function disconnectFromBus() {
   const controlUrl = loadBusControlUrl();
   const token = getStoredDriverToken();
   if (controlUrl && token) {
-    fetchBusApi(controlUrl, '/api/driver/disconnect', {
-      method: 'POST',
-      headers: { 'X-Driver-Token': token },
-    }).catch(() => {});
+    try {
+      await fetchBusApi(controlUrl, '/api/driver/disconnect', {
+        method: 'POST',
+        headers: { 'X-Driver-Token': token },
+      });
+    } catch {
+      /* offline — still clear local setup */
+    }
   }
-  clearDriverCredentials();
-  clearDriverBusSetup();
+  clearAllDriverSetup();
+  return { ok: true };
 }

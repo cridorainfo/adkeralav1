@@ -17,6 +17,7 @@ import {
   formatGpsAccuracy,
 } from '../lib/geoUtils';
 import { useDriverControl } from '../components/DriverControlContext';
+import { disconnectAllDriversOnBus } from '../lib/driverConnectFlow';
 import GpsPermissionBanner from '../components/GpsPermissionBanner';
 
 const DRIVER_TABS = ['drive', 'routes', 'settings'];
@@ -63,6 +64,7 @@ export default function ControlScreen({
 
   const [tab, setTab] = useState('drive');
   const [unlinkStatus, setUnlinkStatus] = useState('');
+  const [disconnectAllStatus, setDisconnectAllStatus] = useState('');
   const { disconnect: disconnectDriverPhone } = useDriverControl();
   const { cloudEnabled } = useCloudRouteSearch();
 
@@ -73,6 +75,16 @@ export default function ControlScreen({
     },
     [selectRoute, driverMode]
   );
+
+  const handleDisconnectAllPhones = useCallback(async () => {
+    setDisconnectAllStatus('Disconnecting all driver phones…');
+    const result = await disconnectAllDriversOnBus();
+    setDisconnectAllStatus(
+      result.ok
+        ? 'All driver phones disconnected — pairing QR shows on display'
+        : (result.error ?? 'Failed')
+    );
+  }, []);
 
   const handleUnlinkDriver = useCallback(async () => {
     setUnlinkStatus('Unlinking…');
@@ -711,6 +723,22 @@ export default function ControlScreen({
                 <button type="button" className="btn secondary" onClick={disconnectDriverPhone}>
                   Disconnect from this bus
                 </button>
+              </>
+            )}
+
+            {!driverMode && (
+              <>
+                <h4 className="settings-section-title">Driver phones</h4>
+                <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginBottom: '0.75rem' }}>
+                  Disconnect every driver app from this bus PC (LAN sessions cleared). Each phone must scan
+                  the QR and enter the pairing code again.
+                </p>
+                <button type="button" className="btn secondary" onClick={handleDisconnectAllPhones}>
+                  Disconnect all driver phones
+                </button>
+                {disconnectAllStatus && (
+                  <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{disconnectAllStatus}</p>
+                )}
               </>
             )}
 

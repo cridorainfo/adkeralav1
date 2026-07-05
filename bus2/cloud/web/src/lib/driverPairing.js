@@ -23,6 +23,43 @@ export function parsePairCodeFromScan(raw) {
   return text.replace(/\s/g, '').toUpperCase();
 }
 
+/** Extract bus control URL from scanned QR (LAN /control or cloud ?control=). */
+export function parseControlFromScan(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+
+  const direct = parseControlUrlFromScan(text);
+  if (direct) return direct;
+
+  try {
+    const url = new URL(text);
+    const control =
+      url.searchParams.get('control') ||
+      url.searchParams.get('url') ||
+      url.searchParams.get('bus') ||
+      url.searchParams.get('controlUrl');
+    if (control) {
+      try {
+        const parsed = new URL(control);
+        if (/^https?:$/i.test(parsed.protocol)) {
+          if (!parsed.pathname.includes('/control')) {
+            parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/control`;
+          }
+          parsed.search = '';
+          parsed.hash = '';
+          return parsed.toString();
+        }
+      } catch {
+        /* relative control param — ignore */
+      }
+    }
+  } catch {
+    /* not a URL */
+  }
+
+  return null;
+}
+
 /** If the QR is a direct bus LAN /control link, return it for immediate navigation. */
 export function parseControlUrlFromScan(raw) {
   const text = String(raw ?? '').trim();

@@ -64,6 +64,14 @@ function mergeDisplayPlayback(current = {}, incoming = {}, base = {}) {
   }
 }
 
+/** Session count is hub-only — phones must never overwrite via /api/state. */
+function stripHubOnlyFields(incoming = {}) {
+  const body = { ...incoming };
+  delete body.connectedDeviceCount;
+  delete body.driverLink;
+  return body;
+}
+
 /** Driver link is set only by /api/driver/* — control phone saves must not wipe it. */
 function mergeDriverLink(current = {}, incoming = {}, base = {}) {
   const incId = incoming.driverLink?.driverId ?? null;
@@ -83,20 +91,21 @@ function mergeBusProfileOntoState(current = {}, incoming = {}, base = {}) {
 
 /** Merge a client POST body onto db/info.txt without dropping routes by accident. */
 export function mergeIncomingState(current = {}, incoming = {}) {
+  const sanitized = stripHubOnlyFields(incoming);
   const curSaved = current.savedAt ?? 0;
-  const incSaved = incoming.savedAt ?? 0;
+  const incSaved = sanitized.savedAt ?? 0;
   const remoteIsNewer = incSaved >= curSaved;
 
   const curRoutes = dedupeRoutes(current.routes ?? []);
-  const incRoutes = dedupeRoutes(incoming.routes ?? []);
+  const incRoutes = dedupeRoutes(sanitized.routes ?? []);
   const routes = mergeRoutesForSync(curRoutes, incRoutes, curSaved, incSaved);
 
-  const base = remoteIsNewer ? { ...current, ...incoming } : { ...incoming, ...current };
+  const base = remoteIsNewer ? { ...current, ...sanitized } : { ...sanitized, ...current };
   base.routes = routes;
-  base.stopCatalog = mergeCatalogs(current.stopCatalog, incoming.stopCatalog);
-  base.audioFragments = mergeAudioMap(current.audioFragments, incoming.audioFragments);
-  base.stopAudio = mergeAudioMap(current.stopAudio, incoming.stopAudio);
-  mergeDisplayPlayback(current, incoming, base);
+  base.stopCatalog = mergeCatalogs(current.stopCatalog, sanitized.stopCatalog);
+  base.audioFragments = mergeAudioMap(current.audioFragments, sanitized.audioFragments);
+  base.stopAudio = mergeAudioMap(current.stopAudio, sanitized.stopAudio);
+  mergeDisplayPlayback(current, sanitized, base);
 
   if (base.activeRouteId && !routes.some((r) => r.id === base.activeRouteId)) {
     base.activeRouteId = routes[0]?.id ?? null;
@@ -104,8 +113,9 @@ export function mergeIncomingState(current = {}, incoming = {}) {
 
   base.savedAt = Math.max(curSaved, incSaved);
   base.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, incoming.lastCloudPushAt ?? 0);
-  resolveTripFields(current, incoming, base);
-  mergeDriverLink(current, incoming, base);
-  mergeBusProfileOntoState(current, incoming, base);
+  resolveTripFields(current, sanitized, base);
+  mergeDriverLink(current, sanitized, base);
+  mergeBusProfileOntoState(current, sanitized, base);
+  base.connectedDeviceCount = current.connectedDeviceCount ?? 0;
   return base;
 }

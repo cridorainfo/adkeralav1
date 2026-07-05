@@ -15,6 +15,11 @@ import {
   getStoredDriverToken,
   saveDriverCredentials,
 } from './driverCredentials';
+import {
+  applyDriverSessionInfo,
+  clearDisconnectAck,
+  saveDisconnectAck,
+} from './driverSessionGuard';
 
 export function getBusOriginFromControlUrl(controlUrl) {
   const normalized = normalizeControlUrl(controlUrl);
@@ -34,6 +39,23 @@ async function fetchBusApi(controlUrl, path, options = {}) {
   const origin = busOriginForFetch(controlUrl);
   if (!origin) throw new Error('No bus address saved');
   return fetch(`${origin}${path.startsWith('/') ? path : `/${path}`}`, options);
+}
+
+function clearAllDriverSetup() {
+  clearDriverCredentials();
+  clearDriverBusSetup();
+  clearDisconnectAck();
+}
+
+function revokedResult(error = 'All driver phones were disconnected by admin') {
+  clearAllDriverSetup();
+  return { ok: false, reason: 'revoked', error };
+}
+
+async function readDriverSessionInfo(controlUrl, token = null) {
+  const headers = token ? { 'X-Driver-Token': token } : {};
+  const res = await fetchBusApi(controlUrl, '/api/driver/unlock-status', { headers });
+  return res.json();
 }
 
 /** POST /api/driver/connect on the saved bus PC. */
@@ -67,6 +89,7 @@ export async function connectToBus(controlUrl, pairingCode) {
       plate: json.plate ?? '',
       busOrigin: origin,
     });
+    if (json.devicesDisconnectAt) saveDisconnectAck(json.devicesDisconnectAt);
 
     return { ok: true, controlUrl: normalized, plate: json.plate ?? '' };
   } catch {
@@ -76,7 +99,7 @@ export async function connectToBus(controlUrl, pairingCode) {
 
 /**
  * Keep driver session alive on LAN — reuse token, or reconnect with saved admin code.
- * Never clears saved URL / pairing code (only explicit disconnect does).
+ * Never clears saved URL / pairing code (only explicit disconnect or admin revoke does).
  */
 export async function ensureDriverSession() {
   await hydrateDriverStorage();
@@ -84,21 +107,27 @@ export async function ensureDriverSession() {
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 
   const token = getStoredDriverToken();
-  if (token) {
-    try {
-      const res = await fetchBusApi(controlUrl, '/api/driver/unlock-status', {
-        headers: { 'X-Driver-Token': token },
-      });
-      const json = await res.json();
-      if (json.unlocked) {
-        return {
-          ok: true,
-          controlUrl,
-          plate: json.plate ?? getStoredDriverPlate(),
-        };
-      }
+
+  try {
+    const info = await readDriverSessionInfo(controlUrl, token);
+    const session = applyDriverSessionInfo(info);
+    if (session.revoked) return revokedResult();
+
+    if (token && info.unlocked) {
+      return {
+        ok: true,
+        controlUrl,
+        plate: info.plate ?? getStoredDriverPlate(),
+      };
+    }
+
+    if (token && !info.unlocked) {
       clearDriverToken();
-    } catch {
+      const afterRevoke = applyDriverSessionInfo(info);
+      if (afterRevoke.revoked) return revokedResult();
+    }
+  } catch {
+    if (token) {
       return { ok: false, reason: 'offline', controlUrl, keepTrying: true };
     }
   }
@@ -115,6 +144,7 @@ export async function ensureDriverSession() {
 export async function tryStoredAutoConnect() {
   const result = await ensureDriverSession();
   if (result.ok) return result;
+  if (result.reason === 'revoked') return result;
   if (result.reason === 'offline' && getStoredDriverToken()) {
     return { ok: true, controlUrl: result.controlUrl, plate: getStoredDriverPlate(), offline: true };
   }
@@ -128,15 +158,33 @@ export function goToControl(controlUrl) {
   return true;
 }
 
-export function disconnectFromBus() {
+export async function disconnectFromBus() {
   const controlUrl = loadBusControlUrl();
   const token = getStoredDriverToken();
   if (controlUrl && token) {
-    fetchBusApi(controlUrl, '/api/driver/disconnect', {
-      method: 'POST',
-      headers: { 'X-Driver-Token': token },
-    }).catch(() => {});
+    try {
+      await fetchBusApi(controlUrl, '/api/driver/disconnect', {
+        method: 'POST',
+        headers: { 'X-Driver-Token': token },
+      });
+    } catch {
+      /* offline — still clear local setup */
+    }
   }
-  clearDriverCredentials();
-  clearDriverBusSetup();
+  clearAllDriverSetup();
+  return { ok: true };
+}
+
+/** Bus PC admin — revoke every connected driver phone immediately on LAN. */
+export async function disconnectAllDriversOnBus() {
+  try {
+    const res = await fetch('/api/driver/disconnect-all', { method: 'POST' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) {
+      return { ok: false, error: json.error ?? 'Could not disconnect driver phones' };
+    }
+    return { ok: true, connectedDeviceCount: json.connectedDeviceCount ?? 0 };
+  } catch (err) {
+    return { ok: false, error: err.message ?? 'Could not disconnect driver phones' };
+  }
 }

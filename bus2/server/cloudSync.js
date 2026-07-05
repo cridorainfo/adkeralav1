@@ -13,7 +13,7 @@ import {
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
-import { clearAllDriverSessions } from './driverAuth.js';
+import { clearAllDriverSessions, disconnectAllDrivers } from './driverAuth.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -279,27 +279,7 @@ async function syncDevicesDisconnectFromCloud(root, cloudAt) {
   const applied = current.busProfile?.devicesDisconnectLastApplied ?? null;
   if (cloudAt === applied) return;
 
-  await clearAllDriverSessions(root);
-
-  const pushAt = Date.now();
-  const merged = {
-    ...current,
-    driverLink: null,
-    connectedDeviceCount: 0,
-    busProfile: {
-      ...(current.busProfile ?? {}),
-      devicesDisconnectLastApplied: cloudAt,
-    },
-    savedAt: pushAt,
-    lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
-  };
-
-  await writeInfoFileSerialized(root, merged, { source: 'devices-disconnect' });
-  notifyStateChanged(root, {
-    savedAt: pushAt,
-    lastCloudPushAt: merged.lastCloudPushAt,
-    source: 'devices-disconnect',
-  });
+  await disconnectAllDrivers(root, cloudAt);
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
 }
 
@@ -470,8 +450,18 @@ async function runCloudSyncInner(root) {
       const nextDriverId = merged.driverLink?.driverId ?? null;
       if (prevDriverId && !nextDriverId) {
         await clearAllDriverSessions(root);
-        merged.connectedDeviceCount = 0;
+        const stamp = new Date().toISOString();
         merged.driverLink = null;
+        merged.connectedDeviceCount = 0;
+        merged.tripStarted = false;
+        merged.tripEnded = false;
+        merged.tripDeparted = false;
+        merged.displayView = 'route';
+        merged.announcementRequest = null;
+        merged.busProfile = {
+          ...(merged.busProfile ?? {}),
+          devicesDisconnectLastApplied: stamp,
+        };
       }
       const newAdPaths = new Set(collectAdMediaFromState(merged));
       const newAudioPaths = new Set(collectAudioMediaFromState(merged));

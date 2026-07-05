@@ -59,8 +59,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const isPassengerView =
     passengerMode ||
     (embedded ? Boolean(s.isFullscreen ?? s.appView === 'display') : s.appView === 'display');
-  const driverConnected = (s.connectedDeviceCount ?? 0) > 0;
-  const waitForDriver = isPassengerView && !driverConnected;
+  const driverConnected =
+    (s.connectedDeviceCount ?? 0) > 0 || Boolean(s.driverLink?.driverId);
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -223,27 +223,24 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>
     <div
-      className={`display-screen ${isPassengerView ? 'fullscreen' : ''}${waitForDriver ? ' display-screen--awaiting-driver' : ''}`}
+      className={`display-screen ${isPassengerView ? 'fullscreen' : ''}`}
       style={screenStyle}
     >
       <audio ref={audioRef} />
 
-      {!waitForDriver && (
       <div className="display-top-bar">
         <div className="display-brand">
           <div className="display-brand-logo-wrap">
             <AdKeralaLogo className="display-brand-icon" size="md" />
             <DisplayStatusDots />
           </div>
-          {!waitForDriver && (
-            <div className="display-brand-text">
-              <h2>{brandTitle}</h2>
-              <span>{APP_DISPLAY_TAGLINE}</span>
-            </div>
-          )}
+          <div className="display-brand-text">
+            <h2>{brandTitle}</h2>
+            <span>{APP_DISPLAY_TAGLINE}</span>
+          </div>
         </div>
         <div className="display-top-bar-center">
-          {!waitForDriver && stopInfo.routeName && (
+          {stopInfo.routeName && (
             <div className="display-route-badge">{stopInfo.routeName}</div>
           )}
         </div>
@@ -256,15 +253,9 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           )}
         </div>
       </div>
-      )}
 
       <main className="display-main">
-        {waitForDriver ? (
-          <DriverPairingBanner
-            connectedDeviceCount={0}
-            fullscreen
-          />
-        ) : showingAd ? (
+        {showingAd ? (
           <div className="display-ad-view">
             <div className="display-ad-stage">
               <div className="display-ad-timer">{adTimer}s</div>
@@ -367,7 +358,11 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
         )}
       </main>
 
-      {!waitForDriver && !showingAd && driverConnected && showBannerStrip && (
+      {isPassengerView && !driverConnected && (
+        <DriverPairingBanner connectedDeviceCount={0} compact />
+      )}
+
+      {!showingAd && driverConnected && showBannerStrip && (
         <BannerAdStrip bannerAds={s.bannerAds} settings={s.bannerAdSettings} />
       )}
     </div>

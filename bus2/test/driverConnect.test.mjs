@@ -10,9 +10,9 @@ import { setupDriverAuth } from '../server/driverAuth.js';
 import { setupDriveApi } from '../server/driveApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const testRoot = path.join(__dirname, '.tmp-driver-connect');
 
 async function startTestServer(state = {}) {
+  const testRoot = path.join(__dirname, `.tmp-driver-connect-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   await fs.rm(testRoot, { recursive: true, force: true });
   await ensureDbLayout(testRoot);
   await writeInfoFile(testRoot, {
@@ -36,15 +36,30 @@ async function startTestServer(state = {}) {
 
   const server = createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   const { port } = server.address();
 
   return {
     base: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise((resolve, reject) => {
+    testRoot,
+    close: async () => {
+      await new Promise((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
-      }),
+      });
+      await fs.rm(testRoot, { recursive: true, force: true }).catch(() => {});
+    },
   };
+}
+
+async function connectPhone(base, code = '4821') {
+  const res = await fetch(`${base}/api/driver/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pairingCode: code }),
+  });
+  const json = await res.json();
+  assert.equal(json.ok, true, json.error ?? `connect failed (${res.status})`);
+  return json;
 }
 
 test('POST /api/driver/connect accepts pair code without OTP (offline LAN)', async (t) => {
@@ -58,14 +73,9 @@ test('POST /api/driver/connect accepts pair code without OTP (offline LAN)', asy
   });
   assert.equal(bad.status, 403);
 
-  const res = await fetch(`${srv.base}/api/driver/connect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pairingCode: '4821' }),
-  });
-  const json = await res.json();
-  assert.equal(json.ok, true);
+  const json = await connectPhone(srv.base);
   assert.ok(json.token);
+  assert.ok(json.devicesDisconnectAt === null || typeof json.devicesDisconnectAt === 'string');
 
   const connected = await fetch(`${srv.base}/api/driver/connected`);
   const connectedJson = await connected.json();
@@ -82,16 +92,40 @@ test('POST /api/driver/connect accepts pair code without OTP (offline LAN)', asy
   assert.equal(drive.status, 200);
 });
 
-test('POST /api/driver/disconnect clears connectedDeviceCount', async (t) => {
+test('multiple phones connect and one disconnect leaves others active', async (t) => {
   const srv = await startTestServer();
   t.after(() => srv.close());
 
-  const connect = await fetch(`${srv.base}/api/driver/connect`, {
+  const phoneA = await connectPhone(srv.base);
+  const phoneB = await connectPhone(srv.base);
+
+  let connected = await fetch(`${srv.base}/api/driver/connected`);
+  assert.equal((await connected.json()).connectedDeviceCount, 2);
+
+  await fetch(`${srv.base}/api/driver/disconnect`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pairingCode: '4821' }),
+    headers: { 'X-Driver-Token': phoneA.token },
   });
-  const { token } = await connect.json();
+
+  connected = await fetch(`${srv.base}/api/driver/connected`);
+  assert.equal((await connected.json()).connectedDeviceCount, 1);
+
+  const unlockB = await fetch(`${srv.base}/api/driver/unlock-status`, {
+    headers: { 'X-Driver-Token': phoneB.token },
+  });
+  assert.equal((await unlockB.json()).unlocked, true);
+
+  const unlockA = await fetch(`${srv.base}/api/driver/unlock-status`, {
+    headers: { 'X-Driver-Token': phoneA.token },
+  });
+  assert.equal((await unlockA.json()).unlocked, false);
+});
+
+test('POST /api/driver/disconnect clears connectedDeviceCount when last phone leaves', async (t) => {
+  const srv = await startTestServer();
+  t.after(() => srv.close());
+
+  const { token } = await connectPhone(srv.base);
 
   await fetch(`${srv.base}/api/driver/disconnect`, {
     method: 'POST',
@@ -102,4 +136,44 @@ test('POST /api/driver/disconnect clears connectedDeviceCount', async (t) => {
   const json = await connected.json();
   assert.equal(json.connectedDeviceCount, 0);
   assert.equal(json.connected, false);
+});
+
+test('POST /api/driver/disconnect-all revokes every phone session', async (t) => {
+  const srv = await startTestServer();
+  t.after(() => srv.close());
+
+  const phoneA = await connectPhone(srv.base);
+  const phoneB = await connectPhone(srv.base);
+
+  const res = await fetch(`${srv.base}/api/driver/disconnect-all`, { method: 'POST' });
+  const json = await res.json();
+  assert.equal(json.ok, true);
+  assert.equal(json.connectedDeviceCount, 0);
+  assert.ok(json.devicesDisconnectAt);
+
+  const unlockA = await fetch(`${srv.base}/api/driver/unlock-status`, {
+    headers: { 'X-Driver-Token': phoneA.token },
+  });
+  const unlockB = await fetch(`${srv.base}/api/driver/unlock-status`, {
+    headers: { 'X-Driver-Token': phoneB.token },
+  });
+  assert.equal((await unlockA.json()).unlocked, false);
+  assert.equal((await unlockB.json()).unlocked, false);
+
+  const connected = await fetch(`${srv.base}/api/driver/connected`);
+  assert.equal((await connected.json()).connectedDeviceCount, 0);
+});
+
+test('phones can pair again after disconnect-all', async (t) => {
+  const srv = await startTestServer();
+  t.after(() => srv.close());
+
+  const first = await connectPhone(srv.base);
+  await fetch(`${srv.base}/api/driver/disconnect-all`, { method: 'POST' });
+
+  const second = await connectPhone(srv.base);
+  assert.notEqual(first.token, second.token);
+
+  const connected = await fetch(`${srv.base}/api/driver/connected`);
+  assert.equal((await connected.json()).connectedDeviceCount, 1);
 });

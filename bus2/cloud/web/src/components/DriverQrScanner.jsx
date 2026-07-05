@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { parsePairCodeFromScan } from '../lib/driverPairing.js';
 
 /** Camera QR scanner — parses bus display QR or cloud /driver?code= links. */
 export default function DriverQrScanner({ open, onClose, onScan }) {
@@ -23,9 +22,7 @@ export default function DriverQrScanner({ open, onClose, onScan }) {
           { facingMode: 'environment' },
           { fps: 10, qrbox: { width: 240, height: 240 } },
           (decoded) => {
-            const value = parsePairCodeFromScan(decoded);
-            if (!value) return;
-            onScan?.(value, decoded);
+            onScan?.(decoded);
             onClose?.();
           },
           () => {}

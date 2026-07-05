@@ -17,6 +17,7 @@ import { startHttpsMirror } from './tls.js';
 import { ensureWindowsFirewallPorts } from './firewall.js';
 import { setupDriverAuth } from './driverAuth.js';
 import { setupDriveApi } from './driveApi.js';
+import { setupBusCors } from './cors.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -29,6 +30,7 @@ if (shouldStartLocalAdmin()) {
 }
 
 const app = express();
+setupBusCors(app);
 const httpServer = createHttpServer(app);
 app.use(express.json({ limit: '2mb' }));
 

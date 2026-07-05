@@ -3830,7 +3830,7 @@ html.kiosk-hide-cursor * {
 
 .driver-pairing-banner--compact {
   top: auto;
-  bottom: 5.5rem;
+  bottom: 1rem;
   right: 1rem;
   padding: 0.55rem 0.75rem;
   min-width: 0;

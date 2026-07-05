@@ -2,6 +2,7 @@ import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { applyCloudCommands } from './cloudCommands.js';
 import { getCloudConfig } from './cloudSync.js';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
+import { disconnectAllDrivers } from './driverAuth.js';
 
 let proxyRoot = null;
 
@@ -259,6 +260,37 @@ export function setupCloudProxy(app, root) {
     }
   });
 
+  app.post('/api/cloud/driver/disconnect-all-phones', async (_req, res) => {
+    try {
+      const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
+      const busId = getCloudConfig(root).busId;
+      if (!cloudUrl()) {
+        res.status(400).json({ ok: false, error: 'Cloud not configured' });
+        return;
+      }
+      const cloudRes = await fetch(
+        `${cloudUrl()}/api/buses/${encodeURIComponent(busId)}/disconnect-all-phones`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(adminKey ? { 'X-Admin-Key': adminKey } : {}),
+          },
+          body: '{}',
+        }
+      );
+      const json = await cloudRes.json().catch(() => ({ ok: false, error: 'Cloud unreachable' }));
+      if (!json.ok) {
+        res.status(400).json(json);
+        return;
+      }
+      const local = await disconnectAllDrivers(root, json.devicesDisconnectAt ?? null);
+      res.json({ ...json, ...local });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   app.post('/api/cloud/driver/unlink', async (_req, res) => {
     try {
       const adminKey = process.env.ADKERALA_ADMIN_KEY ?? '';
@@ -284,13 +316,13 @@ export function setupCloudProxy(app, root) {
         return;
       }
       try {
+        await disconnectAllDrivers(root, json.devicesDisconnectAt ?? null);
         const current = (await readInfoFile(root)) ?? {};
         const pushAt = Date.now();
         await writeInfoFileSerialized(
           root,
           {
             ...current,
-            driverLink: null,
             busProfile: {
               ...(current.busProfile ?? {}),
               ...(json.pairingCode ? { pairingCode: json.pairingCode } : {}),

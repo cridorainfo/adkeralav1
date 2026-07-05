@@ -24,6 +24,12 @@ export default function DriverControlGate({ children }) {
 
   const openSession = useCallback(async () => {
     const result = await ensureDriverSession();
+    if (result.reason === 'revoked') {
+      setUnlocked(false);
+      setPlate('');
+      setReconnecting(false);
+      return 'revoked';
+    }
     if (result.ok) {
       setPlate(result.plate ?? getStoredDriverPlate());
       setUnlocked(true);
@@ -76,7 +82,11 @@ export default function DriverControlGate({ children }) {
       const ok = await openSession();
       if (!cancelled) {
         setChecking(false);
-        if (!ok) navigate('/driver', { replace: true });
+        if (ok === 'revoked') {
+          navigate('/driver', { replace: true, state: { revoked: true } });
+        } else if (!ok) {
+          navigate('/driver', { replace: true });
+        }
       }
     })();
 
@@ -110,7 +120,11 @@ export default function DriverControlGate({ children }) {
         }
         if (json?.expired) {
           const ok = await openSession();
-          if (!ok && maintainRef.current) navigate('/driver', { replace: true });
+          if (ok === 'revoked' && maintainRef.current) {
+            navigate('/driver', { replace: true, state: { revoked: true } });
+          } else if (!ok && maintainRef.current) {
+            navigate('/driver', { replace: true });
+          }
         }
       } catch {
         setReconnecting(true);
@@ -123,7 +137,7 @@ export default function DriverControlGate({ children }) {
   }, [unlocked, navigate, openSession]);
 
   const disconnect = useCallback(async () => {
-    disconnectFromBus();
+    await disconnectFromBus();
     setUnlocked(false);
     setPlate('');
     setReconnecting(false);

@@ -12,7 +12,7 @@ export default function DisplayStatusDots() {
 
   const consoleOn = Boolean(state.serialRuntime?.isConnected);
   const internetOn = isCloudOnline(state.lastCloudPushAt);
-  const driverOn = (state.connectedDeviceCount ?? 0) > 0;
+  const driverOn = (state.connectedDeviceCount ?? 0) > 0 || Boolean(state.driverLink?.driverId);
   const internetBlink = isUpdateDownloading(updateStatus);
 
   const dots = [

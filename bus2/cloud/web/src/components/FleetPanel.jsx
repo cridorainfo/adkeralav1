@@ -191,6 +191,20 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     }
   }
 
+  async function disconnectAllPhones() {
+    if (!selectedBusId) return;
+    setMessage('');
+    try {
+      await api(`/api/buses/${encodeURIComponent(selectedBusId)}/disconnect-all-phones`, {
+        method: 'POST',
+      });
+      setMessage('All driver phones disconnected — they must scan QR and pair again');
+      refreshSelected();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not disconnect phones');
+    }
+  }
+
   async function disconnectDriver() {
     if (!selectedBusId) return;
     await api(`/api/buses/${encodeURIComponent(selectedBusId)}/unlink-driver`, { method: 'POST' });
@@ -313,8 +327,11 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
                 <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
                   Save profile
                 </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={disconnectAllPhones}>
+                  Disconnect all phones
+                </button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={disconnectDriver}>
-                  Disconnect driver
+                  Unlink cloud driver
                 </button>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={revokeDevice}>
                   Revoke device

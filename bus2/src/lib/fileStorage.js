@@ -161,6 +161,8 @@ export function serializeStateForFile(state) {
     navigateRequest,
     appView,
     isFullscreen,
+    connectedDeviceCount,
+    driverLink,
     ...rest
   } = state;
 

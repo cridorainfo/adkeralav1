@@ -15,12 +15,15 @@ import { archiveJsonContent, archiveRelativeLabel, readArchivedJson } from './st
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 45 * 1000;
 const SESSIONS_FILE = '.adkerala-driver-sessions.json';
+const CONNECT_RATE_LIMIT = 8;
+const CONNECT_RATE_WINDOW_MS = 60 * 1000;
 
 export const DRIVER_TOKEN_HEADER = 'x-driver-token';
 
 let sessions = new Map();
 let cleanupTimer = null;
 let dataRootRef = null;
+const connectAttempts = new Map();
 
 export function isLocalRequest(req) {
   const ip = req.socket?.remoteAddress ?? '';
@@ -169,6 +172,59 @@ export async function clearAllDriverSessions(dataRoot) {
   return true;
 }
 
+export function readDevicesDisconnectAt(state = {}) {
+  return (
+    state.busProfile?.devicesDisconnectLastApplied ??
+    state.busProfile?.devicesDisconnectAt ??
+    null
+  );
+}
+
+/** Revoke every phone session, clear driver link, bump disconnect stamp for phone clients. */
+export async function disconnectAllDrivers(dataRoot, disconnectAt = null) {
+  const root = dataRoot ?? dataRootRef;
+  if (!root) return { ok: false, error: 'Missing data root' };
+
+  pruneExpiredSessions();
+  sessions.clear();
+  await saveSessionsToDisk(root);
+
+  const stamp = disconnectAt ?? new Date().toISOString();
+  const current = (await readInfoFile(root)) ?? {};
+  const pushAt = Date.now();
+  const route = getActiveRoute(current);
+  const dir = current.routeDirection ?? 'forward';
+  const stops = route ? getAllStops(route) : [];
+
+  const next = {
+    ...current,
+    driverLink: null,
+    connectedDeviceCount: 0,
+    tripStarted: false,
+    tripEnded: false,
+    tripDeparted: false,
+    currentStopIndex: route ? getTripStartIndex(stops, dir) : 0,
+    displayView: 'route',
+    announcementRequest: null,
+    driveRevision: nextDriveRevision(current),
+    busProfile: {
+      ...(current.busProfile ?? {}),
+      devicesDisconnectLastApplied: stamp,
+    },
+    savedAt: pushAt,
+    lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+  };
+
+  await writeInfoFileSerialized(root, next, { source: 'disconnect-all-drivers' });
+  notifyStateChanged(root, { savedAt: pushAt, source: 'disconnect-all-drivers' });
+
+  return {
+    ok: true,
+    devicesDisconnectAt: stamp,
+    connectedDeviceCount: 0,
+  };
+}
+
 function createDriverSession(driverIdOverride = null) {
   const token = randomBytes(24).toString('hex');
   const driverId =
@@ -204,6 +260,26 @@ function normalizeDriverOtp(value) {
   return String(value ?? '')
     .replace(/\D/g, '')
     .slice(0, 6);
+}
+
+function checkConnectRateLimit(req, failed = false) {
+  if (!failed) return { ok: true };
+  const ip = req.socket?.remoteAddress ?? 'unknown';
+  const now = Date.now();
+  let entry = connectAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + CONNECT_RATE_WINDOW_MS };
+    connectAttempts.set(ip, entry);
+  }
+  entry.count += 1;
+  if (entry.count > CONNECT_RATE_LIMIT) {
+    return {
+      ok: false,
+      status: 429,
+      error: 'Too many pairing attempts — wait a minute and try again',
+    };
+  }
+  return { ok: true };
 }
 
 /** Offline LAN unlock for a driver already cloud-paired to this bus (driverLink in info.txt). */
@@ -352,12 +428,16 @@ async function connectWithPairingCode(dataRoot, pairingCode) {
     linkedAt: Date.now(),
   });
 
+  const fresh = (await readInfoFile(dataRoot)) ?? {};
+
   return {
     ok: true,
     token: session.token,
     expiresAt: session.expiresAt,
     plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
     offline: true,
+    devicesDisconnectAt: readDevicesDisconnectAt(fresh),
+    connectedDeviceCount: getConnectedDeviceCount(),
   };
 }
 
@@ -366,6 +446,8 @@ async function connectWithPairingCode(dataRoot, pairingCode) {
  */
 export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWithCloud }) {
   dataRootRef = dataRoot;
+  sessions = new Map();
+  connectAttempts.clear();
   loadSessionsFromDisk(dataRoot).then(async () => {
     await refreshConnectedDeviceCountInState(dataRoot);
     startSessionCleanup(dataRoot);
@@ -374,12 +456,18 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
   app.get('/api/driver/unlock-status', async (req, res) => {
     const token = getDriverTokenFromRequest(req);
     const unlocked = isDriverSessionValid(token);
+    const state = (await readInfoFile(dataRoot)) ?? {};
     let plate = null;
     if (unlocked) {
-      const state = (await readInfoFile(dataRoot)) ?? {};
       plate = state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null;
     }
-    res.json({ ok: true, unlocked, plate });
+    res.json({
+      ok: true,
+      unlocked,
+      plate,
+      devicesDisconnectAt: readDevicesDisconnectAt(state),
+      connectedDeviceCount: getConnectedDeviceCount(),
+    });
   });
 
   app.get('/api/driver/connected', async (_req, res) => {
@@ -395,6 +483,11 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
     try {
       const result = await connectWithPairingCode(dataRoot, req.body?.pairingCode ?? req.body?.code);
       if (!result.ok) {
+        const limited = checkConnectRateLimit(req, true);
+        if (!limited.ok) {
+          res.status(limited.status ?? 429).json({ ok: false, error: limited.error });
+          return;
+        }
         res.status(result.status ?? 400).json({ ok: false, error: result.error });
         return;
       }
@@ -429,7 +522,25 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
     } else {
       await refreshConnectedDeviceCountInState(dataRoot);
     }
-    res.json({ ok: true, connectedDeviceCount: getConnectedDeviceCount() });
+    const state = (await readInfoFile(dataRoot)) ?? {};
+    res.json({
+      ok: true,
+      connectedDeviceCount: getConnectedDeviceCount(),
+      devicesDisconnectAt: readDevicesDisconnectAt(state),
+    });
+  });
+
+  app.post('/api/driver/disconnect-all', async (req, res) => {
+    if (!isLocalRequest(req)) {
+      res.status(403).json({ ok: false, error: 'Disconnect all is only available on the bus PC' });
+      return;
+    }
+    try {
+      const result = await disconnectAllDrivers(dataRoot);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
   });
 
   app.post('/api/driver/verify', async (req, res) => {

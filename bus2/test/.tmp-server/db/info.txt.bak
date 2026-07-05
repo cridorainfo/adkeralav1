@@ -24,12 +24,12 @@
     }
   ],
   "activeRouteId": "r-test",
-  "savedAt": 1783250170772,
+  "savedAt": 1783251436703,
   "serialRuntime": {
     "status": "connected",
     "isConnected": true,
     "lastLine": "1",
-    "at": 1783250170772
+    "at": 1783251436703
   },
   "stopCatalog": [],
   "audioFragments": {},
@@ -38,5 +38,6 @@
   "driverLink": null,
   "busProfile": {
     "assignedRouteIds": []
-  }
+  },
+  "connectedDeviceCount": 0
 }

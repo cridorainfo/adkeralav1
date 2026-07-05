@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
+import DriverQrScanner from '../components/DriverQrScanner.jsx';
 import { APP_NAME } from '../lib/brand.js';
 import {
   hydrateDriverStorage,
@@ -11,20 +12,24 @@ import {
   savePairingCode,
 } from '../lib/driverLanStorage.js';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow.js';
+import { parseControlFromScan } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
 /**
- * Driver phone — scan bus QR with phone camera (not in-app scanner).
- * Saves bus URL, admin pairing code, then auto-connects on next launch.
+ * Driver phone — in-app QR scan + admin pairing code, then control stays in this PWA.
  */
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
+  const revokedMessage = location.state?.revoked
+    ? location.state?.message ?? 'Admin disconnected all driver phones — scan the bus QR again'
+    : '';
   const [pairCode, setPairCode] = useState('');
   const [busUrl, setBusUrl] = useState(null);
   const [status, setStatus] = useState('Checking saved bus…');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +56,13 @@ export default function DriverConnect() {
 
       if (auto.ok) {
         setStatus('Connecting to your bus…');
-        goToControl(auto.controlUrl);
+        goToControl(auto.controlUrl, { navigate });
+        return;
+      }
+
+      if (auto.reason === 'revoked') {
+        setStatus('Disconnected by admin');
+        setError(auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
         return;
       }
 
@@ -69,7 +80,7 @@ export default function DriverConnect() {
       if (saved) {
         setStatus('Enter the pairing code from admin');
       } else {
-        setStatus('Scan the QR on the bus display with your phone camera');
+        setStatus('Scan the QR on the bus display');
       }
     })();
 
@@ -84,10 +95,22 @@ export default function DriverConnect() {
     if (digits.length === 4) savePairingCode(digits);
   };
 
+  const handleQrScan = (raw) => {
+    setError('');
+    const control = parseControlFromScan(raw);
+    if (control) {
+      saveBusControlUrl(control);
+      setBusUrl(control);
+      setStatus('Enter the pairing code from admin');
+      return;
+    }
+    setError('Unrecognized QR — scan the code on the passenger display');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!busUrl) {
-      setError('Scan the QR on the bus display first — use your phone camera app.');
+      setError('Scan the QR on the bus display first.');
       return;
     }
 
@@ -99,7 +122,7 @@ export default function DriverConnect() {
         setError(result.error ?? 'Could not connect');
         return;
       }
-      goToControl(result.controlUrl);
+      goToControl(result.controlUrl, { navigate });
     } finally {
       setBusy(false);
     }
@@ -117,6 +140,18 @@ export default function DriverConnect() {
         </div>
 
         <DriverInstallPrompt linked={Boolean(busUrl)} />
+
+        {!busUrl && (
+          <div className="driver-connect-section">
+            <button
+              type="button"
+              className="btn btn-primary driver-scan-btn"
+              onClick={() => setScannerOpen(true)}
+            >
+              Scan QR with camera
+            </button>
+          </div>
+        )}
 
         {busUrl ? (
           <div className="driver-connect-section">
@@ -139,18 +174,30 @@ export default function DriverConnect() {
                 {busy ? 'Connecting…' : 'Connect to bus'}
               </button>
               {error && <p className="driver-connect-error">{error}</p>}
+            {revokedMessage && !error && (
+              <p className="driver-connect-error" role="alert">
+                {revokedMessage}
+              </p>
+            )}
             </form>
+            <button type="button" className="btn btn-ghost driver-rescan-btn" onClick={() => setScannerOpen(true)}>
+              Scan a different bus
+            </button>
           </div>
         ) : (
           <div className="driver-connect-section">
             <h2 className="driver-section-subtitle">First time on this bus</h2>
             <ol className="driver-connect-steps">
               <li>Add this page to your home screen (Install app banner above)</li>
-              <li>Open your phone&apos;s <strong>camera</strong> and scan the QR on the passenger display</li>
-              <li>Open the link — this PWA saves the bus address</li>
+              <li>Tap <strong>Scan QR with camera</strong> and point at the passenger display</li>
               <li>Ask admin for the pairing code and enter it here</li>
             </ol>
             {error && <p className="driver-connect-error">{error}</p>}
+            {revokedMessage && !error && (
+              <p className="driver-connect-error" role="alert">
+                {revokedMessage}
+              </p>
+            )}
           </div>
         )}
 
@@ -158,6 +205,12 @@ export default function DriverConnect() {
           Credentials stay saved in this browser/PWA until you tap Disconnect on the control screen.
         </p>
       </div>
+
+      <DriverQrScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleQrScan}
+      />
     </div>
   );
 }

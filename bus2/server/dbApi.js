@@ -336,7 +336,9 @@ export function setupDbApi(app, root) {
       await ensureDbLayout(root);
       const current = (await readInfoFile(root)) ?? {};
       const { mergeIncomingState } = await import('./stateMerge.js');
+      const { getConnectedDeviceCount } = await import('./driverAuth.js');
       const merged = mergeIncomingState(current, req.body ?? {});
+      merged.connectedDeviceCount = getConnectedDeviceCount();
       const tripUnchanged =
         (merged.driveRevision ?? 0) === (current.driveRevision ?? 0) &&
         (merged.currentStopIndex ?? 0) === (current.currentStopIndex ?? 0) &&

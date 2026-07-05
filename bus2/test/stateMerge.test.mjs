@@ -104,6 +104,24 @@ test('mergeIncomingState keeps forward stop index when driveRevision is newer', 
   assert.equal(merged.driverLocation.lat, 8.82);
 });
 
+test('mergeIncomingState ignores client connectedDeviceCount overwrite', () => {
+  const current = {
+    savedAt: 5000,
+    connectedDeviceCount: 2,
+    driverLink: { driverId: 'phone-abc', linkedAt: 4000 },
+  };
+  const incoming = {
+    savedAt: 5001,
+    connectedDeviceCount: 0,
+    driverLink: null,
+    driverLocation: { lat: 8.82, lng: 76.95, at: 5001 },
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.equal(merged.connectedDeviceCount, 2);
+  assert.equal(merged.driverLink?.driverId, 'phone-abc');
+});
+
 test('mergeIncomingState keeps driverLink when phone GPS save omits it', () => {
   const current = {
     savedAt: 5000,
