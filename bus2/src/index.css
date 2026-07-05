@@ -3900,6 +3900,17 @@ html.kiosk-hide-cursor * {
   font-size: 0.72rem;
 }
 
+.driver-pairing-screen--qr-only {
+  padding: 0;
+  max-width: none;
+}
+
+.driver-pairing-screen--qr-only .driver-pairing-qr {
+  width: min(320px, 72vw);
+  height: min(320px, 72vw);
+  padding: 8px;
+}
+
 .display-screen--awaiting-driver .display-main {
   display: flex;
   align-items: center;

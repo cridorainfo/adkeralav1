@@ -228,6 +228,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     >
       <audio ref={audioRef} />
 
+      {!waitForDriver && (
       <div className="display-top-bar">
         <div className="display-brand">
           <div className="display-brand-logo-wrap">
@@ -255,11 +256,11 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           )}
         </div>
       </div>
+      )}
 
       <main className="display-main">
         {waitForDriver ? (
           <DriverPairingBanner
-            busProfile={s.busProfile}
             connectedDeviceCount={0}
             fullscreen
           />

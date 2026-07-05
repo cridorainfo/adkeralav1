@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 
-/** QR for driver phone — scan opens control URL with pair code in query string. */
+/** QR for driver phone — scan opens driver PWA with bus control URL. */
 export default function DriverPairingQr({ value, size = 132, className = '' }) {
   const [src, setSrc] = useState('');
 
