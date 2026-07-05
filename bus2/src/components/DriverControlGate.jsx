@@ -4,7 +4,7 @@ import {
   getStoredDriverPlate,
   getStoredDriverToken,
 } from '../lib/driverCredentials';
-import { loadBusControlUrl } from '../lib/driverLanStorage';
+import { loadBusControlUrl, hydrateDriverStorage } from '../lib/driverLanStorage';
 import { isBusPcForSerial } from '../lib/appRole';
 import { isOnBusLanOrigin, redirectToSavedBusControl, busFetch } from '../lib/driverBusApi';
 import { disconnectFromBus, ensureDriverSession } from '../lib/driverConnectFlow';
@@ -63,6 +63,8 @@ export default function DriverControlGate({ children }) {
     maintainRef.current = true;
 
     (async () => {
+      await hydrateDriverStorage();
+
       if (!getStoredDriverToken() && !loadBusControlUrl()) {
         if (!cancelled) {
           setChecking(false);

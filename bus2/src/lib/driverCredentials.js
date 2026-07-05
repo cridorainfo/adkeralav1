@@ -1,7 +1,11 @@
+import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+
 const TOKEN_KEY = 'adkerala-driver-token';
 const BUS_KEY = 'adkerala-driver-bus';
 const PLATE_KEY = 'adkerala-driver-plate';
 const DRIVER_ID_KEY = 'adkerala-driver-id';
+
+const CREDENTIAL_KEYS = [TOKEN_KEY, BUS_KEY, PLATE_KEY, DRIVER_ID_KEY];
 
 function read(key) {
   try {
@@ -12,12 +16,7 @@ function read(key) {
 }
 
 function write(key, value) {
-  try {
-    if (value == null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    /* private mode */
-  }
+  persistDriverValue(key, value);
 }
 
 export function currentBusOrigin() {
@@ -48,10 +47,7 @@ export function saveDriverCredentials({ token, plate, driverId, busOrigin }) {
 }
 
 export function clearDriverCredentials() {
-  write(TOKEN_KEY, null);
-  write(BUS_KEY, null);
-  write(PLATE_KEY, null);
-  write(DRIVER_ID_KEY, null);
+  removeDriverValues(CREDENTIAL_KEYS);
 }
 
 /** Drop session token only — keep saved bus URL + admin pairing code for auto-reconnect. */

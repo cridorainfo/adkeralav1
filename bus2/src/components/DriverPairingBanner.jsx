@@ -29,7 +29,9 @@ export default function DriverPairingBanner({
   const controlLabel =
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
-  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel);
+  const cloudDriverUrl = network?.cloudDriverUrl ?? null;
+
+  const joinUrl = buildDriverJoinUrl(controlUrlHttp || controlLabel, cloudDriverUrl);
   const qrSize = fullscreen ? 220 : compact ? 88 : 132;
   const showBlockedWarning = lanReachable === false || firewallBlocked || lanProbeError === 'probe_failed';
   const showNoWifiWarning = lanProbeError === 'no_lan_ip' || (!controlUrlHttp && !allControlUrls.length);
@@ -67,14 +69,14 @@ export default function DriverPairingBanner({
         <p className="driver-pairing-hint">
           {fullscreen ? (
             <>
-              Same Wi‑Fi as this PC. Scan the QR with the phone <strong>camera</strong> — then enter the
-              admin pairing code on the driver app. Route and trip start after the driver connects.
+              Same Wi‑Fi as this PC. Scan the QR with the phone <strong>camera</strong> — it opens the
+              driver app (add to home screen if you use the PWA). Admin gives the pairing code on the
+              driver phone. Route and trip start after the driver connects.
             </>
           ) : (
             <>
               Phone on <strong>same Wi‑Fi as this PC</strong>. Scan the QR with the phone <strong>camera</strong>{' '}
-              app — it saves the bus address. Admin gives the pairing code on the driver phone. Use{' '}
-              <strong>http://</strong>, not https.
+              — opens the driver PWA. Admin gives the pairing code on the driver phone.
             </>
           )}
         </p>

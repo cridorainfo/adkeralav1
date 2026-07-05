@@ -1,5 +1,6 @@
 import {
   clearDriverBusSetup,
+  hydrateDriverStorage,
   loadBusControlUrl,
   loadPairingCode,
   normalizeControlUrl,
@@ -78,6 +79,7 @@ export async function connectToBus(controlUrl, pairingCode) {
  * Never clears saved URL / pairing code (only explicit disconnect does).
  */
 export async function ensureDriverSession() {
+  await hydrateDriverStorage();
   const controlUrl = loadBusControlUrl();
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 

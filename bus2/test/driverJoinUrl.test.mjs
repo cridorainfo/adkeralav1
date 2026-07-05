@@ -15,6 +15,18 @@ test('buildDriverJoinUrl encodes control URL only (no pairing code)', () => {
   assert.equal(url.searchParams.get('code'), null);
 });
 
+test('buildDriverJoinUrl uses cloud driver PWA when configured', () => {
+  const join = buildDriverJoinUrl(
+    'http://192.168.1.50:5174/control',
+    'https://adkerala.com/driver',
+  );
+  assert.ok(join);
+  const url = new URL(join);
+  assert.equal(url.origin, 'https://adkerala.com');
+  assert.equal(url.pathname, '/driver');
+  assert.equal(url.searchParams.get('control'), 'http://192.168.1.50:5174/control');
+});
+
 test('normalizeControlUrl strips query params', () => {
   assert.equal(
     normalizeControlUrl('http://192.168.1.50:5174/control?code=4821'),

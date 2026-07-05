@@ -1,5 +1,6 @@
 import {
   clearDriverBusSetup,
+  hydrateDriverStorage,
   loadBusControlUrl,
   loadPairingCode,
   normalizeControlUrl,
@@ -7,9 +8,13 @@ import {
   savePairingCode,
 } from './driverLanStorage.js';
 
+import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+
 const TOKEN_KEY = 'adkerala-driver-token';
 const BUS_KEY = 'adkerala-driver-bus';
 const PLATE_KEY = 'adkerala-driver-plate';
+
+const CREDENTIAL_KEYS = [TOKEN_KEY, BUS_KEY, PLATE_KEY];
 
 function read(key) {
   try {
@@ -20,12 +25,7 @@ function read(key) {
 }
 
 function write(key, value) {
-  try {
-    if (value == null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    /* private mode */
-  }
+  persistDriverValue(key, value);
 }
 
 function getBusOriginFromControlUrl(controlUrl) {
@@ -63,9 +63,7 @@ function saveDriverCredentials({ token, plate, busOrigin }) {
 }
 
 function clearDriverCredentials() {
-  write(TOKEN_KEY, null);
-  write(BUS_KEY, null);
-  write(PLATE_KEY, null);
+  removeDriverValues(CREDENTIAL_KEYS);
 }
 
 function clearDriverToken() {
@@ -106,6 +104,7 @@ export async function connectToBus(controlUrl, pairingCode) {
 }
 
 export async function ensureDriverSession() {
+  await hydrateDriverStorage();
   const controlUrl = loadBusControlUrl();
   if (!controlUrl) return { ok: false, reason: 'no-url' };
 

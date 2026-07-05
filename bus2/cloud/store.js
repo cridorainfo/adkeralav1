@@ -1241,7 +1241,7 @@ export async function pairDriver(driverId, plateOrCode) {
     return {
       ok: false,
       error:
-        'Bus not found. Use the 4-digit pairing code shown on the bus display (not the 6-digit fleet claim code).',
+        'Bus not found. Use the 4-digit pairing code from the admin dashboard (not the 6-digit fleet claim code).',
     };
   }
 

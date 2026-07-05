@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { APP_NAME } from '../lib/brand.js';
-import { readBusControlFromLocation, loadBusControlUrl, saveBusControlUrl } from '../lib/driverLanStorage.js';
+import {
+  hydrateDriverStorage,
+  readBusControlFromLocation,
+  loadBusControlUrl,
+  loadPairingCode,
+  saveBusControlUrl,
+  savePairingCode,
+} from '../lib/driverLanStorage.js';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
@@ -23,9 +30,15 @@ export default function DriverConnect() {
     let cancelled = false;
 
     (async () => {
+      await hydrateDriverStorage();
+
+      const savedCode = loadPairingCode();
+      if (savedCode && !cancelled) setPairCode(savedCode);
+
       const fromQr = readBusControlFromLocation(location.search);
       if (fromQr) {
         saveBusControlUrl(fromQr);
+        if (!cancelled) setBusUrl(fromQr);
         navigate('/driver', { replace: true });
         return;
       }
@@ -47,6 +60,12 @@ export default function DriverConnect() {
         return;
       }
 
+      if (auto.reason === 'connect-failed' && saved) {
+        setStatus('Reconnecting to bus…');
+        setError(auto.error ?? 'Could not reach bus — check Wi‑Fi');
+        return;
+      }
+
       if (saved) {
         setStatus('Enter the pairing code from admin');
       } else {
@@ -58,6 +77,12 @@ export default function DriverConnect() {
       cancelled = true;
     };
   }, [location.search, navigate]);
+
+  const handlePairCodeChange = (raw) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 4);
+    setPairCode(digits);
+    if (digits.length === 4) savePairingCode(digits);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -108,7 +133,7 @@ export default function DriverConnect() {
                 maxLength={4}
                 placeholder="e.g. 4821"
                 value={pairCode}
-                onChange={(e) => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onChange={(e) => handlePairCodeChange(e.target.value)}
               />
               <button type="submit" className="btn btn-primary" disabled={busy || pairCode.length !== 4}>
                 {busy ? 'Connecting…' : 'Connect to bus'}
@@ -120,9 +145,9 @@ export default function DriverConnect() {
           <div className="driver-connect-section">
             <h2 className="driver-section-subtitle">First time on this bus</h2>
             <ol className="driver-connect-steps">
-              <li>Open your phone&apos;s <strong>camera</strong> app</li>
-              <li>Scan the QR on the passenger display</li>
-              <li>Open the link — this app saves the bus address</li>
+              <li>Add this page to your home screen (Install app banner above)</li>
+              <li>Open your phone&apos;s <strong>camera</strong> and scan the QR on the passenger display</li>
+              <li>Open the link — this PWA saves the bus address</li>
               <li>Ask admin for the pairing code and enter it here</li>
             </ol>
             {error && <p className="driver-connect-error">{error}</p>}
@@ -130,8 +155,7 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          After the first setup, this app connects automatically. Disconnect on the control screen to
-          switch buses — then scan the display QR again with your camera.
+          Credentials stay saved in this browser/PWA until you tap Disconnect on the control screen.
         </p>
       </div>
     </div>

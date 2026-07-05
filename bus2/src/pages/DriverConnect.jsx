@@ -2,17 +2,24 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import { APP_NAME } from '../lib/brand';
-import { readBusControlFromLocation, loadBusControlUrl, loadPairingCode, saveBusControlUrl } from '../lib/driverLanStorage';
+import {
+  hydrateDriverStorage,
+  readBusControlFromLocation,
+  loadBusControlUrl,
+  loadPairingCode,
+  saveBusControlUrl,
+  savePairingCode,
+} from '../lib/driverLanStorage';
 import { connectToBus, goToControl, tryStoredAutoConnect } from '../lib/driverConnectFlow';
 
 /**
- * Driver app entry — scan display QR with phone camera (not in-app scanner).
+ * Driver entry — scan display QR with phone camera (opens cloud PWA or bus /driver in browser).
  * Saves bus URL, then admin pairing code. Auto-connects on next launch.
  */
 export default function DriverConnect() {
   const location = useLocation();
   const navigate = useNavigate();
-  const [pairCode, setPairCode] = useState(() => loadPairingCode() ?? '');
+  const [pairCode, setPairCode] = useState('');
   const [busUrl, setBusUrl] = useState(null);
   const [status, setStatus] = useState('Checking saved bus…');
   const [error, setError] = useState('');
@@ -22,9 +29,15 @@ export default function DriverConnect() {
     let cancelled = false;
 
     (async () => {
+      await hydrateDriverStorage();
+
+      const savedCode = loadPairingCode();
+      if (savedCode && !cancelled) setPairCode(savedCode);
+
       const fromQr = readBusControlFromLocation(location.search);
       if (fromQr) {
         saveBusControlUrl(fromQr);
+        if (!cancelled) setBusUrl(fromQr);
         navigate('/driver', { replace: true });
         return;
       }
@@ -63,6 +76,12 @@ export default function DriverConnect() {
       cancelled = true;
     };
   }, [location.search, navigate]);
+
+  const handlePairCodeChange = (raw) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 4);
+    setPairCode(digits);
+    if (digits.length === 4) savePairingCode(digits);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -111,7 +130,7 @@ export default function DriverConnect() {
                 maxLength={4}
                 placeholder="e.g. 4821"
                 value={pairCode}
-                onChange={(e) => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onChange={(e) => handlePairCodeChange(e.target.value)}
               />
               <button type="submit" className="btn primary" disabled={busy || pairCode.length !== 4}>
                 {busy ? 'Connecting…' : 'Connect to bus'}
@@ -123,9 +142,9 @@ export default function DriverConnect() {
           <div className="driver-connect-section">
             <h2 className="driver-section-subtitle">First time on this bus</h2>
             <ol className="driver-connect-steps">
-              <li>Open your phone&apos;s <strong>camera</strong> app</li>
-              <li>Scan the QR on the passenger display</li>
-              <li>Open the link — this app saves the bus address</li>
+              <li>Install the driver app from your cloud URL (Add to Home Screen)</li>
+              <li>Open your phone&apos;s <strong>camera</strong> and scan the QR on the passenger display</li>
+              <li>Open the link — the app saves the bus address</li>
               <li>Ask admin for the pairing code and enter it here</li>
             </ol>
             {error && <p className="driver-connect-error">{error}</p>}
@@ -133,8 +152,7 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          After the first setup, this app connects automatically. Disconnect on the control screen to
-          switch buses — then scan the display QR again with your camera.
+          Credentials stay saved in this browser/PWA until you tap Disconnect on the control screen.
         </p>
       </div>
     </div>

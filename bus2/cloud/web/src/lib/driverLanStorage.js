@@ -1,6 +1,10 @@
+import { persistDriverValue, removeDriverValues } from './driverPersistentStorage.js';
+
 const LAST_CONTROL_KEY = 'adkerala_last_control_url';
 const BUS_CONTROL_URL_KEY = 'adkerala_bus_control_url';
 const PAIRING_CODE_KEY = 'adkerala_saved_pair_code';
+
+export { hydrateDriverStorage } from './driverPersistentStorage.js';
 
 export function normalizeControlUrl(raw) {
   const value = String(raw ?? '').trim();
@@ -22,12 +26,8 @@ export function normalizeControlUrl(raw) {
 export function saveBusControlUrl(raw) {
   const normalized = normalizeControlUrl(raw);
   if (!normalized) return null;
-  try {
-    localStorage.setItem(BUS_CONTROL_URL_KEY, normalized);
-    localStorage.setItem(LAST_CONTROL_KEY, normalized);
-  } catch {
-    /* private mode */
-  }
+  persistDriverValue(BUS_CONTROL_URL_KEY, normalized);
+  persistDriverValue(LAST_CONTROL_KEY, normalized);
   return normalized;
 }
 
@@ -46,11 +46,7 @@ export function savePairingCode(code) {
     .replace(/\D/g, '')
     .slice(0, 4);
   if (digits.length !== 4) return;
-  try {
-    localStorage.setItem(PAIRING_CODE_KEY, digits);
-  } catch {
-    /* private mode */
-  }
+  persistDriverValue(PAIRING_CODE_KEY, digits);
 }
 
 export function loadPairingCode() {
@@ -65,13 +61,7 @@ export function loadPairingCode() {
 }
 
 export function clearDriverBusSetup() {
-  try {
-    localStorage.removeItem(BUS_CONTROL_URL_KEY);
-    localStorage.removeItem(LAST_CONTROL_KEY);
-    localStorage.removeItem(PAIRING_CODE_KEY);
-  } catch {
-    /* ignore */
-  }
+  removeDriverValues([BUS_CONTROL_URL_KEY, LAST_CONTROL_KEY, PAIRING_CODE_KEY]);
 }
 
 export function saveLastControlUrl(url) {

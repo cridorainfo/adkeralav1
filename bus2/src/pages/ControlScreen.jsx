@@ -718,7 +718,7 @@ export default function ControlScreen({
               <>
                 <h4 className="settings-section-title">Driver pairing</h4>
                 <p style={{ fontSize: '0.85rem', color: 'var(--kerala-muted)', marginBottom: '0.75rem' }}>
-                  A driver app is linked to this bus. Unlink to show a new pairing code on the display.
+                  A driver app is linked to this bus. Unlink to show the pairing QR on the display again.
                 </p>
                 <button type="button" className="btn secondary" onClick={handleUnlinkDriver}>
                   Unlink driver
