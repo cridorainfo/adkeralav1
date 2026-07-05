@@ -12,7 +12,7 @@ import {
   getStopInfo,
   getUpcomingPassengerStop,
   sameStop,
-} from '../../../../src/store/busStore.js';
+} from '../lib/busTripControl.js';
 
 function StopLabel({ stop, size = 'md' }) {
   if (!stop) return '—';
