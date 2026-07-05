@@ -12,6 +12,7 @@ import {
   isDeviceClaimed,
 } from './deviceConfig.js';
 import { resetBusStateForUnclaim } from './fleetUnclaim.js';
+import { isFleetRevoked, REVOKE_STRIKES_REQUIRED } from './fleetRevoke.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
@@ -29,14 +30,10 @@ const ENROLL_POLL_MS = 3000;
 let lastPushedAt = 0;
 let dataRootRef = null;
 let unclaimInProgress = false;
+let revokeStrikeCount = 0;
 
 function getCredentials(dataRoot) {
   return getDeviceCredentials(dataRoot ?? dataRootRef);
-}
-
-function isFleetAccessDenied(result) {
-  if (!result || result.ok) return false;
-  return result.status === 401 || result.status === 403 || result.status === 404;
 }
 
 async function handleDeviceRemovedFromFleet(root, reason) {
@@ -65,9 +62,21 @@ async function handleDeviceRemovedFromFleet(root, reason) {
       lastCloudPushAt: pushAt,
       source: 'fleet-unclaim',
     });
+    revokeStrikeCount = 0;
   } finally {
     unclaimInProgress = false;
   }
+}
+
+function noteFleetRevokeAttempt(root, reason) {
+  revokeStrikeCount += 1;
+  console.warn(
+    `AdKerala cloud sync: bus token rejected (${reason}) — strike ${revokeStrikeCount}/${REVOKE_STRIKES_REQUIRED}`
+  );
+  if (revokeStrikeCount >= REVOKE_STRIKES_REQUIRED) {
+    return handleDeviceRemovedFromFleet(root, reason);
+  }
+  return undefined;
 }
 
 async function cloudFetch(creds, path, options = {}) {
@@ -202,10 +211,6 @@ async function syncAssignedRoutesFromCloud(root, creds) {
         ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
       },
     });
-    if (isFleetAccessDenied({ ok: res.ok, status: res.status })) {
-      await handleDeviceRemovedFromFleet(root, 'routes sync rejected');
-      return;
-    }
     if (!res.ok) return;
     const json = await res.json();
     if (!json?.ok) return;
@@ -372,14 +377,22 @@ export async function runCloudSync(root) {
     method: 'POST',
     body: JSON.stringify({ telemetry, state, displaySnapshot }),
   });
-  if (isFleetAccessDenied(telemetryRes)) {
-    await handleDeviceRemovedFromFleet(root, telemetryRes.json?.error ?? 'telemetry rejected');
+  if (telemetryRes.ok) {
+    revokeStrikeCount = 0;
+    lastPushedAt = Date.now();
+  } else if (isFleetRevoked(telemetryRes)) {
+    await noteFleetRevokeAttempt(root, telemetryRes.json?.error ?? 'telemetry rejected');
+    return;
+  } else if (!telemetryRes.ok && telemetryRes.status > 0) {
+    console.warn(
+      `AdKerala cloud sync: telemetry HTTP ${telemetryRes.status} — keeping local claim`
+    );
     return;
   }
 
   const pending = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/commands`);
-  if (isFleetAccessDenied(pending)) {
-    await handleDeviceRemovedFromFleet(root, pending.json?.error ?? 'commands rejected');
+  if (!pending.ok && isFleetRevoked(pending)) {
+    await noteFleetRevokeAttempt(root, pending.json?.error ?? 'commands rejected');
     return;
   }
   if (pending.json?.ok && Array.isArray(pending.json.commands) && pending.json.commands.length) {
@@ -504,7 +517,7 @@ export function getCloudConfig(root) {
     enabled: Boolean(creds.cloudUrl || envCloud),
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
-    fleetClaimCode: creds.fleetClaimCode,
+    fleetClaimCode: creds.claimed ? null : creds.fleetClaimCode,
   };
 }
 

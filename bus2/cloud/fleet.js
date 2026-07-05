@@ -11,6 +11,7 @@ import {
   pgClaimEnrollment,
   pgGetDeviceForInstall,
   pgRevokeDevicesForBus,
+  pgResetEnrollmentsForBus,
 } from './fleetPg.js';
 
 const ENROLL_TTL_MS = 30 * 60 * 1000;
@@ -423,8 +424,19 @@ export async function revokeBusDevice(busId, { ownerId = null, admin = false } =
     }
   }
 
+  const now = Date.now();
+  for (const enrollment of Object.values(store.fleetEnrollments ?? {})) {
+    if (enrollment?.busId !== busId) continue;
+    enrollment.claimed = false;
+    enrollment.busId = null;
+    enrollment.ownerId = null;
+    enrollment.expiresAt = now + 30 * 60 * 1000;
+    enrollment.updatedAt = now;
+  }
+
   if (usePostgres()) {
     await pgRevokeDevicesForBus(busId);
+    await pgResetEnrollmentsForBus(busId);
   }
 
   await saveStore();

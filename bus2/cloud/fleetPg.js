@@ -128,6 +128,22 @@ export async function pgRevokeDevicesForBus(busId, { exceptInstallId = null } = 
   );
 }
 
+const FLEET_ENROLL_TTL_MS = 30 * 60 * 1000;
+
+export async function pgResetEnrollmentsForBus(busId) {
+  const now = Date.now();
+  await query(
+    `UPDATE fleet_enrollments
+     SET claimed = FALSE,
+         bus_id = NULL,
+         owner_id = NULL,
+         expires_at = $2,
+         updated_at = $2
+     WHERE bus_id = $1`,
+    [busId, now + FLEET_ENROLL_TTL_MS]
+  );
+}
+
 export function pgUsesFleet() {
   return usePostgres();
 }

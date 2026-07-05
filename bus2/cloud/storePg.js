@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { query } from './db/pool.js';
+import { pgRevokeDevicesForBus, pgResetEnrollmentsForBus } from './fleetPg.js';
 
 const FULL_STATE_INTERVAL_MS = Number(process.env.ADKERALA_FULL_STATE_INTERVAL_MS ?? 60000);
 const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
@@ -300,24 +301,12 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   return profile;
 }
 
-const FLEET_ENROLL_TTL_MS = 30 * 60 * 1000;
-
 export async function pgDeleteBus(busId) {
   const { rowCount } = await query('SELECT 1 FROM bus_profiles WHERE bus_id = $1', [busId]);
   if (!rowCount) return { ok: false, error: 'Bus not found' };
 
-  const now = Date.now();
   await pgRevokeDevicesForBus(busId);
-  await query(
-    `UPDATE fleet_enrollments
-     SET claimed = FALSE,
-         bus_id = NULL,
-         owner_id = NULL,
-         expires_at = $2,
-         updated_at = $2
-     WHERE bus_id = $1`,
-    [busId, now + FLEET_ENROLL_TTL_MS]
-  );
+  await pgResetEnrollmentsForBus(busId);
   await query('DELETE FROM bus_profiles WHERE bus_id = $1', [busId]);
   return { ok: true, busId };
 }

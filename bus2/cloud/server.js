@@ -230,7 +230,7 @@ function authBus(req, res, next) {
             next();
             return;
           }
-          res.status(401).json({ ok: false, error: 'Invalid bus token' });
+          res.status(401).json({ ok: false, error: 'Invalid bus token', revoked: true });
         });
         return;
       }

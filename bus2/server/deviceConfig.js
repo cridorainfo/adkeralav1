@@ -169,10 +169,13 @@ export function applyClaimCredentials(dataRoot, { busId, deviceToken, cloudUrl }
 
 /** Drop fleet claim after bus removed/revoked on cloud — PC shows claim code again. */
 export function clearDeviceClaim(dataRoot) {
+  const current = loadDeviceConfig(dataRoot);
   return saveDeviceConfig(dataRoot, {
     busId: null,
     deviceToken: null,
     claimedAt: null,
-    fleetClaimCode: generateFleetClaimCode(),
+    // Keep installId + fleetClaimCode so server enrollment stays in sync.
+    installId: current.installId,
+    fleetClaimCode: current.fleetClaimCode,
   });
 }
