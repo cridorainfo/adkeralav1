@@ -6,7 +6,6 @@ import { buildNetworkUrls, logNetworkStartup, findBestControlIp } from './networ
 import {
   startCloudSyncLoop,
   getCloudConfig,
-  verifyDriverControlOnCloud,
   verifyDriverLinkedOnCloud,
 } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
@@ -52,7 +51,6 @@ export async function startBusServer(options = {}) {
   setupDbApi(app, dataRoot);
   setupDriverAuth(app, {
     dataRoot,
-    verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(dataRoot, pairingCode, otp),
     verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(dataRoot, driverId),
   });
   setupDriveApi(app, dataRoot);

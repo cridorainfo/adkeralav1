@@ -263,7 +263,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
     plate: '',
     plateDisplay: '',
     displayName: '',
-    pairingCode: String(Math.floor(1000 + Math.random() * 9000)),
+    pairingCode: '',
     linkedDriverId: null,
     linkedAt: null,
     ownerId: null,

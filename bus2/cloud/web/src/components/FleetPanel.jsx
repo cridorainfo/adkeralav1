@@ -58,8 +58,9 @@ function OnboardingWizard({ allowRegister, claimHref }) {
           <strong>Verify online</strong> — bus polls cloud every ~5s; it appears in the fleet list with a green dot when online.
         </li>
         <li>
-          <strong>Pair driver</strong> — driver scans QR on the bus display and enters the <strong>admin OTP</strong>.
-          Linked drivers send live GPS to the fleet map automatically.
+          <strong>Pair driver</strong> — driver scans QR on the bus display and enters the{' '}
+          <strong>4-digit pairing code</strong> you set below. Code stays the same until you
+          disconnect all phones.
         </li>
         <li>
           <strong>Push content</strong> — use <strong>Ads</strong> tab with a bus selected to push ads to that bus only.
@@ -75,10 +76,10 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [profile, setProfile] = useState(null);
   const [plate, setPlate] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
-  const [driverOtp, setDriverOtp] = useState(null);
 
   const refresh = useCallback(async () => {
     const json = await api('/api/buses');
@@ -97,6 +98,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setProfile(null);
       setPlate('');
       setDisplayName('');
+      setPairingCode('');
       return undefined;
     }
     let cancelled = false;
@@ -106,6 +108,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setProfile(json.profile);
       setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
       setDisplayName(json.profile?.displayName ?? '');
+      setPairingCode(json.profile?.pairingCode ?? '');
     })();
     return () => {
       cancelled = true;
@@ -124,32 +127,22 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     return () => clearInterval(t);
   }, [refreshSelected]);
 
-  const refreshDriverOtp = useCallback(async () => {
-    if (!selectedBusId) return;
-    const ownerId = profile?.ownerId;
-    const q = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : '';
-    try {
-      const json = await api(`/api/fleet/driver-otp${q}`);
-      setDriverOtp(json);
-    } catch {
-      setDriverOtp(null);
-    }
-  }, [selectedBusId, profile?.ownerId]);
-
-  useEffect(() => {
-    refreshDriverOtp();
-  }, [refreshDriverOtp]);
-
   async function saveProfile() {
     if (!selectedBusId) return;
+    const code = pairingCode.replace(/\D/g, '').slice(0, 4);
+    if (code && code.length !== 4) {
+      setMessage('Pairing code must be exactly 4 digits');
+      return;
+    }
     setMessage('');
     const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
       method: 'PUT',
-      body: JSON.stringify({ plate, displayName }),
+      body: JSON.stringify({ plate, displayName, pairingCode: code || undefined }),
     });
     setProfile(json.profile);
     setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
     setDisplayName(json.profile?.displayName ?? displayName);
+    setPairingCode(json.profile?.pairingCode ?? code);
     setMessage('Bus profile saved');
     refreshBuses();
   }
@@ -176,21 +169,6 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     }
   }
 
-  async function rotateDriverOtp() {
-    setMessage('');
-    try {
-      const ownerId = profile?.ownerId;
-      const json = await api('/api/fleet/driver-otp/refresh', {
-        method: 'POST',
-        body: JSON.stringify(ownerId ? { ownerId } : {}),
-      });
-      setDriverOtp(json);
-      setMessage('New driver OTP — share with drivers (old OTP no longer works)');
-    } catch (err) {
-      setMessage(err.message ?? 'Could not refresh OTP');
-    }
-  }
-
   async function disconnectAllPhones() {
     if (!selectedBusId) return;
     setMessage('');
@@ -199,9 +177,12 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
         method: 'POST',
       });
       setMessage(
-        'All driver phones disconnected — new pairing code shown above; drivers must scan QR again'
+        'All driver phones disconnected — new pairing code shown below; share it with drivers'
       );
       refreshSelected();
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
+      setProfile(json.profile);
+      setPairingCode(json.profile?.pairingCode ?? '');
     } catch (err) {
       setMessage(err.message ?? 'Could not disconnect phones');
     }
@@ -308,26 +289,23 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
 
               <h3>Driver access</h3>
               <p className="hint">
-                Pairing code stays the same until you tap <strong>Disconnect all phones</strong>.
-                Share this code with drivers after they scan the bus QR.
+                Set a 4-digit pairing code and share it with drivers after they scan the bus QR.
+                The code stays the same until you tap <strong>Disconnect all phones</strong>.
               </p>
-              {driverOtp?.otp && (
-                <div className="driver-otp-panel">
-                  <p className="hint" style={{ marginBottom: '0.35rem' }}>
-                    Driver OTP <span className="hint">(same for all buses until refreshed)</span>
-                  </p>
-                  <p className="driver-otp-value">{driverOtp.otp}</p>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={rotateDriverOtp}>
-                    New OTP
-                  </button>
-                </div>
-              )}
-              {profile && (
-                <p className="hint">
-                  Pairing code: <strong>{profile.pairingCode || '—'}</strong>
-                  {profile.linkedDriverId ? ' · Driver connected' : ''}
-                </p>
-              )}
+              <div className="form-group">
+                <label>Pairing code (4 digits)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pairingCode}
+                  onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="e.g. 4821"
+                />
+              </div>
+              {profile?.linkedDriverId ? (
+                <p className="hint">Cloud driver linked</p>
+              ) : null}
               <div className="editor-actions">
                 <button type="button" className="btn btn-primary btn-sm" onClick={saveProfile}>
                   Save profile

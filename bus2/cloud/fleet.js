@@ -426,7 +426,7 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
   store.busProfiles[busId] = {
     plate: plateNorm || existingProfile?.plate || '',
     plateDisplay: plateDisplay || existingProfile?.plateDisplay || existingProfile?.plate || '',
-    pairingCode: existingProfile?.pairingCode || generatePairingCode(),
+    pairingCode: existingProfile?.pairingCode || '',
     linkedDriverId: existingProfile?.linkedDriverId ?? null,
     linkedAt: existingProfile?.linkedAt ?? null,
     ownerId: existingProfile?.ownerId ?? pgOwner ?? ownerId,

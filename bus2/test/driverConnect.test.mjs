@@ -29,8 +29,6 @@ async function startTestServer(state = {}) {
   setupDbApi(app, testRoot);
   setupDriverAuth(app, {
     dataRoot: testRoot,
-    verifyWithCloud: async () => ({ ok: false }),
-    verifyLinkedWithCloud: async () => ({ ok: false }),
   });
   setupDriveApi(app, testRoot);
 
@@ -165,6 +163,20 @@ test('POST /api/driver/disconnect-all revokes every phone session and rotates pa
   assert.equal((await connected.json()).connectedDeviceCount, 0);
 
   const reconnect = await connectPhone(srv.base, json.pairingCode);
+  assert.ok(reconnect.token);
+});
+
+test('individual phone disconnect does not change pairing code', async (t) => {
+  const srv = await startTestServer();
+  t.after(() => srv.close());
+
+  const { token } = await connectPhone(srv.base);
+  await fetch(`${srv.base}/api/driver/disconnect`, {
+    method: 'POST',
+    headers: { 'X-Driver-Token': token },
+  });
+
+  const reconnect = await connectPhone(srv.base, '4821');
   assert.ok(reconnect.token);
 });
 

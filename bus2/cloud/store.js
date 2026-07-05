@@ -1030,7 +1030,7 @@ function ensureBusProfile(store, busId) {
       plate: '',
       plateDisplay: '',
       displayName: '',
-      pairingCode: generatePairingCode(),
+      pairingCode: '',
       linkedDriverId: null,
       linkedAt: null,
       ownerId: null,
@@ -1109,7 +1109,7 @@ export async function setBusProfilePlate(busId, plateInput) {
   const plate = normalizePlate(plateInput);
   profile.plate = plate;
   profile.plateDisplay = String(plateInput ?? '').trim() || plate;
-  if (!profile.pairingCode) profile.pairingCode = generatePairingCode();
+  if (!profile.pairingCode) profile.pairingCode = '';
   await saveStore();
   return profile;
 }
@@ -1196,7 +1196,7 @@ export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state =
       patch.plate = normalizePlate(fromState.plate);
       patch.plateDisplay = fromState.plateDisplay || fromState.plate;
     }
-    if (fromState.pairingCode) patch.pairingCode = fromState.pairingCode;
+    if (!profile.pairingCode && fromState.pairingCode) patch.pairingCode = fromState.pairingCode;
     else if (!profile.pairingCode && telemetry.pairingCode) patch.pairingCode = telemetry.pairingCode;
     if (Object.keys(patch).length) return pg.pgUpsertBusProfile(busId, patch);
     return profile;
@@ -1209,7 +1209,7 @@ export async function syncBusProfileFromTelemetry(busId, telemetry = {}, state =
     profile.plate = normalizePlate(fromState.plate);
     profile.plateDisplay = fromState.plateDisplay || fromState.plate;
   }
-  if (fromState.pairingCode) profile.pairingCode = fromState.pairingCode;
+  if (!profile.pairingCode && fromState.pairingCode) profile.pairingCode = fromState.pairingCode;
   else if (!profile.pairingCode && telemetry.pairingCode) {
     profile.pairingCode = telemetry.pairingCode;
   }

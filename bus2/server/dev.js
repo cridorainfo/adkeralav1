@@ -8,7 +8,6 @@ import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
 import {
   startCloudSyncLoop,
   getCloudConfig,
-  verifyDriverControlOnCloud,
   verifyDriverLinkedOnCloud,
 } from './cloudSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
@@ -38,7 +37,6 @@ await ensureDbLayout(root);
 setupDbApi(app, root);
 setupDriverAuth(app, {
   dataRoot: root,
-  verifyWithCloud: (pairingCode, otp) => verifyDriverControlOnCloud(root, pairingCode, otp),
   verifyLinkedWithCloud: (driverId) => verifyDriverLinkedOnCloud(root, driverId),
 });
 setupDriveApi(app, root);

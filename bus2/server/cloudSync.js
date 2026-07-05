@@ -2,7 +2,7 @@ import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia, deleteLocalMediaFiles } from './cloudMediaSync.js';
-import { getStopInfo, generatePairingCode } from '../src/store/busStore.js';
+import { getStopInfo } from '../src/store/busStore.js';
 import { getLanAddresses } from './networkInfo.js';
 import {
   loadDeviceConfig,
@@ -271,6 +271,33 @@ async function syncAssignedRoutesFromCloud(root, creds) {
   }
 }
 
+/** Apply admin-set pairing code from cloud when the bus PC has none yet. */
+async function syncPairingCodeFromCloud(root, cloudPairingCode) {
+  const code = String(cloudPairingCode ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 4);
+  if (code.length !== 4) return;
+
+  const current = (await readInfoFile(root)) ?? {};
+  const localCode = String(current.busProfile?.pairingCode ?? '')
+    .replace(/\D/g, '')
+    .slice(0, 4);
+  if (localCode.length === 4) return;
+
+  const pushAt = Date.now();
+  const merged = {
+    ...current,
+    busProfile: {
+      ...(current.busProfile ?? {}),
+      pairingCode: code,
+    },
+    savedAt: pushAt,
+    lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+  };
+  await writeInfoFileSerialized(root, merged, { source: 'cloud-pairing-code' });
+  notifyStateChanged(root, { savedAt: pushAt, source: 'cloud-pairing-code' });
+}
+
 /** Apply admin "disconnect all phones" flag from cloud (bus3-style). */
 async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = null) {
   if (!cloudAt) return;
@@ -285,45 +312,6 @@ async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = 
     rotatePairingCode: Boolean(cloudPairingCode),
   });
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
-}
-
-/** Cache fleet admin OTP on the bus for offline driver unlock on LAN. */
-async function syncDriverControlOtpFromCloud(root, creds) {
-  if (!creds.cloudUrl || !creds.busId) return;
-
-  try {
-    const json = await cloudFetch(
-      creds,
-      `/api/buses/${encodeURIComponent(creds.busId)}/driver-control-otp`
-    );
-    if (!json.ok || !json.json?.ok || !json.json.otp) return;
-
-    const current = (await readInfoFile(root)) ?? {};
-    const profile = current.busProfile ?? {};
-    const prevUpdatedAt = profile.driverControlOtpUpdatedAt ?? 0;
-    const nextUpdatedAt = Number(json.json.updatedAt ?? 0);
-    if (
-      profile.driverControlOtp === json.json.otp &&
-      nextUpdatedAt <= prevUpdatedAt
-    ) {
-      return;
-    }
-
-    const pushAt = Date.now();
-    const merged = {
-      ...current,
-      busProfile: {
-        ...profile,
-        driverControlOtp: String(json.json.otp),
-        driverControlOtpUpdatedAt: nextUpdatedAt || pushAt,
-      },
-      savedAt: Math.max(current.savedAt ?? 0, pushAt),
-      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
-    };
-    await writeInfoFileSerialized(root, merged, { source: 'cloud-driver-otp' });
-  } catch {
-    /* cloud offline */
-  }
 }
 
 async function syncStopAudioFromCloud(root, creds) {
@@ -398,18 +386,6 @@ async function runCloudSyncInner(root) {
   }
   if (!state) return;
 
-  if (!state.busProfile?.pairingCode) {
-    state = {
-      ...state,
-      busProfile: {
-        ...(state.busProfile ?? {}),
-        pairingCode: generatePairingCode(),
-      },
-      savedAt: Date.now(),
-    };
-    await writeInfoFileSerialized(root, state);
-  }
-
   const telemetry = buildTelemetry(state, busId);
   const displaySnapshot = buildDisplaySnapshot(state);
 
@@ -425,6 +401,7 @@ async function runCloudSyncInner(root) {
       telemetryRes.json?.devicesDisconnectAt ?? null,
       telemetryRes.json?.pairingCode ?? null
     );
+    await syncPairingCodeFromCloud(root, telemetryRes.json?.pairingCode ?? null);
   } else if (isFleetRevoked(telemetryRes)) {
     await noteFleetRevokeAttempt(root, telemetryRes.json?.error ?? 'telemetry rejected');
     return;
@@ -519,7 +496,6 @@ async function runCloudSyncInner(root) {
   }
 
   lastPushedAt = Date.now();
-  await syncDriverControlOtpFromCloud(root, creds);
   await syncAssignedRoutesFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
@@ -593,23 +569,7 @@ export function getCloudConfig(root) {
   };
 }
 
-/** Verify driver pairing code + admin OTP via cloud (bus device token). */
-export async function verifyDriverControlOnCloud(dataRoot, pairingCode, otp) {
-  const creds = getDeviceCredentials(dataRoot ?? dataRootRef);
-  if (!creds.cloudUrl) {
-    return { ok: false, error: 'Cloud not configured on this bus' };
-  }
-  if (!creds.busId) {
-    return { ok: false, error: 'Bus not claimed — use admin portal first' };
-  }
-  const json = await cloudFetch(creds, `/api/buses/${encodeURIComponent(creds.busId)}/verify-driver-control`, {
-    method: 'POST',
-    body: JSON.stringify({ pairingCode, otp }),
-  });
-  return json.json ?? { ok: false, error: 'Cloud unreachable' };
-}
-
-/** Cloud-paired driver unlock on bus LAN — no OTP when phone already linked in cloud. */
+/** Cloud-paired driver unlock on bus LAN. */
 export async function verifyDriverLinkedOnCloud(dataRoot, driverId) {
   const creds = getDeviceCredentials(dataRoot ?? dataRootRef);
   if (!creds.cloudUrl) {

@@ -112,11 +112,7 @@ import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile }
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
 import { usePostgres, getPool } from './db/pool.js';
 import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
-import {
-  getOwnerDriverOtp,
-  refreshOwnerDriverOtp,
-  verifyDriverControlForBus,
-} from './driverOtp.js';
+import { verifyDriverControlForBus } from './driverOtp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -401,41 +397,10 @@ app.post('/api/fleet/revoke/:busId', authSession, requireAuth, requireRole('admi
   res.json(result);
 });
 
-function resolveFleetOwnerId(req, explicitOwnerId) {
-  if (req.user.role === 'bus_owner') return req.user.id;
-  return explicitOwnerId || 'platform';
-}
-
-app.get('/api/fleet/driver-otp', authFleet, async (req, res) => {
-  const ownerId = resolveFleetOwnerId(req, req.query.ownerId);
-  const entry = await getOwnerDriverOtp(ownerId);
-  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
-});
-
-app.post('/api/fleet/driver-otp/refresh', authFleet, async (req, res) => {
-  const ownerId = resolveFleetOwnerId(req, req.body?.ownerId);
-  const entry = await refreshOwnerDriverOtp(ownerId);
-  await writeAudit('fleet.driver_otp.refresh', req.user.id, { ownerId: entry.ownerId });
-  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
-});
-
-/** Bus device pulls fleet OTP for offline LAN driver unlock when internet is down. */
-app.get('/api/buses/:busId/driver-control-otp', authBus, async (req, res) => {
-  const busId = req.busId ?? req.params.busId;
-  const profile = await getBusProfile(busId);
-  if (!profile) {
-    res.status(404).json({ ok: false, error: 'Bus not found' });
-    return;
-  }
-  const ownerId = profile.ownerId || 'platform';
-  const entry = await getOwnerDriverOtp(ownerId);
-  res.json({ ok: true, otp: entry.otp, updatedAt: entry.updatedAt, ownerId: entry.ownerId });
-});
-
 app.post('/api/buses/:busId/verify-driver-control', authBus, async (req, res) => {
   const busId = req.busId ?? req.params.busId;
-  const { pairingCode, otp } = req.body ?? {};
-  const result = await verifyDriverControlForBus(busId, pairingCode, otp);
+  const { pairingCode } = req.body ?? {};
+  const result = await verifyDriverControlForBus(busId, pairingCode);
   if (!result.ok) {
     res.status(403).json(result);
     return;
@@ -838,28 +803,38 @@ app.get('/api/buses/:busId/locations', authFleet, async (req, res) => {
 
 app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const busId = req.params.busId;
   const { plate, plateDisplay, pairingCode, displayName } = req.body ?? {};
+
+  let normalizedCode = null;
+  if (pairingCode != null) {
+    normalizedCode = String(pairingCode).replace(/\D/g, '').slice(0, 4);
+    if (normalizedCode.length !== 4) {
+      res.status(400).json({ ok: false, error: 'Pairing code must be exactly 4 digits' });
+      return;
+    }
+  }
+
   let profile;
   if (plate != null) {
-    profile = await setBusProfilePlate(req.params.busId, plate);
-    if (displayName != null) {
-      profile = await upsertBusProfile(req.params.busId, {
-        displayName: String(displayName).trim().slice(0, 80),
-      });
-    }
-  } else {
-    profile = await upsertBusProfile(req.params.busId, {
-      ...(plateDisplay != null ? { plateDisplay: String(plateDisplay).trim() } : {}),
-      ...(displayName != null ? { displayName: String(displayName).trim().slice(0, 80) } : {}),
-      ...(pairingCode != null ? { pairingCode: String(pairingCode).replace(/\D/g, '').slice(0, 4) } : {}),
-    });
+    profile = await setBusProfilePlate(busId, plate);
   }
-  await enqueueCommand(req.params.busId, 'MERGE_STATE', {
+  const patch = {};
+  if (displayName != null) patch.displayName = String(displayName).trim().slice(0, 80);
+  if (plateDisplay != null && plate == null) patch.plateDisplay = String(plateDisplay).trim();
+  if (normalizedCode != null) patch.pairingCode = normalizedCode;
+  if (Object.keys(patch).length) {
+    profile = await upsertBusProfile(busId, patch);
+  }
+  if (!profile) profile = await getBusProfile(busId);
+
+  await enqueueCommand(busId, 'MERGE_STATE', {
+    rotatePairingCode: normalizedCode != null,
     busProfile: {
       plate: profile.plate,
       plateDisplay: profile.plateDisplay,
       displayName: profile.displayName ?? '',
-      pairingCode: profile.pairingCode,
+      ...(normalizedCode != null ? { pairingCode: normalizedCode } : {}),
     },
     savedAt: Date.now(),
   });

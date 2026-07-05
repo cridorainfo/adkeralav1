@@ -73,6 +73,6 @@ test('resetBusStateForUnclaim clears fleet routes and ads', () => {
   assert.deepEqual(reset.bannerAds, []);
   assert.equal(reset.driverLink, null);
   assert.equal(reset.busProfile.plate, '');
-  assert.match(reset.busProfile.pairingCode, /^\d{4}$/);
+  assert.equal(reset.busProfile.pairingCode, '');
   assert.equal(reset.displaySettings.brandTitle, 'Test Bus');
 });

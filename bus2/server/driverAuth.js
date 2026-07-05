@@ -204,7 +204,7 @@ export async function disconnectAllDrivers(dataRoot, options = {}) {
   const stops = route ? getAllStops(route) : [];
   const nextPairingCode = rotatePairingCode
     ? pairingCodeOverride || generatePairingCode()
-    : current.busProfile?.pairingCode || generatePairingCode();
+    : current.busProfile?.pairingCode ?? '';
 
   const next = {
     ...current,
@@ -268,12 +268,6 @@ function normalizePairingCode(value) {
     .slice(0, 4);
 }
 
-function normalizeDriverOtp(value) {
-  return String(value ?? '')
-    .replace(/\D/g, '')
-    .slice(0, 6);
-}
-
 function checkConnectRateLimit(req, failed = false) {
   if (!failed) return { ok: true };
   const ip = req.socket?.remoteAddress ?? 'unknown';
@@ -304,39 +298,6 @@ function verifyLinkedDriverLocally(state, driverId) {
   const linked = state.driverLink?.driverId;
   if (!linked || linked !== id) {
     return { ok: false, error: 'Driver not linked to this bus' };
-  }
-
-  return {
-    ok: true,
-    offline: true,
-    plate: state.busProfile?.plateDisplay ?? state.busProfile?.plate ?? null,
-  };
-}
-
-/** Offline LAN unlock when bus has cached admin OTP from a prior cloud sync. */
-function verifyDriverControlLocally(state, pairingCode, otp) {
-  const localCode = normalizePairingCode(state.busProfile?.pairingCode);
-  const code = normalizePairingCode(pairingCode);
-  if (!localCode || code !== localCode) {
-    return { ok: false, error: 'Pairing code does not match this bus' };
-  }
-
-  const submittedOtp = normalizeDriverOtp(otp);
-  if (submittedOtp.length !== 6) {
-    return { ok: false, error: 'Enter the 6-digit OTP from admin' };
-  }
-
-  const cachedOtp = normalizeDriverOtp(state.busProfile?.driverControlOtp);
-  if (!cachedOtp) {
-    return {
-      ok: false,
-      error:
-        'Offline unlock unavailable — connect this bus to the internet once so it can cache the admin OTP.',
-    };
-  }
-
-  if (submittedOtp !== cachedOtp) {
-    return { ok: false, error: 'Invalid admin OTP' };
   }
 
   return {
@@ -429,7 +390,14 @@ async function connectWithPairingCode(dataRoot, pairingCode) {
 
   const state = (await readInfoFile(dataRoot)) ?? {};
   const localCode = normalizePairingCode(state.busProfile?.pairingCode);
-  if (!localCode || code !== localCode) {
+  if (!localCode) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'No pairing code set — admin must set one in the Fleet panel',
+    };
+  }
+  if (code !== localCode) {
     return { ok: false, status: 403, error: 'Pair code does not match this bus' };
   }
 
@@ -453,10 +421,8 @@ async function connectWithPairingCode(dataRoot, pairingCode) {
   };
 }
 
-/**
- * Driver phone unlock — connect code on LAN (primary), OTP verify (legacy), cloud-paired shortcut.
- */
-export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWithCloud }) {
+/** Driver phone unlock — 4-digit pairing code on LAN; cloud-paired shortcut for legacy apps. */
+export function setupDriverAuth(app, { dataRoot, verifyLinkedWithCloud }) {
   dataRootRef = dataRoot;
   sessions = new Map();
   connectAttempts.clear();
@@ -550,57 +516,6 @@ export function setupDriverAuth(app, { dataRoot, verifyWithCloud, verifyLinkedWi
     try {
       const result = await disconnectAllDrivers(dataRoot);
       res.json(result);
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err.message });
-    }
-  });
-
-  app.post('/api/driver/verify', async (req, res) => {
-    try {
-      const pairingCode = normalizePairingCode(req.body?.pairingCode);
-      const otp = String(req.body?.otp ?? '').trim();
-
-      if (!pairingCode || pairingCode.length !== 4) {
-        res.status(400).json({ ok: false, error: 'Enter the 4-digit code from the bus screen' });
-        return;
-      }
-
-      const state = (await readInfoFile(dataRoot)) ?? {};
-      const localCode = normalizePairingCode(state.busProfile?.pairingCode);
-      if (!localCode || pairingCode !== localCode) {
-        res.status(403).json({ ok: false, error: 'Pairing code does not match this bus' });
-        return;
-      }
-
-      const cloud = await verifyWithCloud(pairingCode, otp);
-      const verified = cloud?.ok ? cloud : verifyDriverControlLocally(state, pairingCode, otp);
-      if (!verified?.ok) {
-        res.status(403).json({
-          ok: false,
-          error: verified?.error ?? cloud?.error ?? 'Verification failed',
-        });
-        return;
-      }
-
-      const session = createDriverSession();
-      await saveSessionsToDisk(dataRoot);
-      await setDriverLink(dataRoot, {
-        driverId: session.driverId,
-        linkedAt: Date.now(),
-      });
-
-      res.json({
-        ok: true,
-        token: session.token,
-        expiresAt: session.expiresAt,
-        plate:
-          verified.plate ??
-          cloud?.plate ??
-          state.busProfile?.plateDisplay ??
-          state.busProfile?.plate ??
-          null,
-        offline: Boolean(verified.offline),
-      });
     } catch (err) {
       res.status(500).json({ ok: false, error: err.message });
     }

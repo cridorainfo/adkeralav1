@@ -1,5 +1,3 @@
-import { generatePairingCode } from '../src/store/busStore.js';
-
 /** Strip fleet-managed content when this PC is no longer registered on the server. */
 export function resetBusStateForUnclaim(current = {}) {
   return {
@@ -40,7 +38,7 @@ export function resetBusStateForUnclaim(current = {}) {
     busProfile: {
       plate: '',
       plateDisplay: '',
-      pairingCode: generatePairingCode(),
+      pairingCode: '',
     },
     savedAt: Date.now(),
   };
