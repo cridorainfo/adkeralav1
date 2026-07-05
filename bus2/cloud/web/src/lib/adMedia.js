@@ -20,6 +20,18 @@ export function adMediaTypeFromFile(file) {
   return isVideoMediaFile(file) ? 'video' : 'image';
 }
 
+/** Authenticated dashboard URL for a stored ad/banner file (e.g. ads/1234-promo.mp4). */
+export function adMediaPreviewUrl(mediaFile) {
+  if (!mediaFile || typeof mediaFile !== 'string') return null;
+  const normalized = mediaFile.replace(/^\/+/, '');
+  const slash = normalized.indexOf('/');
+  if (slash <= 0) return null;
+  const category = normalized.slice(0, slash);
+  const filename = normalized.slice(slash + 1);
+  if (!['ads', 'banners'].includes(category) || !filename) return null;
+  return `/api/media/preview/${encodeURIComponent(category)}/${encodeURIComponent(filename)}`;
+}
+
 export function validateAdMediaFile(file) {
   if (!file) return 'No file selected';
   const isVideo = isVideoMediaFile(file);

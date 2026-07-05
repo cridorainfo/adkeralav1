@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, uploadMedia } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
+import AdMediaPreview from './AdMediaPreview.jsx';
 import {
   AD_MEDIA_ACCEPT,
   AD_UPLOAD_HINTS,
@@ -35,6 +36,7 @@ export default function AdsPanel() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [live, setLive] = useState(null);
   const dirtyRef = useRef(false);
 
   const markDirty = useCallback(() => {
@@ -77,6 +79,30 @@ export default function AdsPanel() {
     const t = setInterval(() => loadCatalog(false), 5000);
     return () => clearInterval(t);
   }, [selectedBusId, loadCatalog, clearDirty]);
+
+  const refreshLive = useCallback(async () => {
+    if (!selectedBusId || selectedBusId === 'bus-1') {
+      setLive(null);
+      return;
+    }
+    try {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
+      setLive(json);
+    } catch {
+      setLive(null);
+    }
+  }, [selectedBusId]);
+
+  useEffect(() => {
+    refreshLive();
+    const t = setInterval(refreshLive, 5000);
+    return () => clearInterval(t);
+  }, [refreshLive]);
+
+  const busState = live?.state ?? {};
+  const onDisplay = Boolean(live?.online && busState.displayView === 'ad');
+  const playingFullscreenIndex = onDisplay ? (busState.currentAdIndex ?? 0) : -1;
+  const playingFullscreenAd = playingFullscreenIndex >= 0 ? ads[playingFullscreenIndex] : null;
 
   async function persistCatalog({ push = false, nextAds = ads, nextBanners = bannerAds } = {}) {
     if (!selectedBusId || selectedBusId === 'bus-1') {
@@ -245,6 +271,29 @@ export default function AdsPanel() {
         </p>
       )}
 
+      <section className="ads-live-preview">
+        <h3>Now on passenger display</h3>
+        {!live?.online && (
+          <p className="hint">Bus offline — live preview unavailable.</p>
+        )}
+        {live?.online && !onDisplay && (
+          <p className="hint">Route view is showing — no fullscreen ad playing right now.</p>
+        )}
+        {live?.online && onDisplay && playingFullscreenAd?.mediaFile && (
+          <>
+            <AdMediaPreview ad={playingFullscreenAd} format="fullscreen" playing showControls />
+            <p className="hint" style={{ marginTop: '0.5rem' }}>
+              {playingFullscreenAd.name?.trim() || `Ad ${playingFullscreenIndex + 1}`} ·{' '}
+              {playingFullscreenAd.type === 'video' ? 'Video' : 'Image'} ·{' '}
+              {playingFullscreenAd.durationSec ?? 12}s
+            </p>
+          </>
+        )}
+        {live?.online && onDisplay && !playingFullscreenAd?.mediaFile && (
+          <p className="hint">An ad slot is active on the bus but has no media file.</p>
+        )}
+      </section>
+
       <div className="editor-actions">
         <button
           type="button"
@@ -260,46 +309,53 @@ export default function AdsPanel() {
       <p className="hint">{AD_UPLOAD_HINTS.fullscreen}</p>
       {ads.length === 0 && <p className="hint">No fullscreen ads yet — click Add below.</p>}
       {ads.map((ad, i) => (
-        <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
-          <div className="form-group">
-            <label>Name</label>
-            <input value={ad.name} onChange={(e) => updateAd(i, { name: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label>Duration (sec)</label>
-            <input
-              type="number"
-              value={ad.durationSec}
-              onChange={(e) => updateAd(i, { durationSec: Number(e.target.value) })}
-            />
-          </div>
-          <div className="form-group">
-            <label>Media</label>
-            <input
-              type="file"
-              accept={AD_MEDIA_ACCEPT}
+        <div key={ad.id} className="ads-catalog-row">
+          <AdMediaPreview
+            ad={ad}
+            format="fullscreen"
+            playing={onDisplay && i === playingFullscreenIndex}
+          />
+          <div className="inline-form ads-catalog-fields">
+            <div className="form-group">
+              <label>Name</label>
+              <input value={ad.name} onChange={(e) => updateAd(i, { name: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Duration (sec)</label>
+              <input
+                type="number"
+                value={ad.durationSec}
+                onChange={(e) => updateAd(i, { durationSec: Number(e.target.value) })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Media</label>
+              <input
+                type="file"
+                accept={AD_MEDIA_ACCEPT}
+                disabled={busy}
+                onChange={(e) => {
+                  handleMediaUpload(i, e.target.files?.[0], false);
+                  e.target.value = '';
+                }}
+              />
+              {ad.mediaFile ? (
+                <small>
+                  {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
+                </small>
+              ) : (
+                <small className="hint">No file yet</small>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
               disabled={busy}
-              onChange={(e) => {
-                handleMediaUpload(i, e.target.files?.[0], false);
-                e.target.value = '';
-              }}
-            />
-            {ad.mediaFile ? (
-              <small>
-                {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
-              </small>
-            ) : (
-              <small className="hint">No file yet</small>
-            )}
+              onClick={() => removeAd(i, false)}
+            >
+              Delete
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            disabled={busy}
-            onClick={() => removeAd(i, false)}
-          >
-            Delete
-          </button>
         </div>
       ))}
       <button
@@ -315,46 +371,49 @@ export default function AdsPanel() {
       <p className="hint">{AD_UPLOAD_HINTS.banner}</p>
       {bannerAds.length === 0 && <p className="hint">No banner ads yet — click Add below.</p>}
       {bannerAds.map((ad, i) => (
-        <div key={ad.id} className="inline-form" style={{ marginBottom: '0.5rem' }}>
-          <div className="form-group">
-            <label>Name</label>
-            <input value={ad.name} onChange={(e) => updateBanner(i, { name: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label>Duration (sec)</label>
-            <input
-              type="number"
-              value={ad.durationSec}
-              onChange={(e) => updateBanner(i, { durationSec: Number(e.target.value) })}
-            />
-          </div>
-          <div className="form-group">
-            <label>Media</label>
-            <input
-              type="file"
-              accept={AD_MEDIA_ACCEPT}
+        <div key={ad.id} className="ads-catalog-row ads-catalog-row--banner">
+          <AdMediaPreview ad={ad} format="banner" />
+          <div className="inline-form ads-catalog-fields">
+            <div className="form-group">
+              <label>Name</label>
+              <input value={ad.name} onChange={(e) => updateBanner(i, { name: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label>Duration (sec)</label>
+              <input
+                type="number"
+                value={ad.durationSec}
+                onChange={(e) => updateBanner(i, { durationSec: Number(e.target.value) })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Media</label>
+              <input
+                type="file"
+                accept={AD_MEDIA_ACCEPT}
+                disabled={busy}
+                onChange={(e) => {
+                  handleMediaUpload(i, e.target.files?.[0], true);
+                  e.target.value = '';
+                }}
+              />
+              {ad.mediaFile ? (
+                <small>
+                  {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
+                </small>
+              ) : (
+                <small className="hint">No file yet</small>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm"
               disabled={busy}
-              onChange={(e) => {
-                handleMediaUpload(i, e.target.files?.[0], true);
-                e.target.value = '';
-              }}
-            />
-            {ad.mediaFile ? (
-              <small>
-                {ad.type === 'video' ? 'Video' : 'Image'}: {ad.mediaFile.split('/').pop()}
-              </small>
-            ) : (
-              <small className="hint">No file yet</small>
-            )}
+              onClick={() => removeAd(i, true)}
+            >
+              Delete
+            </button>
           </div>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            disabled={busy}
-            onClick={() => removeAd(i, true)}
-          >
-            Delete
-          </button>
         </div>
       ))}
       <button

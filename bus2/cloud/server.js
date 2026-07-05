@@ -1501,9 +1501,7 @@ app.delete('/api/media/:category/:filename', authSession, requireAuth, async (re
   res.json({ ok: true, deleted: relPath, ...result });
 });
 
-/** Bus pulls missing media from cloud when internet is available. */
-app.get('/api/media/:category/:filename', authBus, async (req, res) => {
-  const relPath = `${req.params.category}/${req.params.filename}`;
+async function serveStoredMediaFile(res, relPath) {
   if (!relPath || relPath.includes('..')) {
     res.status(403).end();
     return;
@@ -1522,11 +1520,30 @@ app.get('/api/media/:category/:filename', authBus, async (req, res) => {
   if (lower.endsWith('.mp3') || lower.endsWith('.mpeg')) res.type('audio/mpeg');
   else if (lower.endsWith('.wav')) res.type('audio/wav');
   else if (lower.endsWith('.mp4') || lower.endsWith('.webm')) res.type('video/mp4');
+  else if (lower.endsWith('.mov')) res.type('video/quicktime');
+  else if (lower.endsWith('.m4v')) res.type('video/mp4');
   else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) res.type('image/jpeg');
   else if (lower.endsWith('.png')) res.type('image/png');
   else if (lower.endsWith('.gif')) res.type('image/gif');
   else if (lower.endsWith('.webp')) res.type('image/webp');
   res.sendFile(fullPath);
+}
+
+/** Dashboard preview for ad/banner media (session auth). */
+app.get('/api/media/preview/:category/:filename', authFleet, async (req, res) => {
+  const category = req.params.category;
+  if (!['ads', 'banners'].includes(category)) {
+    res.status(403).json({ ok: false, error: 'Preview not allowed for this category' });
+    return;
+  }
+  const relPath = `${category}/${req.params.filename}`;
+  await serveStoredMediaFile(res, relPath);
+});
+
+/** Bus pulls missing media from cloud when internet is available. */
+app.get('/api/media/:category/:filename', authBus, async (req, res) => {
+  const relPath = `${req.params.category}/${req.params.filename}`;
+  await serveStoredMediaFile(res, relPath);
 });
 
 /** ——— Remote release / fleet version APIs ——— */

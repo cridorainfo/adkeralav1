@@ -1381,6 +1381,93 @@ tr.route-row-assigned {
 
 .inline-form .form-group { margin-bottom: 0; flex: 1; min-width: 120px; }
 
+.ads-live-preview {
+  padding: 1rem;
+  background: var(--kerala-white);
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+}
+
+.ads-live-preview .ad-media-preview {
+  max-width: 640px;
+}
+
+.ads-catalog-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  background: var(--kerala-white);
+}
+
+.ads-catalog-row--banner .ad-media-preview {
+  width: min(100%, 320px);
+}
+
+.ads-catalog-fields {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ad-media-preview {
+  position: relative;
+  background: #000;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid rgba(11, 92, 74, 0.12);
+  width: min(100%, 220px);
+  flex-shrink: 0;
+}
+
+.ad-media-preview--fullscreen {
+  aspect-ratio: 16 / 9;
+}
+
+.ad-media-preview--banner {
+  aspect-ratio: 728 / 90;
+}
+
+.ad-media-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  color: var(--kerala-muted);
+  font-size: 0.8rem;
+}
+
+.ad-media-preview--playing {
+  box-shadow: 0 0 0 2px var(--kerala-teal);
+}
+
+.ad-media-preview-badge {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  z-index: 1;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(26, 138, 122, 0.92);
+}
+
+.ad-media-preview img,
+.ad-media-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+
 .version-pill {
   display: inline-block;
   padding: 0.15rem 0.5rem;
