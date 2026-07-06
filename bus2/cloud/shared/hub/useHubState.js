@@ -76,7 +76,7 @@ export function useHubState({ onRevoked } = {}) {
       onRevoked?.(result.error);
       return result;
     }
-    const online = Boolean(result.ok || result.keepTrying);
+    const online = Boolean(result.ok && result.status === 'connected');
     setConnected(online);
     if (result.plate) setPlate(result.plate);
     if (result.status === 'need-code') return { redirect: '/driver' };

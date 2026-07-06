@@ -171,14 +171,6 @@ export async function findBestControlIp(port, lan = getLanAddresses()) {
         return { ip: n.address, name: n.name, ok: true, error: null };
       }
     }
-    if (candidates.length) {
-      return {
-        ip: candidates[0].address,
-        name: candidates[0].name,
-        ok: false,
-        error: 'probe_failed',
-      };
-    }
   }
 
   const fallback = controlIpForPhones(pickPrimaryLanAddress(lan));

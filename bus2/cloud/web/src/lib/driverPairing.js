@@ -1,5 +1,5 @@
-/** Parse 4-digit pair code or plate from QR text / URLs. */
-import { isPrivateLanHost } from '#hub/lan';
+/** Extract bus control URL from scanned QR (LAN /control or cloud ?control=). */
+import { isPhoneReachableHost } from '#hub/lan';
 export function parsePairCodeFromScan(raw) {
   const text = String(raw ?? '').trim();
   if (!text) return '';
@@ -42,7 +42,7 @@ export function parseControlFromScan(raw) {
     if (control) {
       try {
         const parsed = new URL(control);
-        if (/^https?:$/i.test(parsed.protocol) && isPrivateLanHost(parsed.hostname)) {
+        if (/^https?:$/i.test(parsed.protocol) && isPhoneReachableHost(parsed.hostname)) {
           if (!parsed.pathname.includes('/control')) {
             parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/control`;
           }
@@ -68,7 +68,7 @@ export function parseControlUrlFromScan(raw) {
   try {
     const url = new URL(text);
     if (!/^https?:$/i.test(url.protocol)) return null;
-    if (!isPrivateLanHost(url.hostname)) return null;
+    if (!isPhoneReachableHost(url.hostname)) return null;
     if (url.pathname.includes('/driver') || url.pathname.includes('/control')) {
       const control = new URL('/control', url.origin);
       return control.toString();

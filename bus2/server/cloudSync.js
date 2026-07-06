@@ -753,12 +753,13 @@ export function startCloudSyncLoop(root) {
 export function getCloudConfig(root) {
   const creds = getDeviceCredentials(root ?? dataRootRef);
   const envCloud = resolveCloudUrl(process.env);
+  const syncUrl = creds.cloudUrl || envCloud;
   return {
-    cloudUrl: creds.cloudUrl || envCloud,
-    publicUrl: envCloud || DEFAULT_PUBLIC_CLOUD_URL,
+    cloudUrl: syncUrl,
+    publicUrl: syncUrl || envCloud || DEFAULT_PUBLIC_CLOUD_URL,
     cloudUrls: DEFAULT_CLOUD_URLS,
     busId: creds.busId,
-    enabled: Boolean(creds.cloudUrl || envCloud),
+    enabled: Boolean(syncUrl),
     claimed: isDeviceClaimed(root ?? dataRootRef),
     installId: creds.installId,
     fleetClaimCode: isDeviceClaimed(root ?? dataRootRef) ? null : creds.fleetClaimCode,

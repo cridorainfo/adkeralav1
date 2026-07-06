@@ -10,10 +10,18 @@ export function isPrivateLanHost(hostname) {
   const host = String(hostname ?? '').toLowerCase();
   if (!host || host === 'localhost' || host.endsWith('.local')) return true;
   if (isVpnOnlyAddress(host)) return false;
-  if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
+  if (host.startsWith('192.168.')) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   if (host.startsWith('169.254.')) return true;
   return false;
+}
+
+/** Host phones can reach on bus Wi‑Fi — excludes 10.x (usually VPN; use 192.168 hotspot instead). */
+export function isPhoneReachableHost(hostname) {
+  if (!isPrivateLanHost(hostname)) return false;
+  const parts = String(hostname ?? '').split('.').map(Number);
+  if (parts.length === 4 && parts[0] === 10) return false;
+  return true;
 }
 
 /** True when this page is served from the bus PC on the local network. */

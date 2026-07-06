@@ -4,7 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { setupDbApi, ensureDbLayout } from './dbApi.js';
-import { buildNetworkUrls, logNetworkStartup } from './networkInfo.js';
+import { buildNetworkUrls, logNetworkStartup, findBestControlIp } from './networkInfo.js';
 import {
   startCloudSyncLoop,
   getCloudConfig,
@@ -41,9 +41,22 @@ setupDriveApi(app, root);
 setupCloudProxy(app, root);
 
 let httpsInfo = { httpsEnabled: false, httpsPort: null };
+let lanProbe = { ok: null, error: null, ip: null };
 
-app.get('/api/network', (_req, res) => {
-  const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+const refreshLanProbe = async () => {
+  const best = await findBestControlIp(PORT);
+  lanProbe = { ok: best.ok, error: best.error ?? null, ip: best.ip };
+  return lanProbe;
+};
+
+app.get('/api/network', async (_req, res) => {
+  if (lanProbe.ok === null) await refreshLanProbe();
+  const urls = buildNetworkUrls(PORT, HOST, {
+    ...httpsInfo,
+    primaryIp: lanProbe.ip,
+    lanReachable: lanProbe.ok,
+    lanProbeError: lanProbe.error ?? null,
+  });
   const cloudCfg = getCloudConfig(root);
   res.json({
     ok: true,
@@ -51,6 +64,8 @@ app.get('/api/network', (_req, res) => {
     cloudDriverUrl: cloudCfg.publicUrl
       ? `${String(cloudCfg.publicUrl).replace(/\/$/, '')}/driver`
       : null,
+    lanReachable: lanProbe.ok,
+    lanProbeError: lanProbe.error ?? null,
     adminUrl: localAdmin?.adminUrl ?? null,
     adminKeyHint: localAdmin?.adminKey ?? null,
   });
@@ -90,19 +105,36 @@ httpsInfo = {
   httpsPort: httpsMirror.httpsPort,
 };
 
-const urls = buildNetworkUrls(PORT, HOST, httpsInfo);
+const urls = buildNetworkUrls(PORT, HOST, {
+  ...httpsInfo,
+  primaryIp: lanProbe.ip,
+  lanReachable: lanProbe.ok,
+  lanProbeError: lanProbe.error ?? null,
+});
 
-httpServer.listen(PORT, HOST, () => {
+httpServer.listen(PORT, HOST, async () => {
   const firewallPorts = [PORT];
   if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
     firewallPorts.push(httpsInfo.httpsPort);
   }
   ensureWindowsFirewallPorts(firewallPorts);
+  await refreshLanProbe();
+  setInterval(() => {
+    refreshLanProbe().catch(() => {});
+  }, 15000);
 
-  logNetworkStartup(urls, {
-    adminUrl: localAdmin?.adminUrl,
-    adminKey: localAdmin?.adminKey,
-  });
+  logNetworkStartup(
+    buildNetworkUrls(PORT, HOST, {
+      ...httpsInfo,
+      primaryIp: lanProbe.ip,
+      lanReachable: lanProbe.ok,
+      lanProbeError: lanProbe.error ?? null,
+    }),
+    {
+      adminUrl: localAdmin?.adminUrl,
+      adminKey: localAdmin?.adminKey,
+    }
+  );
 });
 
 process.on('SIGINT', () => {

@@ -2,20 +2,16 @@ import { useNetworkUrls } from '../hooks/useNetworkUrls';
 import { buildDriverQrUrl } from '../lib/driverJoinUrl';
 import DriverPairingQr from './DriverPairingQr';
 
-/** Passenger display — QR while waiting for driver pairing. */
+/** Passenger display — LAN QR while waiting for driver pairing. */
 export default function DriverPairingBanner({
   visible = true,
   compact = false,
   fullscreen = false,
-  pairingCode = '',
 }) {
   const network = useNetworkUrls();
   const controlUrlHttp = network?.controlUrlHttp ?? network?.controlUrl ?? null;
   const lanIp = network?.primaryIp ?? null;
   const controlPort = network?.port ?? 5174;
-  const cloudDriverUrl = network?.cloudDriverUrl ?? null;
-  const allControlUrls = (network?.controlUrls ?? []).filter((u) => u.controlUrl);
-  const digits = String(pairingCode ?? '').replace(/\D/g, '').slice(0, 4);
 
   if (!visible) {
     return null;
@@ -24,16 +20,18 @@ export default function DriverPairingBanner({
   const controlLabel =
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
-  const joinUrl = buildDriverQrUrl({
-    controlUrlHttp: controlUrlHttp || controlLabel || null,
-    cloudDriverUrl,
-  });
+  const lanReachable = network?.lanReachable !== false;
+  const joinUrl = lanReachable
+    ? buildDriverQrUrl({
+        controlUrlHttp: controlLabel || null,
+      })
+    : null;
 
   if (!joinUrl && !fullscreen) {
     return null;
   }
 
-  const needsHotspot = !controlUrlHttp && !lanIp;
+  const needsHotspot = !joinUrl || network?.lanReachable === false;
 
   if (fullscreen) {
     if (!joinUrl) return null;
@@ -58,23 +56,22 @@ export default function DriverPairingBanner({
     >
       <div className="driver-pairing-banner-body">
         {joinUrl && (
-          <div className="driver-pairing-qr-wrap">
-            <DriverPairingQr value={joinUrl} size={qrSize} />
-          </div>
-        )}
-        {digits.length === 4 && (
-          <div className="driver-pairing-code-row">
-            <span className="driver-pairing-label">Pairing code</span>
-            <span className="driver-pairing-code">{digits}</span>
-          </div>
+          <>
+            <div className="driver-pairing-qr-wrap">
+              <DriverPairingQr value={joinUrl} size={qrSize} />
+            </div>
+            <p className="driver-pairing-lan" title={joinUrl}>
+              {joinUrl}
+            </p>
+            <p className="driver-pairing-hint">Ask admin for the pairing code.</p>
+          </>
         )}
         {needsHotspot && (
           <p className="driver-pairing-hint driver-pairing-firewall-warn">
-            No phone LAN IP — turn on bus PC hotspot or disconnect VPN, then restart.
+            {network?.lanReachable === false
+              ? 'Bus PC firewall may be blocking phones — run allow-firewall.bat as administrator.'
+              : 'No phone LAN IP — turn on bus PC hotspot or disconnect VPN, then restart.'}
           </p>
-        )}
-        {!needsHotspot && allControlUrls.length > 1 && (
-          <p className="driver-pairing-hint">If scan fails, try bus hotspot Wi‑Fi.</p>
         )}
       </div>
     </div>

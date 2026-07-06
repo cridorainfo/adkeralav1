@@ -34,6 +34,12 @@ export default function DriverConnect() {
         return;
       }
 
+      if (boot.auto?.keepTrying && boot.busUrl) {
+        setStatus('Reconnecting to saved bus…');
+        goToHubControl(boot.busUrl);
+        return;
+      }
+
       if (boot.busUrl) {
         setStatus('Enter the pairing code from admin');
       } else {
@@ -120,7 +126,7 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          Credentials stay saved until you tap Disconnect on the control screen.
+          Stays connected until you tap Disconnect or admin changes the pairing code.
         </p>
       </div>
     </div>

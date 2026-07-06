@@ -1,6 +1,6 @@
 /** Hub client persistence — localStorage on web, Capacitor Preferences on native. */
 
-import { isLanOrigin } from './lan.js';
+import { isLanOrigin, isPhoneReachableHost } from './lan.js';
 export const HUB_PERSIST_KEYS = [
   'adkerala_hub_control_url',
   'adkerala_hub_pair_code',
@@ -100,7 +100,7 @@ export function saveHubControlUrl(raw) {
   const normalized = normalizeControlUrl(raw);
   if (!normalized) return null;
   try {
-    if (!isLanOrigin(new URL(normalized).origin)) return null;
+    if (!isPhoneReachableHost(new URL(normalized).hostname)) return null;
   } catch {
     return null;
   }
@@ -125,6 +125,12 @@ export function loadHubPairCode() {
   if (!value) return null;
   const digits = value.replace(/\D/g, '').slice(0, 4);
   return digits.length === 4 ? digits : null;
+}
+
+/** True after first successful pair — reopen app without scanning or re-entering code. */
+export function hasStoredDriverCredentials() {
+  if (getHubToken()) return true;
+  return Boolean(loadHubControlUrl() && loadHubPairCode());
 }
 
 export function getHubOrigin() {

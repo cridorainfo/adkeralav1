@@ -1,4 +1,4 @@
-import { isPrivateLanHost } from '#hub/lan';
+import { isPhoneReachableHost } from '#hub/lan';
 
 /** QR on bus display — opens driver panel on the bus PC LAN (same Wi‑Fi origin). */
 export function buildDriverJoinUrl(controlUrlHttp) {
@@ -7,7 +7,7 @@ export function buildDriverJoinUrl(controlUrlHttp) {
   try {
     const control = new URL(controlUrlHttp);
     if (!/^https?:$/i.test(control.protocol)) return null;
-    if (!isPrivateLanHost(control.hostname)) return null;
+    if (!isPhoneReachableHost(control.hostname)) return null;
     if (!control.pathname.includes('/control')) {
       control.pathname = `${control.pathname.replace(/\/$/, '')}/control`;
     }
@@ -20,29 +20,8 @@ export function buildDriverJoinUrl(controlUrlHttp) {
   }
 }
 
-/**
- * QR value for passenger display — cloud PWA link with embedded bus control URL.
- * Falls back to cloud /driver alone when office/VPN blocks a phone-reachable LAN IP.
- */
-export function buildDriverQrUrl({ controlUrlHttp, cloudDriverUrl }) {
-  if (cloudDriverUrl) {
-    try {
-      const cloud = new URL(cloudDriverUrl);
-      if (controlUrlHttp) {
-        try {
-          const control = new URL(controlUrlHttp);
-          if (isPrivateLanHost(control.hostname)) {
-            cloud.searchParams.set('control', controlUrlHttp);
-          }
-        } catch {
-          /* ignore invalid control URL */
-        }
-      }
-      return cloud.toString();
-    } catch {
-      /* fall through */
-    }
-  }
+/** QR on bus display — local LAN URL the driver phone must open (no cloud, no pairing code). */
+export function buildDriverQrUrl({ controlUrlHttp }) {
   return buildDriverJoinUrl(controlUrlHttp);
 }
 

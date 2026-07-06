@@ -372,9 +372,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
         )}
       </main>
 
-      {isPassengerView && showDriverQr && (
-        <DriverPairingBanner visible compact pairingCode={s.busProfile?.pairingCode} />
-      )}
+      {isPassengerView && showDriverQr && <DriverPairingBanner visible compact />}
 
       {reserveBannerSlot && (
         <div

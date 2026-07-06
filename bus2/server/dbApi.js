@@ -5,6 +5,7 @@ import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
 import { requireHubAuthUnlessLocal } from './hubSessions.js';
 import { notifyStateChanged, subscribeStateChanged } from './stateEvents.js';
+import { applyBusCorsToResponse } from './cors.js';
 import {
   atomicWriteTextFile,
   backupPathFor,
@@ -363,6 +364,7 @@ export function setupDbApi(app, root) {
 
   /** Live push to display/control when db/info.txt changes — no app restart needed. */
   app.get('/api/state/events', (req, res) => {
+    applyBusCorsToResponse(req, res);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');

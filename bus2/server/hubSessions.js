@@ -170,6 +170,7 @@ export async function initHubSessions(dataRoot) {
     sessionsReadyPromise = loadSessionsFromDisk(dataRoot)
       .then(async () => {
         await restoreDriverLinkFromSessions(dataRoot);
+        await reconcileStaleDriverLink(dataRoot);
         await refreshConnectedDeviceCountInState(dataRoot);
       })
       .catch((err) => {
@@ -235,6 +236,26 @@ async function restoreDriverLinkFromSessions(dataRoot) {
   if (!first?.driverId) return;
 
   await setDriverLink(dataRoot, { driverId: first.driverId, linkedAt: Date.now() });
+}
+
+/** Drop ghost driverLink when no hub sessions exist (e.g. after restart). */
+async function reconcileStaleDriverLink(dataRoot) {
+  if (sessions.size > 0) return;
+  const state = (await readInfoFile(dataRoot)) ?? {};
+  if (!state.driverLink?.driverId && (state.connectedDeviceCount ?? 0) === 0) return;
+
+  const pushAt = Date.now();
+  await writeInfoFileSerialized(
+    dataRoot,
+    {
+      ...state,
+      driverLink: null,
+      connectedDeviceCount: 0,
+      savedAt: pushAt,
+    },
+    { source: 'reconcile-driver-link' }
+  );
+  notifyStateChanged(dataRoot, { savedAt: pushAt, source: 'reconcile-driver-link' });
 }
 
 function normalizePairingCode(value) {
@@ -317,6 +338,7 @@ async function pairWithCode(dataRoot, pairingCode, deviceId = '') {
     const existingToken = deviceTokens.get(normalizedDeviceId);
     if (existingToken && sessions.has(existingToken)) {
       await touchSession(existingToken);
+      await saveSessionsToDisk(dataRoot);
       const session = sessions.get(existingToken);
       return {
         ok: true,

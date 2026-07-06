@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isLanOrigin, isPrivateLanHost } from '../cloud/shared/hub/lan.js';
+import { isLanOrigin, isPrivateLanHost, isPhoneReachableHost } from '../cloud/shared/hub/lan.js';
 
 test('isPrivateLanHost accepts RFC1918 addresses', () => {
   assert.equal(isPrivateLanHost('192.168.1.50'), true);
-  assert.equal(isPrivateLanHost('10.0.0.5'), true);
+  assert.equal(isPrivateLanHost('10.0.0.5'), false);
   assert.equal(isPrivateLanHost('172.16.0.1'), true);
   assert.equal(isPrivateLanHost('192.168.137.1'), true);
 });
@@ -16,6 +16,12 @@ test('isPrivateLanHost rejects public cloud hosts', () => {
 
 test('isPrivateLanHost rejects VPN-only 10.255.x.x addresses', () => {
   assert.equal(isPrivateLanHost('10.255.253.156'), false);
+});
+
+test('isPhoneReachableHost rejects 10.x VPN-style subnets', () => {
+  assert.equal(isPhoneReachableHost('10.0.0.5'), false);
+  assert.equal(isPhoneReachableHost('10.255.253.156'), false);
+  assert.equal(isPhoneReachableHost('192.168.137.1'), true);
 });
 
 test('isLanOrigin accepts bus PC LAN origins', () => {

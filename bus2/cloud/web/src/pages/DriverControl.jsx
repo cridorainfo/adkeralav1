@@ -42,8 +42,19 @@ export default function DriverControl() {
   const [localError, setLocalError] = useState('');
 
   useEffect(() => {
-    if (loadHubControlUrl()) return;
-    navigate('/driver', { replace: true });
+    const saved = loadHubControlUrl();
+    if (!saved) {
+      navigate('/driver', { replace: true });
+      return;
+    }
+    try {
+      const parsed = new URL(saved);
+      if (window.location.origin !== parsed.origin) {
+        window.location.replace(saved);
+      }
+    } catch {
+      navigate('/driver', { replace: true });
+    }
   }, [navigate]);
 
   const s = state ?? {};

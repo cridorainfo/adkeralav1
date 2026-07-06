@@ -6,7 +6,7 @@ import { APP_NAME } from '../lib/brand.js';
 import { bootDriverConnect } from '#hub/driverConnectBoot';
 import { saveHubPairCode } from '#hub/persist';
 import { connectAfterBusUrlSaved, goToHubControl, pairToHub, shouldOpenHubControl } from '#hub/client';
-import { parseControlFromScan } from '../lib/driverPairing.js';
+import { parseControlFromScan, readPairCodeFromLocation } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
 /** Driver phone — scan bus QR, pair with hub, open live control. */
@@ -35,9 +35,22 @@ export default function DriverConnect() {
 
       setBusUrl(boot.busUrl);
 
+      if (boot.pairCode) {
+        setPairCode(boot.pairCode);
+      } else {
+        const fromUrl = readPairCodeFromLocation(location.search);
+        if (fromUrl) setPairCode(fromUrl);
+      }
+
       if (boot.auto?.status === 'revoked') {
         setStatus('Disconnected by admin');
         setError(boot.auto.error ?? revokedMessage ?? 'Scan the bus QR and pair again');
+        return;
+      }
+
+      if (boot.auto?.keepTrying && boot.busUrl) {
+        setStatus('Reconnecting to saved bus…');
+        goToHubControl(boot.busUrl);
         return;
       }
 
@@ -192,7 +205,7 @@ export default function DriverConnect() {
         )}
 
         <p className="driver-connect-foot">
-          Credentials stay saved until you tap Disconnect on the control screen.
+          Stays connected until you tap Disconnect or admin changes the pairing code.
         </p>
       </div>
 

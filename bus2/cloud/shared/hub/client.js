@@ -1,7 +1,6 @@
 import { hubFetch, isOnBusLanOrigin } from './api.js';
 import {
   clearHubSetup,
-  clearHubToken,
   getHubDeviceId,
   getHubOrigin,
   getHubPlate,
@@ -10,6 +9,7 @@ import {
   loadDisconnectAck,
   loadHubControlUrl,
   loadHubPairCode,
+  hasStoredDriverCredentials,
   resetHubSessionForNewBus,
   saveDisconnectAck,
   saveHubControlUrl,
@@ -33,6 +33,19 @@ function isRevoked(devicesDisconnectAt) {
   const ack = loadDisconnectAck();
   if (!ack) return false;
   return String(devicesDisconnectAt) !== String(ack);
+}
+
+function handleDisconnectStamp(devicesDisconnectAt) {
+  if (isRevoked(devicesDisconnectAt)) {
+    clearHubSetup();
+    return {
+      ok: false,
+      status: 'revoked',
+      error: 'Admin disconnected all phones — scan the bus QR and pair again',
+    };
+  }
+  if (devicesDisconnectAt) saveDisconnectAck(devicesDisconnectAt);
+  return null;
 }
 
 async function hubPost(path, body = {}) {
@@ -108,23 +121,11 @@ export async function ensureHubConnected() {
 
     try {
       const status = await readStatus();
-      if (status.devicesDisconnectAt) saveDisconnectAck(status.devicesDisconnectAt);
-
-      if (isRevoked(status.devicesDisconnectAt)) {
-        clearHubSetup();
-        return {
-          ok: false,
-          status: 'revoked',
-          error: 'Admin disconnected all phones — scan the bus QR and pair again',
-        };
-      }
+      const revoked = handleDisconnectStamp(status.devicesDisconnectAt);
+      if (revoked) return revoked;
 
       if (token && status.connected) {
         return { ok: true, status: 'connected', plate: status.plate ?? getHubPlate() };
-      }
-
-      if (token && !status.connected) {
-        clearHubToken();
       }
 
       if (code) {
@@ -142,7 +143,7 @@ export async function ensureHubConnected() {
     } catch {
       if (token || code) {
         return {
-          ok: true,
+          ok: false,
           status: 'reconnecting',
           plate: getHubPlate(),
           keepTrying: true,
@@ -192,15 +193,34 @@ export async function connectAfterBusUrlSaved(controlUrl) {
 }
 
 export function shouldOpenHubControl(auto) {
-  return Boolean(auto?.ok && auto.status === 'connected' && auto.controlUrl);
+  if (!auto?.controlUrl) return false;
+  if (auto.status === 'revoked') return false;
+  if (auto.ok && auto.status === 'connected') return true;
+  // Already paired — open control and reconnect in background (bus may be offline at app open).
+  if (hasStoredDriverCredentials() && (auto.keepTrying || auto.status === 'reconnecting')) {
+    return true;
+  }
+  return false;
 }
 
-/** Where to send the driver after pairing — PWA stays on /driver/control, bus LAN opens /control. */
+/** Where to send the driver after pairing — always open bus PC LAN /control (works offline). */
 export function resolveHubControlDestination(controlUrl) {
   const url = saveHubControlUrl(controlUrl) || loadHubControlUrl();
   if (!url) return null;
-  if (isOnBusLanOrigin()) return url;
-  return '/driver/control';
+  try {
+    const parsed = new URL(url);
+    if (!parsed.pathname.includes('/control')) {
+      parsed.pathname = '/control';
+    }
+    parsed.search = '';
+    parsed.hash = '';
+    if (isOnBusLanOrigin() && window.location.origin === parsed.origin) {
+      return '/control';
+    }
+    return parsed.toString();
+  } catch {
+    return isOnBusLanOrigin() ? '/control' : url;
+  }
 }
 
 export function goToHubControl(controlUrl) {
@@ -240,11 +260,8 @@ export async function disconnectAllHubDevices() {
 async function pingHub() {
   try {
     const { json } = await hubPost('/api/hub/ping', {});
-    if (json.devicesDisconnectAt) saveDisconnectAck(json.devicesDisconnectAt);
-    if (isRevoked(json.devicesDisconnectAt)) {
-      clearHubSetup();
-      return { ok: false, revoked: true };
-    }
+    const revoked = handleDisconnectStamp(json.devicesDisconnectAt);
+    if (revoked) return { ok: false, revoked: true };
     if (json.ok) return { ok: true };
     if (json.stale) {
       const recovered = await ensureHubConnected();

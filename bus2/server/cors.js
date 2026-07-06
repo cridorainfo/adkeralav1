@@ -11,9 +11,7 @@ export function setupBusCors(app) {
         'Content-Type, X-Hub-Token, x-hub-token, X-Driver-Token, x-driver-token'
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    }
-    // Chrome Private Network Access — HTTPS cloud PWA → HTTP bus PC (192.168.x.x)
-    if (req.headers['access-control-request-private-network']) {
+      // Chrome Private Network Access — HTTPS cloud PWA → HTTP bus PC (192.168.x.x)
       res.setHeader('Access-Control-Allow-Private-Network', 'true');
     }
     if (req.method === 'OPTIONS') {
@@ -22,4 +20,13 @@ export function setupBusCors(app) {
     }
     next();
   });
+}
+
+/** CORS headers for SSE streams (driver phone polling live state). */
+export function applyBusCorsToResponse(req, res) {
+  const origin = req.headers.origin;
+  if (!origin) return;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
 }
