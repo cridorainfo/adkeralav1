@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDriverJoinUrl, readPairingCodeFromLocation } from '../src/lib/driverJoinUrl.js';
+import { buildDriverJoinUrl, buildDriverQrUrl, readPairingCodeFromLocation } from '../src/lib/driverJoinUrl.js';
 import {
   normalizeControlUrl,
   readHubControlFromLocation,
@@ -27,8 +27,31 @@ test('buildDriverJoinUrl accepts Windows hotspot gateway', () => {
   assert.equal(join, 'http://192.168.137.1:5174/driver');
 });
 
-test('buildDriverJoinUrl rejects VPN-only 10.255.x.x bus URLs', () => {
-  assert.equal(buildDriverJoinUrl('http://10.255.253.156:5174/control'), null);
+test('buildDriverQrUrl embeds LAN control in cloud driver link', () => {
+  const qr = buildDriverQrUrl({
+    controlUrlHttp: 'http://192.168.1.50:5174/control',
+    cloudDriverUrl: 'https://adkerala.example/driver',
+  });
+  const url = new URL(qr);
+  assert.equal(url.origin, 'https://adkerala.example');
+  assert.equal(url.pathname, '/driver');
+  assert.equal(url.searchParams.get('control'), 'http://192.168.1.50:5174/control');
+});
+
+test('buildDriverQrUrl falls back to cloud driver when office/VPN hides LAN IP', () => {
+  const qr = buildDriverQrUrl({
+    controlUrlHttp: null,
+    cloudDriverUrl: 'https://adkerala.example/driver',
+  });
+  assert.equal(qr, 'https://adkerala.example/driver');
+});
+
+test('buildDriverQrUrl skips VPN control param but still shows cloud QR', () => {
+  const qr = buildDriverQrUrl({
+    controlUrlHttp: 'http://10.255.253.156:5174/control',
+    cloudDriverUrl: 'https://adkerala.example/driver',
+  });
+  assert.equal(qr, 'https://adkerala.example/driver');
 });
 
 test('normalizeControlUrl maps /driver to /control', () => {

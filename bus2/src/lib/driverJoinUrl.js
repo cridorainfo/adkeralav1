@@ -22,14 +22,22 @@ export function buildDriverJoinUrl(controlUrlHttp) {
 
 /**
  * QR value for passenger display — cloud PWA link with embedded bus control URL.
- * Phone camera opens the driver app and auto-saves the LAN control address.
+ * Falls back to cloud /driver alone when office/VPN blocks a phone-reachable LAN IP.
  */
 export function buildDriverQrUrl({ controlUrlHttp, cloudDriverUrl }) {
-  if (!controlUrlHttp) return null;
   if (cloudDriverUrl) {
     try {
       const cloud = new URL(cloudDriverUrl);
-      cloud.searchParams.set('control', controlUrlHttp);
+      if (controlUrlHttp) {
+        try {
+          const control = new URL(controlUrlHttp);
+          if (isPrivateLanHost(control.hostname)) {
+            cloud.searchParams.set('control', controlUrlHttp);
+          }
+        } catch {
+          /* ignore invalid control URL */
+        }
+      }
       return cloud.toString();
     } catch {
       /* fall through */

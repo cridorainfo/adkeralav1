@@ -11,8 +11,8 @@ function readDisconnectAt(state) {
   );
 }
 
-function isRawDriverConnected(state) {
-  return (state?.connectedDeviceCount ?? 0) > 0 || Boolean(state?.driverLink?.driverId);
+function isHubLive(state) {
+  return (state?.connectedDeviceCount ?? 0) > 0;
 }
 
 function hasStableDriverLink(state) {
@@ -26,15 +26,14 @@ function hasStableDriverLink(state) {
  * - admin disconnected all phones / rotated pairing code
  */
 export function useShowDriverPairingQr(state) {
-  const [showQr, setShowQr] = useState(() => !isRawDriverConnected(state));
-  const hadSessionRef = useRef(isRawDriverConnected(state));
+  const [showQr, setShowQr] = useState(() => !isHubLive(state));
+  const hadSessionRef = useRef(isHubLive(state));
   const lastDisconnectAtRef = useRef(readDisconnectAt(state));
   const lastPairingCodeRef = useRef(state?.busProfile?.pairingCode ?? '');
   const stateRef = useRef(state);
   stateRef.current = state;
 
   useEffect(() => {
-    const rawConnected = isRawDriverConnected(state);
     const disconnectAt = readDisconnectAt(state);
     const pairingCode = state?.busProfile?.pairingCode ?? '';
 
@@ -53,7 +52,7 @@ export function useShowDriverPairingQr(state) {
       return undefined;
     }
 
-    if (rawConnected) {
+    if (isHubLive(state)) {
       hadSessionRef.current = true;
       lastDisconnectAtRef.current = disconnectAt;
       lastPairingCodeRef.current = pairingCode;
@@ -61,8 +60,8 @@ export function useShowDriverPairingQr(state) {
       return undefined;
     }
 
-    // Paired driver still linked — ignore connectedDeviceCount blips from sync.
-    if (hasStableDriverLink(state)) {
+    // Stale driverLink from cloud sync without a live hub session — keep QR visible.
+    if (hasStableDriverLink(state) && hadSessionRef.current) {
       setShowQr(false);
       return undefined;
     }
@@ -75,7 +74,7 @@ export function useShowDriverPairingQr(state) {
     const timer = setTimeout(() => {
       const latest = stateRef.current;
       if (hasStableDriverLink(latest)) return;
-      if (!isRawDriverConnected(latest)) {
+      if (!isHubLive(latest)) {
         hadSessionRef.current = false;
         setShowQr(true);
       }
