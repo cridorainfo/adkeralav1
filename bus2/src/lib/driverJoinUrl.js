@@ -20,6 +20,24 @@ export function buildDriverJoinUrl(controlUrlHttp) {
   }
 }
 
+/**
+ * QR value for passenger display — cloud PWA link with embedded bus control URL.
+ * Phone camera opens the driver app and auto-saves the LAN control address.
+ */
+export function buildDriverQrUrl({ controlUrlHttp, cloudDriverUrl }) {
+  if (!controlUrlHttp) return null;
+  if (cloudDriverUrl) {
+    try {
+      const cloud = new URL(cloudDriverUrl);
+      cloud.searchParams.set('control', controlUrlHttp);
+      return cloud.toString();
+    } catch {
+      /* fall through */
+    }
+  }
+  return buildDriverJoinUrl(controlUrlHttp);
+}
+
 export function readPairingCodeFromLocation(search = '') {
   const params = new URLSearchParams(search);
   const raw = params.get('code') || params.get('pair') || '';

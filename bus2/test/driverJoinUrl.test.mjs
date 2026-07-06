@@ -27,6 +27,10 @@ test('buildDriverJoinUrl accepts Windows hotspot gateway', () => {
   assert.equal(join, 'http://192.168.137.1:5174/driver');
 });
 
+test('buildDriverJoinUrl rejects VPN-only 10.255.x.x bus URLs', () => {
+  assert.equal(buildDriverJoinUrl('http://10.255.253.156:5174/control'), null);
+});
+
 test('normalizeControlUrl maps /driver to /control', () => {
   assert.equal(
     normalizeControlUrl('http://192.168.1.50:5174/driver'),
@@ -50,6 +54,7 @@ test('saveHubControlUrl rejects cloud control URLs', () => {
   clearHubSetup();
   assert.equal(saveHubControlUrl('https://adkerala.com/control'), null);
   assert.equal(saveHubControlUrl('http://192.168.1.50:5174/control'), 'http://192.168.1.50:5174/control');
+  assert.equal(saveHubControlUrl('http://10.255.253.156:5174/control'), null);
 });
 
 test('readPairingCodeFromLocation reads legacy code param', () => {

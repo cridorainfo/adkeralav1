@@ -169,6 +169,18 @@ export function clearHubToken() {
   persist('adkerala_hub_token', null);
 }
 
+export function clearHubPairCode() {
+  persist('adkerala_hub_pair_code', null);
+}
+
+/** Drop session when switching to a different bus PC URL. */
+export function resetHubSessionForNewBus() {
+  clearHubToken();
+  clearHubPairCode();
+  persist('adkerala_hub_plate', null);
+  persist('adkerala_hub_origin', null);
+}
+
 export function saveDisconnectAck(at) {
   if (!at) return;
   persist('adkerala_hub_disconnect_ack', String(at));

@@ -5,7 +5,7 @@ import {
   readHubControlFromLocation,
   saveHubControlUrl,
 } from './persist.js';
-import { connectAfterBusUrlSaved, goToHubControl } from './client.js';
+import { connectAfterBusUrlSaved, goToHubControl, shouldOpenHubControl } from './client.js';
 
 /**
  * Shared /driver boot — QR saves bus URL only; stored session reconnects without re-entering code.
@@ -18,7 +18,7 @@ export async function bootDriverConnect({ locationSearch, navigate }) {
   if (fromQr) {
     saveHubControlUrl(fromQr);
     const auto = await connectAfterBusUrlSaved(fromQr);
-    if (auto.ok && auto.controlUrl) {
+    if (shouldOpenHubControl(auto)) {
       goToHubControl(auto.controlUrl);
       return { redirected: true, busUrl: fromQr, auto };
     }
@@ -36,7 +36,7 @@ export async function bootDriverConnect({ locationSearch, navigate }) {
     auto = await connectAfterBusUrlSaved(saved);
   }
 
-  if (auto.ok && auto.controlUrl) {
+  if (shouldOpenHubControl(auto)) {
     goToHubControl(auto.controlUrl);
     return { redirected: true, busUrl: saved, auto };
   }

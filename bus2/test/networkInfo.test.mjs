@@ -9,6 +9,7 @@ import {
   preferredProbeTiers,
   rankLanAddresses,
 } from '../server/networkInfo.js';
+import { isVpnOnlyAddress } from '../cloud/shared/hub/lan.js';
 
 test('controlIpForPhones rejects loopback', () => {
   assert.equal(controlIpForPhones('127.0.0.1'), null);
@@ -74,4 +75,14 @@ test('rankLanAddresses orders hotspot and Wi-Fi ahead of 10.x ethernet', () => {
   assert.equal(ranked[0].address, '192.168.137.1');
   assert.equal(ranked[1].address, '192.168.0.5');
   assert.equal(ranked[2].address, '10.255.253.156');
+});
+
+test('pickPrimaryLanAddress ignores VPN-only 10.255.x.x when no 192.168 exists', () => {
+  const ip = pickPrimaryLanAddress([{ name: 'Ethernet', address: '10.255.253.156' }]);
+  assert.equal(ip, '127.0.0.1');
+});
+
+test('isVpnOnlyAddress flags 10.255.0.0/16', () => {
+  assert.equal(isVpnOnlyAddress('10.255.253.156'), true);
+  assert.equal(isVpnOnlyAddress('10.0.0.5'), false);
 });

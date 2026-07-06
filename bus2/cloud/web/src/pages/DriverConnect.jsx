@@ -5,7 +5,7 @@ import DriverQrScanner from '../components/DriverQrScanner.jsx';
 import { APP_NAME } from '../lib/brand.js';
 import { bootDriverConnect } from '#hub/driverConnectBoot';
 import { saveHubPairCode } from '#hub/persist';
-import { connectAfterBusUrlSaved, goToHubControl, pairToHub } from '#hub/client';
+import { connectAfterBusUrlSaved, goToHubControl, pairToHub, shouldOpenHubControl } from '#hub/client';
 import { parseControlFromScan } from '../lib/driverPairing.js';
 import DriverInstallPrompt from '../components/DriverInstallPrompt.jsx';
 
@@ -71,7 +71,7 @@ export default function DriverConnect() {
       const auto = await connectAfterBusUrlSaved(control);
       setBusUrl(control);
 
-      if (auto.ok && auto.controlUrl) {
+      if (shouldOpenHubControl(auto)) {
         goToHubControl(auto.controlUrl);
         return;
       }
@@ -84,6 +84,7 @@ export default function DriverConnect() {
 
       setStatus('Enter the pairing code from admin');
       setScannerOpen(false);
+      if (auto.error) setError(auto.error);
     } finally {
       setBusy(false);
     }

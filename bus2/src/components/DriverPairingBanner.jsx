@@ -1,5 +1,5 @@
 import { useNetworkUrls } from '../hooks/useNetworkUrls';
-import { buildDriverJoinUrl } from '../lib/driverJoinUrl';
+import { buildDriverQrUrl } from '../lib/driverJoinUrl';
 import DriverPairingQr from './DriverPairingQr';
 
 /** Passenger display — QR while waiting for driver pairing. */
@@ -24,7 +24,10 @@ export default function DriverPairingBanner({
   const controlLabel =
     controlUrlHttp || (lanIp ? `http://${lanIp}:${controlPort}/control` : '');
 
-  const joinUrl = network?.driverUrl ?? buildDriverJoinUrl(controlUrlHttp || controlLabel);
+  const joinUrl = buildDriverQrUrl({
+    controlUrlHttp: controlUrlHttp || controlLabel || null,
+    cloudDriverUrl: network?.cloudDriverUrl ?? null,
+  });
 
   if (fullscreen) {
     if (!joinUrl) return null;

@@ -14,6 +14,10 @@ test('isPrivateLanHost rejects public cloud hosts', () => {
   assert.equal(isPrivateLanHost('railway.app'), false);
 });
 
+test('isPrivateLanHost rejects VPN-only 10.255.x.x addresses', () => {
+  assert.equal(isPrivateLanHost('10.255.253.156'), false);
+});
+
 test('isLanOrigin accepts bus PC LAN origins', () => {
   assert.equal(isLanOrigin('http://192.168.1.50:5174'), true);
   assert.equal(isLanOrigin('http://127.0.0.1:5174'), true);

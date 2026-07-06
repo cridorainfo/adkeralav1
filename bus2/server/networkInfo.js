@@ -1,5 +1,7 @@
 import http from 'http';
 import os from 'os';
+import { execFileSync } from 'child_process';
+import { isVpnOnlyAddress } from '../cloud/shared/hub/lan.js';
 
 const VIRTUAL_NIC_PREFIX =
   /^(vmware|virtualbox|vbox|hyper-v|vethernet|loopback|bluetooth|npcap|wintun|tailscale|zerotier|radmin|hamachi|docker|wsl|neko|wireguard|nordlynx|openvpn|tap\d*|tun\d*)/i;
@@ -12,6 +14,52 @@ const ETHERNET_NIC = /^(ethernet|eth|lan)/i;
 /** Skip VPN / virtual adapters that often expose unreachable 10.x addresses to phones. */
 export function isVirtualNicName(name) {
   return VIRTUAL_NIC_PREFIX.test(name) || VIRTUAL_NIC_SUBSTR.test(name);
+}
+
+function isIPv4Net(net) {
+  return net.family === 'IPv4' || net.family === 4;
+}
+
+function isPhoneAdvertisableAddress(address) {
+  if (!address || LINK_LOCAL.test(address) || isVpnOnlyAddress(address)) return false;
+  return true;
+}
+
+function envLanOverride() {
+  const ip = String(process.env.ADKERALA_LAN_IP ?? '').trim();
+  if (!ip || !isPhoneAdvertisableAddress(ip)) return [];
+  return [{ name: 'ADKERALA_LAN_IP', address: ip }];
+}
+
+/** Windows fallback — os.networkInterfaces() sometimes omits the Wi‑Fi IP when VPN is active. */
+function getWindowsLanAddressesFallback() {
+  if (process.platform !== 'win32') return [];
+  try {
+    const script = [
+      "Get-NetIPAddress -AddressFamily IPv4",
+      "| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }",
+      "| ForEach-Object { $_.InterfaceAlias + '|' + $_.IPAddress }",
+    ].join(' ');
+    const out = execFileSync('powershell', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8',
+      timeout: 8000,
+      windowsHide: true,
+    });
+    const addrs = [];
+    for (const line of out.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const sep = trimmed.lastIndexOf('|');
+      if (sep < 0) continue;
+      const name = trimmed.slice(0, sep).trim();
+      const address = trimmed.slice(sep + 1).trim();
+      if (!isPhoneAdvertisableAddress(address) || isVirtualNicName(name)) continue;
+      addrs.push({ name, address });
+    }
+    return addrs;
+  } catch {
+    return [];
+  }
 }
 
 function scoreNic(name) {
@@ -53,14 +101,28 @@ export function rankLanAddresses(lan) {
 export function getLanAddresses() {
   const nets = os.networkInterfaces();
   const addrs = [];
+  const seen = new Set();
+
+  const push = (entry) => {
+    if (!isPhoneAdvertisableAddress(entry.address) || seen.has(entry.address)) return;
+    seen.add(entry.address);
+    addrs.push(entry);
+  };
 
   for (const name of Object.keys(nets)) {
     if (isVirtualNicName(name)) continue;
     for (const net of nets[name] ?? []) {
-      if (net.family === 'IPv4' && !net.internal && !LINK_LOCAL.test(net.address)) {
-        addrs.push({ name, address: net.address });
+      if (isIPv4Net(net) && !net.internal) {
+        push({ name, address: net.address });
       }
     }
+  }
+
+  for (const entry of getWindowsLanAddressesFallback()) {
+    push(entry);
+  }
+  for (const entry of envLanOverride()) {
+    push(entry);
   }
 
   return rankLanAddresses(addrs);
@@ -68,8 +130,9 @@ export function getLanAddresses() {
 
 /** Best LAN IP for driver phones (Wi‑Fi / hotspot preferred over virtual adapters). */
 export function pickPrimaryLanAddress(lan = getLanAddresses()) {
-  if (!lan.length) return '127.0.0.1';
-  return rankLanAddresses(lan)[0].address;
+  const usable = rankLanAddresses(lan.filter((n) => isPhoneAdvertisableAddress(n.address)));
+  if (!usable.length) return '127.0.0.1';
+  return usable[0].address;
 }
 
 /** Never advertise 127.0.0.1 to driver phones — they cannot reach loopback. */
@@ -211,6 +274,7 @@ export function logNetworkStartup(urls, extras = {}) {
   if (lan.length) {
     console.log(`  LAN:     ${lan.map((n) => `${n.address} (${n.name})`).join(', ')}`);
   } else {
+    console.log(`  LAN:     none — connect Wi‑Fi or set ADKERALA_LAN_IP for driver phones`);
     console.log(`  Local:   http://127.0.0.1:${urls.port}/`);
   }
   console.log('');

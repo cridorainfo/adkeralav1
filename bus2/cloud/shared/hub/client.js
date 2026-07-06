@@ -10,6 +10,7 @@ import {
   loadDisconnectAck,
   loadHubControlUrl,
   loadHubPairCode,
+  resetHubSessionForNewBus,
   saveDisconnectAck,
   saveHubControlUrl,
   saveHubPairCode,
@@ -162,15 +163,17 @@ export async function ensureHubConnected() {
 export async function tryStoredHubConnect() {
   const result = await ensureHubConnected();
   const controlUrl = loadHubControlUrl();
-  if (result.ok) return { ...result, controlUrl };
+  if (result.status === 'connected') return { ok: true, ...result, controlUrl };
   if (result.status === 'revoked') return { ...result, controlUrl };
   if (result.keepTrying) {
     return {
-      ok: true,
+      ok: false,
       status: 'reconnecting',
       controlUrl,
       plate: getHubPlate(),
       offline: Boolean(result.offline),
+      error: result.error,
+      keepTrying: true,
     };
   }
   return { ...result, controlUrl };
@@ -179,9 +182,17 @@ export async function tryStoredHubConnect() {
 /** Save bus control URL (no secrets in the URL), then reconnect if this device already paired. */
 export async function connectAfterBusUrlSaved(controlUrl) {
   if (!controlUrl) return { ok: false, status: 'no-url', controlUrl: null };
+  const previous = loadHubControlUrl();
   const normalized = saveHubControlUrl(controlUrl);
   if (!normalized) return { ok: false, status: 'invalid-url', controlUrl: null };
+  if (previous && previous !== normalized) {
+    resetHubSessionForNewBus();
+  }
   return tryStoredHubConnect();
+}
+
+export function shouldOpenHubControl(auto) {
+  return Boolean(auto?.ok && auto.status === 'connected' && auto.controlUrl);
 }
 
 /** Where to send the driver after pairing — PWA stays on /driver/control, bus LAN opens /control. */
