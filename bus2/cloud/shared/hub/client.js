@@ -82,8 +82,13 @@ export async function pairToHub(controlUrl, pairingCode) {
     if (json.devicesDisconnectAt) saveDisconnectAck(json.devicesDisconnectAt);
 
     return { ok: true, plate: json.plate ?? '', reused: Boolean(json.reused) };
-  } catch {
-    return { ok: false, error: 'Could not reach bus — join the same Wi‑Fi as the display PC' };
+  } catch (err) {
+    const offlineHint =
+      'Could not reach bus — join the same Wi‑Fi as the display PC, turn off mobile data, and run allow-firewall.bat on the bus PC';
+    if (typeof console !== 'undefined' && err) {
+      console.warn('AdKerala hub pair failed:', err?.message ?? err);
+    }
+    return { ok: false, error: offlineHint };
   }
 }
 

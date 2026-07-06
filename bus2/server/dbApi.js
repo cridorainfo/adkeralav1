@@ -50,7 +50,9 @@ function isValidInfoRaw(raw) {
 }
 
 /** Load info.txt from db/, siblings, or .adkerala-state-archive/ — restores main when needed. */
-async function loadInfoRaw(root) {
+const loadInfoRawInflight = new Map();
+
+async function loadInfoRawOnce(root) {
   const { infoFile } = getDbPaths(root);
   const localBest = await readBestRecoverableFile(infoFile, {
     validate: isValidInfoRaw,
@@ -77,6 +79,20 @@ async function loadInfoRaw(root) {
   }
 
   return best.raw;
+}
+
+async function loadInfoRaw(root) {
+  const key = path.resolve(root);
+  if (loadInfoRawInflight.has(key)) {
+    return loadInfoRawInflight.get(key);
+  }
+  const task = loadInfoRawOnce(root);
+  loadInfoRawInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    loadInfoRawInflight.delete(key);
+  }
 }
 
 function buildInfoContent(data) {

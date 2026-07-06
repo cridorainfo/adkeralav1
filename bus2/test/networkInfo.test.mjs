@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import {
   buildNetworkUrls,
   controlIpForPhones,
+  isVirtualNicName,
+  lanAddressTier,
   pickPrimaryLanAddress,
+  preferredProbeTiers,
+  rankLanAddresses,
 } from '../server/networkInfo.js';
 
 test('controlIpForPhones rejects loopback', () => {
@@ -29,4 +33,45 @@ test('pickPrimaryLanAddress prefers Windows hotspot gateway', () => {
     { name: 'Wi-Fi', address: '192.168.137.1' },
   ]);
   assert.equal(ip, '192.168.137.1');
+});
+
+test('pickPrimaryLanAddress prefers 192.168 Wi-Fi over 10.x VPN-style address', () => {
+  const ip = pickPrimaryLanAddress([
+    { name: 'Ethernet', address: '10.255.253.156' },
+    { name: 'Wi-Fi', address: '192.168.1.42' },
+  ]);
+  assert.equal(ip, '192.168.1.42');
+});
+
+test('isVirtualNicName flags common VPN adapter names', () => {
+  assert.equal(isVirtualNicName('NordLynx'), true);
+  assert.equal(isVirtualNicName('OpenVPN TAP-Windows6'), true);
+  assert.equal(isVirtualNicName('Cisco AnyConnect'), true);
+  assert.equal(isVirtualNicName('Wi-Fi'), false);
+});
+
+test('preferredProbeTiers ignores 10.x when 192.168 is available', () => {
+  const plan = preferredProbeTiers([
+    { name: 'Ethernet', address: '10.255.253.156' },
+    { name: 'Wi-Fi', address: '192.168.1.42' },
+  ]);
+  assert.deepEqual(plan.tiers, [1]);
+  assert.equal(plan.ranked[0].address, '192.168.1.42');
+});
+
+test('lanAddressTier ranks phone-friendly subnets first', () => {
+  assert.equal(lanAddressTier('192.168.1.1'), 1);
+  assert.equal(lanAddressTier('172.20.0.1'), 2);
+  assert.equal(lanAddressTier('10.255.253.156'), 3);
+});
+
+test('rankLanAddresses orders hotspot and Wi-Fi ahead of 10.x ethernet', () => {
+  const ranked = rankLanAddresses([
+    { name: 'Ethernet', address: '10.255.253.156' },
+    { name: 'Wi-Fi', address: '192.168.137.1' },
+    { name: 'Ethernet', address: '192.168.0.5' },
+  ]);
+  assert.equal(ranked[0].address, '192.168.137.1');
+  assert.equal(ranked[1].address, '192.168.0.5');
+  assert.equal(ranked[2].address, '10.255.253.156');
 });

@@ -1,27 +1,17 @@
 import http from 'http';
 import os from 'os';
 
-const VIRTUAL_NIC =
-  /^(vmware|virtualbox|vbox|hyper-v|vethernet|loopback|bluetooth|npcap|wintun|tailscale|zerotier|radmin|hamachi|docker|wsl|neko)/i;
+const VIRTUAL_NIC_PREFIX =
+  /^(vmware|virtualbox|vbox|hyper-v|vethernet|loopback|bluetooth|npcap|wintun|tailscale|zerotier|radmin|hamachi|docker|wsl|neko|wireguard|nordlynx|openvpn|tap\d*|tun\d*)/i;
+const VIRTUAL_NIC_SUBSTR =
+  /vpn|anyconnect|forticlient|nord|warp|proton|expressvpn|cisco|globalprotect|pulse|zscaler|softether|surfshark|mullvad|private internet|cloudflare|zerotier|tailscale|hamachi|radmin|wireguard|wintun|hyper-v|vethernet/i;
 const LINK_LOCAL = /^169\.254\./;
 const WIFI_NIC = /^(wi-?fi|wlan|wireless)/i;
 const ETHERNET_NIC = /^(ethernet|eth|lan)/i;
 
-/** Local IPv4 addresses for driver phone / LAN access. */
-export function getLanAddresses() {
-  const nets = os.networkInterfaces();
-  const addrs = [];
-
-  for (const name of Object.keys(nets)) {
-    if (VIRTUAL_NIC.test(name)) continue;
-    for (const net of nets[name] ?? []) {
-      if (net.family === 'IPv4' && !net.internal && !LINK_LOCAL.test(net.address)) {
-        addrs.push({ name, address: net.address });
-      }
-    }
-  }
-
-  return addrs.sort((a, b) => scoreNic(a.name) - scoreNic(b.name)).reverse();
+/** Skip VPN / virtual adapters that often expose unreachable 10.x addresses to phones. */
+export function isVirtualNicName(name) {
+  return VIRTUAL_NIC_PREFIX.test(name) || VIRTUAL_NIC_SUBSTR.test(name);
 }
 
 function scoreNic(name) {
@@ -31,14 +21,55 @@ function scoreNic(name) {
   return 10;
 }
 
+/** Higher score = better candidate for driver phones (hotspot / 192.168 over 10.x VPN ranges). */
+export function scoreLanEntry({ name, address }) {
+  return scoreNic(name) + scoreIp(address);
+}
+
+function scoreIp(address) {
+  if (address === '192.168.137.1') return 100;
+  if (address.startsWith('192.168.137.')) return 90;
+  if (address.startsWith('192.168.')) return 80;
+  const parts = address.split('.').map(Number);
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return 50;
+  if (parts[0] === 10) return 20;
+  return 10;
+}
+
+/** 1 = 192.168 (phones), 2 = 172.16–31, 3 = 10.x (often VPN), 4 = other */
+export function lanAddressTier(address) {
+  if (address.startsWith('192.168.')) return 1;
+  const parts = address.split('.').map(Number);
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return 2;
+  if (parts[0] === 10) return 3;
+  return 4;
+}
+
+export function rankLanAddresses(lan) {
+  return [...lan].sort((a, b) => scoreLanEntry(b) - scoreLanEntry(a));
+}
+
+/** Local IPv4 addresses for driver phone / LAN access. */
+export function getLanAddresses() {
+  const nets = os.networkInterfaces();
+  const addrs = [];
+
+  for (const name of Object.keys(nets)) {
+    if (isVirtualNicName(name)) continue;
+    for (const net of nets[name] ?? []) {
+      if (net.family === 'IPv4' && !net.internal && !LINK_LOCAL.test(net.address)) {
+        addrs.push({ name, address: net.address });
+      }
+    }
+  }
+
+  return rankLanAddresses(addrs);
+}
+
 /** Best LAN IP for driver phones (Wi‑Fi / hotspot preferred over virtual adapters). */
 export function pickPrimaryLanAddress(lan = getLanAddresses()) {
   if (!lan.length) return '127.0.0.1';
-  const hotspotHost = lan.find((n) => n.address === '192.168.137.1');
-  if (hotspotHost) return hotspotHost.address;
-  const hotspot = lan.find((n) => n.address.startsWith('192.168.137.'));
-  if (hotspot) return hotspot.address;
-  return lan[0].address;
+  return rankLanAddresses(lan)[0].address;
 }
 
 /** Never advertise 127.0.0.1 to driver phones — they cannot reach loopback. */
@@ -51,21 +82,39 @@ export function controlIpForPhones(ip) {
  * Probe each LAN adapter and return the first IP phones can reach on this PC.
  * Falls back to scored primary if probes fail (firewall may still block phones).
  */
+export function preferredProbeTiers(lan) {
+  const ranked = rankLanAddresses(lan);
+  if (ranked.some((n) => lanAddressTier(n.address) === 1)) {
+    return { ranked, tiers: [1] };
+  }
+  if (ranked.some((n) => lanAddressTier(n.address) === 2)) {
+    return { ranked, tiers: [2] };
+  }
+  return { ranked, tiers: [3, 4] };
+}
+
 export async function findBestControlIp(port, lan = getLanAddresses()) {
   if (!lan.length) {
     return { ip: null, name: null, ok: false, error: 'no_lan_ip' };
   }
 
-  const ordered = [...lan].sort((a, b) => {
-    if (a.address === '192.168.137.1') return -1;
-    if (b.address === '192.168.137.1') return 1;
-    return scoreNic(a.name) - scoreNic(b.name);
-  });
+  const { ranked, tiers } = preferredProbeTiers(lan);
 
-  for (const n of ordered) {
-    const result = await probeLanHttp(n.address, port);
-    if (result.ok) {
-      return { ip: n.address, name: n.name, ok: true, error: null };
+  for (const tier of tiers) {
+    const candidates = ranked.filter((n) => lanAddressTier(n.address) === tier);
+    for (const n of candidates) {
+      const result = await probeLanHttp(n.address, port);
+      if (result.ok) {
+        return { ip: n.address, name: n.name, ok: true, error: null };
+      }
+    }
+    if (candidates.length) {
+      return {
+        ip: candidates[0].address,
+        name: candidates[0].name,
+        ok: false,
+        error: 'probe_failed',
+      };
     }
   }
 

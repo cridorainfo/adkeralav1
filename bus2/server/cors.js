@@ -12,6 +12,10 @@ export function setupBusCors(app) {
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     }
+    // Chrome Private Network Access — HTTPS cloud PWA → HTTP bus PC (192.168.x.x)
+    if (req.headers['access-control-request-private-network']) {
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    }
     if (req.method === 'OPTIONS') {
       res.status(204).end();
       return;
