@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { uploadMedia } from '../lib/api.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
+import { busDisplayLabel } from './BusContext.jsx';
 
 export default function CampaignsPanel({ adminMode = false }) {
   const { user } = useAuth();
@@ -133,7 +134,7 @@ export default function CampaignsPanel({ adminMode = false }) {
                           checked={form.targetBusIds.includes(b.busId)}
                           onChange={() => toggleBus(b.busId)}
                         />{' '}
-                        {b.busId}
+                        {busDisplayLabel(b)}
                       </label>
                     ))}
                   </div>
@@ -185,7 +186,9 @@ export default function CampaignsPanel({ adminMode = false }) {
               <span className={`campaign-status ${c.status}`}>{c.status}</span>
               <p className="hint">
                 {c.ads?.length ?? 0} fullscreen · {c.bannerAds?.length ?? 0} banner · targets:{' '}
-                {(c.targetBusIds ?? []).join(', ') || 'none'}
+                {(c.targetBusIds ?? [])
+                  .map((id) => busDisplayLabel(buses.find((b) => b.busId === id) ?? { busId: id }))
+                  .join(', ') || 'none'}
               </p>
               <p className="hint">
                 {plays[c.id]

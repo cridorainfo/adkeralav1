@@ -789,7 +789,19 @@ app.get('/api/health/details', async (_req, res) => {
 app.get('/api/buses', authSession, requireAuth, async (req, res) => {
   if (req.user.role === 'advertiser') {
     const buses = await listBuses({});
-    res.json({ ok: true, buses: buses.map((b) => ({ busId: b.busId })) });
+    // Advertisers need enough to identify a bus when picking campaign targets (plate/display
+    // name), but nothing sensitive (owner, pairing code, linked driver).
+    res.json({
+      ok: true,
+      buses: buses.map((b) => ({
+        busId: b.busId,
+        profile: {
+          displayName: b.profile?.displayName ?? '',
+          plate: b.profile?.plate ?? '',
+          plateDisplay: b.profile?.plateDisplay ?? '',
+        },
+      })),
+    });
     return;
   }
   if (!['admin', 'bus_owner'].includes(req.user.role)) {
