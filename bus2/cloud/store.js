@@ -17,6 +17,8 @@ const defaultStore = () => ({
   users: {},
   adCampaigns: {},
   adPlays: [],
+  houseAds: [],
+  pricingSettings: null,
   commands: [],
   fleetEnrollments: {},
   busDevices: {},
@@ -352,6 +354,15 @@ const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
 const PG_KEY_STOP_AUDIO = 'stop_audio_catalog';
 const PG_KEY_BUS_ADS_PREFIX = 'bus_ads:';
 const PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX = 'bus_display_settings:';
+const PG_KEY_PRICING_SETTINGS = 'pricing_settings';
+const PG_KEY_HOUSE_ADS = 'house_ads_catalog';
+
+const DEFAULT_PRICING_SETTINGS = {
+  ratePerSecond: 0,
+  peakRatePerSecond: 0,
+  // Minutes-since-midnight windows, Asia/Kolkata — e.g. 7-9am + 5-7pm rush hours.
+  peakHours: [],
+};
 
 const DISPLAY_SETTINGS_KEYS = [
   'displaySettings',
@@ -485,6 +496,74 @@ export async function getCampaignPlaysSummary(campaignId) {
     completionRate: plays ? completedPlays / plays : 0,
     avgWatchSec: plays ? Math.round(totalWatchSec / plays) : 0,
   };
+}
+
+/** Raw play events for one ad — used by cloud/pricing.js to split watch-time into peak/off-peak
+ * seconds (a plain aggregate query can't express the multi-window peak-hours check). */
+export async function getAdPlaysRaw(adId) {
+  if (usePostgres()) return pg.pgGetAdPlaysRaw(adId);
+  const store = await loadStore();
+  return (store.adPlays ?? [])
+    .filter((p) => p.adId === adId)
+    .map((p) => ({ playedAt: p.playedAt, durationPlayedSec: p.durationPlayedSec }));
+}
+
+/** Platform-wide ad pricing — not a per-bus concept, so this is a single global settings blob,
+ * same shape as the global phrase-audio catalog above. */
+export async function getPricingSettings() {
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(PG_KEY_PRICING_SETTINGS, null);
+    return { ...DEFAULT_PRICING_SETTINGS, ...(row ?? {}) };
+  }
+  const store = await loadStore();
+  return { ...DEFAULT_PRICING_SETTINGS, ...(store.pricingSettings ?? {}) };
+}
+
+export async function setPricingSettings(patch = {}) {
+  const current = await getPricingSettings();
+  const next = {
+    ratePerSecond: Number.isFinite(Number(patch.ratePerSecond)) ? Math.max(0, Number(patch.ratePerSecond)) : current.ratePerSecond,
+    peakRatePerSecond: Number.isFinite(Number(patch.peakRatePerSecond)) ? Math.max(0, Number(patch.peakRatePerSecond)) : current.peakRatePerSecond,
+    peakHours: Array.isArray(patch.peakHours)
+      ? patch.peakHours
+          .map((w) => ({
+            startMin: Math.min(1439, Math.max(0, Math.round(Number(w.startMin) || 0))),
+            endMin: Math.min(1439, Math.max(0, Math.round(Number(w.endMin) || 0))),
+          }))
+          .filter((w) => w.endMin > w.startMin)
+      : current.peakHours,
+  };
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(PG_KEY_PRICING_SETTINGS, next);
+    return next;
+  }
+  const store = await loadStore();
+  store.pricingSettings = next;
+  await saveStore();
+  return next;
+}
+
+/** House/free ads — admin-managed catalog pushed to every bus regardless of campaign targeting,
+ * used to fill rotation once paid ads exhaust their budget (see cloud/pricing.js). */
+export async function getHouseAds() {
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(PG_KEY_HOUSE_ADS, null);
+    return normalizeAdsList(row?.ads ?? []).map((ad) => ({ ...ad, isHouseAd: true }));
+  }
+  const store = await loadStore();
+  return normalizeAdsList(store.houseAds ?? []).map((ad) => ({ ...ad, isHouseAd: true }));
+}
+
+export async function setHouseAds(ads = []) {
+  const normalized = normalizeAdsList(ads).map((ad) => ({ ...ad, isHouseAd: true }));
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(PG_KEY_HOUSE_ADS, { ads: normalized });
+    return normalized;
+  }
+  const store = await loadStore();
+  store.houseAds = normalized;
+  await saveStore();
+  return normalized;
 }
 
 export async function getBusDisplaySettingsCatalog(busId) {

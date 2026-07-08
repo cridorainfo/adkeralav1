@@ -103,6 +103,17 @@ export function buildAnnouncementSequence(state, stop, { isTerminus = false } = 
     }
   }
 
+  // Voice ad — one clip per stop (not per-language), admin-toggled, appended once at the very
+  // end so it plays as the tail of a single continuous announcement rather than being repeated
+  // after every language block.
+  const key = stopAudioKey(stop);
+  const stopEntry = stopAudio?.[key];
+  const adUrl = stopEntry?.adEnabled ? resolveClipUrl(stopEntry.ad) : null;
+  if (adUrl && flat.length) {
+    flat.push({ pause: pauseMs });
+    flat.push(adUrl);
+  }
+
   return flat.filter((item) => typeof item === 'string' || item?.pause);
 }
 

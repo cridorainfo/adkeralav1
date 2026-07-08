@@ -440,6 +440,17 @@ export async function pgRecordAdPlays(busId, plays = []) {
   return { inserted };
 }
 
+export async function pgGetAdPlaysRaw(adId) {
+  const { rows } = await query(
+    `SELECT played_at, duration_played_sec FROM ad_plays WHERE ad_id = $1`,
+    [adId]
+  );
+  return rows.map((row) => ({
+    playedAt: Number(row.played_at),
+    durationPlayedSec: row.duration_played_sec,
+  }));
+}
+
 export async function pgGetCampaignPlaysSummary(campaignId) {
   const { rows } = await query(
     `SELECT COUNT(*)::int AS plays,

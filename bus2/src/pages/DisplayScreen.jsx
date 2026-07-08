@@ -9,7 +9,12 @@ import { useBusStore } from '../hooks/useBusStore';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import DisplayStatusDots from '../components/DisplayStatusDots';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
-import { adHasPlayableMedia, getFullscreenAdSchedule, nextPlayableAdIndex } from '../lib/adPlayback';
+import {
+  adHasPlayableMedia,
+  findStopTriggeredAdIndex,
+  getFullscreenAdSchedule,
+  nextPlayableAdIndex,
+} from '../lib/adPlayback';
 import { mediaPathToUrl } from '../lib/fileStorage';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
@@ -236,6 +241,12 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       const latest = stateRef.current;
       const latestAds = latest.ads ?? [];
       if (!latest.adSettings?.enabled || !latestAds.length || latest.displayView === 'ad') return;
+
+      const stopAdIndex = findStopTriggeredAdIndex(latestAds, getUpcomingPassengerStop(latest), latest);
+      if (stopAdIndex >= 0) {
+        playAdNow(stopAdIndex);
+        return;
+      }
 
       const { ready } = getFullscreenAdSchedule(latest);
       if (ready) playAdNow();

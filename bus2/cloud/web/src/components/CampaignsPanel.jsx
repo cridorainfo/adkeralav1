@@ -8,9 +8,10 @@ export default function CampaignsPanel({ adminMode = false }) {
   const { user } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
   const [buses, setBuses] = useState([]);
-  const [form, setForm] = useState({ name: '', targetBusIds: [] });
+  const [form, setForm] = useState({ name: '', targetBusIds: [], pendingAmount: '', pendingTriggerStopEn: '' });
   const [message, setMessage] = useState('');
   const [plays, setPlays] = useState({});
+  const [adSpend, setAdSpend] = useState({});
 
   async function load() {
     const [cJson, bJson] = await Promise.all([api('/api/campaigns'), api('/api/buses')]);
@@ -30,6 +31,18 @@ export default function CampaignsPanel({ adminMode = false }) {
       if (summaries[i]) nextPlays[c.id] = summaries[i];
     });
     setPlays(nextPlays);
+
+    // Per-ad spend vs budget — only fullscreen ads carry a budget/exhaustion concept today
+    // (banner ads aren't instrumented by endAd()'s play tracking), so only fetch for those.
+    const budgetedAds = loadedCampaigns.flatMap((c) => (c.ads ?? []).filter((ad) => ad.amount));
+    const spendResults = await Promise.all(
+      budgetedAds.map((ad) => api(`/api/ads/${encodeURIComponent(ad.id)}/spend`).catch(() => null))
+    );
+    const nextSpend = {};
+    budgetedAds.forEach((ad, i) => {
+      if (spendResults[i]) nextSpend[ad.id] = spendResults[i];
+    });
+    setAdSpend(nextSpend);
   }
 
   useEffect(() => {
@@ -79,8 +92,16 @@ export default function CampaignsPanel({ adminMode = false }) {
       type: adMediaTypeFromFile(file),
       mediaFile: up.path,
       durationSec: isBanner ? 8 : 12,
+      // Budget/stop-trigger only apply to the fullscreen rotation — banner ads aren't tracked
+      // by endAd()'s play instrumentation, so there's nothing to exhaust against yet.
+      ...(!isBanner && form.pendingAmount ? { amount: Number(form.pendingAmount) } : {}),
+      ...(!isBanner && form.pendingTriggerStopEn ? { triggerStopEn: form.pendingTriggerStopEn } : {}),
     };
-    setForm({ ...form, [key]: [...(form[key] ?? []), item] });
+    setForm({
+      ...form,
+      [key]: [...(form[key] ?? []), item],
+      ...(!isBanner ? { pendingAmount: '', pendingTriggerStopEn: '' } : {}),
+    });
   }
 
   function toggleBus(busId) {
@@ -121,6 +142,31 @@ export default function CampaignsPanel({ adminMode = false }) {
                   <label>Fullscreen ad media</label>
                   <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
                 </div>
+                <div className="inline-form">
+                  <div className="form-group">
+                    <label>Budget for this ad (₹, optional)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Leave blank for unlimited"
+                      value={form.pendingAmount}
+                      onChange={(e) => setForm({ ...form, pendingAmount: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Show approaching stop (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Exact stop name, e.g. Main Street"
+                      value={form.pendingTriggerStopEn}
+                      onChange={(e) => setForm({ ...form, pendingTriggerStopEn: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <p className="hint">
+                  Budget and stop-trigger apply to the next fullscreen ad you upload above.
+                </p>
                 <div className="form-group">
                   <label>Banner ad media (image or video)</label>
                   <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />
@@ -145,6 +191,12 @@ export default function CampaignsPanel({ adminMode = false }) {
                   ? `Plays: ${plays[c.id].plays} · Avg watch: ${plays[c.id].avgWatchSec}s · Completion: ${Math.round((plays[c.id].completionRate ?? 0) * 100)}%`
                   : 'Plays: —'}
               </p>
+              {(c.ads ?? []).filter((ad) => ad.amount).map((ad) => (
+                <p key={ad.id} className="hint">
+                  {ad.name || ad.id}: spent ₹{(adSpend[ad.id]?.spend ?? 0).toFixed(2)} of ₹{Number(ad.amount).toFixed(2)}
+                  {(adSpend[ad.id]?.spend ?? 0) >= Number(ad.amount) ? ' — exhausted, house ads now filling this slot' : ''}
+                </p>
+              ))}
               <div className="editor-actions">
                 {adminMode && c.status === 'pending' && (
                   <button type="button" className="btn btn-primary btn-sm" onClick={() => approve(c.id)}>

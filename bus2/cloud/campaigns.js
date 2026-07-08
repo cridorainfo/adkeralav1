@@ -18,6 +18,17 @@ export async function getCampaign(id) {
   return store.adCampaigns?.[id] ?? null;
 }
 
+/** Finds the campaign that owns a given ad id — used to authorize per-ad spend lookups (an
+ * advertiser must not be able to see another advertiser's ad spend just by guessing an id). */
+export async function findCampaignByAdId(adId) {
+  const store = await loadStore();
+  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+    if ((campaign.ads ?? []).some((ad) => ad.id === adId)) return campaign;
+    if ((campaign.bannerAds ?? []).some((ad) => ad.id === adId)) return campaign;
+  }
+  return null;
+}
+
 export async function createCampaign(user, body) {
   const store = await loadStore();
   if (!store.adCampaigns) store.adCampaigns = {};

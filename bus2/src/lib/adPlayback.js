@@ -1,9 +1,30 @@
-/** True when an ad entry has a local or remote media reference. */
+/** True when an ad entry has a local or remote media reference and hasn't run out of budget.
+ * `exhausted` is stamped by the cloud (cloud/server.js stampExhaustionAndAppendHouseAds) from
+ * reported plays vs the ad's amount — never set locally, and house ads never carry it — so
+ * folding the check in here is enough for rotation to naturally fall back to house ads once
+ * every paid ad is exhausted, with no special-case branching at any call site. */
 export function adHasPlayableMedia(ad) {
   if (!ad) return false;
+  if (ad.exhausted) return false;
   const url = String(ad.mediaUrl ?? '').trim();
   const file = String(ad.mediaFile ?? '').trim();
   return Boolean(url || file);
+}
+
+function stopKey(stop) {
+  const en = typeof stop === 'string' ? stop : stop?.en;
+  return String(en ?? '').trim().toLowerCase();
+}
+
+/** Index of a playable ad pinned to the upcoming stop (via triggerStopEn), so it can be shown
+ * before the bus actually reaches that stop instead of waiting for the normal interval timer.
+ * Guarded by currentStopIndex so it fires once per approach to a given stop, not every tick
+ * while still approaching it — resets naturally once the bus advances past that stop. */
+export function findStopTriggeredAdIndex(ads = [], upcomingStop, state = {}) {
+  const key = stopKey(upcomingStop);
+  if (!key) return -1;
+  if ((state.lastStopAdTriggerStopIndex ?? null) === (state.currentStopIndex ?? null)) return -1;
+  return ads.findIndex((ad) => adHasPlayableMedia(ad) && stopKey(ad.triggerStopEn) === key);
 }
 
 /** Next ad index with media, starting from startIndex; -1 if none. */

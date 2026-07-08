@@ -29,6 +29,14 @@ export function normalizeAdForCatalog(ad) {
     // Round-trips through the bus's own ad catalog so play events reported back (see
     // BusStoreProvider.jsx's endAd()) can be attributed to the campaign that bought the slot.
     ...(ad.campaignId ? { campaignId: ad.campaignId } : {}),
+    // Total budget (currency) this ad is allowed to spend before it's excluded from rotation —
+    // see cloud/pricing.js for how spend is computed from reported plays.
+    ...(Number.isFinite(Number(ad.amount)) ? { amount: Number(ad.amount) } : {}),
+    // Normalized-lowercase-English stop name (matches stopAudioKey in audioFragments.js) this ad
+    // should be prioritized for as the bus approaches that stop, instead of purely on a timer.
+    ...(ad.triggerStopEn ? { triggerStopEn: String(ad.triggerStopEn).trim().toLowerCase() } : {}),
+    // House/free ads never exhaust and fill rotation once paid ads run out of budget.
+    ...(ad.isHouseAd ? { isHouseAd: true } : {}),
   };
 }
 

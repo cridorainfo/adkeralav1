@@ -61,7 +61,13 @@ import {
   getRouteCatalogRevision,
   recordAdPlays,
   getCampaignPlaysSummary,
+  getAdPlaysRaw,
+  getPricingSettings,
+  setPricingSettings,
+  getHouseAds,
+  setHouseAds,
 } from './store.js';
+import { computeAdSpend, isAdExhausted } from './pricing.js';
 import {
   CLOUD_VERSION,
   buildPcLatestYml,
@@ -100,6 +106,7 @@ import {
   updateCampaign,
   deleteCampaign,
   pushCampaignToBuses,
+  findCampaignByAdId,
 } from './campaigns.js';
 import {
   enrollDevice,
@@ -1110,6 +1117,24 @@ app.get('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
   });
 });
 
+// Stamps `exhausted` onto each budgeted ad (spend computed fresh from reported plays against
+// current pricing settings — see cloud/pricing.js) and appends the always-on house-ad catalog,
+// so the bus's own rotation (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid
+// ads and fall back to house ads without needing any cloud round-trip of its own.
+async function stampExhaustionAndAppendHouseAds(list = []) {
+  const pricingSettings = await getPricingSettings();
+  const stamped = await Promise.all(
+    list.map(async (ad) => {
+      if (!Number.isFinite(Number(ad.amount)) || Number(ad.amount) <= 0) return ad;
+      const plays = await getAdPlaysRaw(ad.id);
+      const { spend } = computeAdSpend(plays, pricingSettings);
+      return { ...ad, exhausted: isAdExhausted(ad.amount, spend) };
+    })
+  );
+  const houseAds = await getHouseAds();
+  return [...stamped, ...houseAds];
+}
+
 // Bus device pull sync for ads/banner ads (full reconciliation, mirrors GET .../routes above).
 // The UPDATE_ADS command gives near-instant updates while the bus is online, but this periodic
 // pull is what guarantees the bus eventually converges to exactly what the cloud has — including
@@ -1120,13 +1145,60 @@ app.get('/api/buses/:busId/ads', authBus, async (req, res) => {
   const row = await getBus(busId);
   await syncBusAdsCatalogFromTelemetry(busId, row?.state ?? {});
   const catalog = await getBusAdsCatalog(busId);
+  const ads = await stampExhaustionAndAppendHouseAds(catalog.ads);
   res.json({
     ok: true,
-    ads: catalog.ads,
+    ads,
     bannerAds: catalog.bannerAds,
     adsSavedAt: catalog.adsSavedAt,
-    mediaFiles: collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds),
+    mediaFiles: collectAdMediaPathsFromLists(ads, catalog.bannerAds),
   });
+});
+
+// Platform-wide pricing — not a per-bus concept, so no busId in the path or ownership check
+// (bus_owner accounts don't set pricing; only admin does).
+app.get('/api/pricing-settings', authAdminOnly, async (_req, res) => {
+  const settings = await getPricingSettings();
+  res.json({ ok: true, ...settings });
+});
+
+app.put('/api/pricing-settings', authAdminOnly, async (req, res) => {
+  const settings = await setPricingSettings(req.body ?? {});
+  res.json({ ok: true, ...settings });
+});
+
+// House/free ads — admin-managed, pushed to every bus regardless of campaign targeting (see
+// stampExhaustionAndAppendHouseAds above). Reuses the same ad-object shape/upload flow as
+// campaign ads; the only difference is isHouseAd stamped in, no amount/campaignId/targeting.
+app.get('/api/house-ads', authAdminOnly, async (_req, res) => {
+  const ads = await getHouseAds();
+  res.json({ ok: true, ads });
+});
+
+app.put('/api/house-ads', authAdminOnly, async (req, res) => {
+  const ads = await setHouseAds(Array.isArray(req.body?.ads) ? req.body.ads : []);
+  res.json({ ok: true, ads });
+});
+
+// Per-ad spend vs budget — admin visibility into where a campaign's money is actually going,
+// beyond the aggregate per-campaign totals in GET /api/campaigns/:id/plays. Ownership is
+// checked via the owning campaign (an advertiser must not see another advertiser's ad spend
+// just by guessing an ad id) — house ads have no owning campaign and are admin-only.
+app.get('/api/ads/:adId/spend', authSession, requireAuth, async (req, res) => {
+  const campaign = await findCampaignByAdId(req.params.adId);
+  if (req.user.role === 'advertiser') {
+    if (!campaign || campaign.advertiserId !== req.user.id) {
+      res.status(403).json({ ok: false, error: 'Forbidden' });
+      return;
+    }
+  } else if (req.user.role !== 'admin') {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const pricingSettings = await getPricingSettings();
+  const plays = await getAdPlaysRaw(req.params.adId);
+  const { peakSec, offPeakSec, spend } = computeAdSpend(plays, pricingSettings);
+  res.json({ ok: true, adId: req.params.adId, plays: plays.length, peakSec, offPeakSec, spend });
 });
 
 app.get('/api/buses/:busId/display-settings/catalog', authFleet, async (req, res) => {
