@@ -116,7 +116,7 @@ export default function CampaignsPanel({ adminMode = false }) {
       {(user?.role === 'advertiser' || adminMode) && (
         <div className="card">
           <h2>{adminMode ? 'All campaigns' : 'My campaigns'}</h2>
-          {user?.role === 'advertiser' && (
+          {(user?.role === 'advertiser' || adminMode) && (
             <>
               <form onSubmit={createCampaign}>
                 <div className="form-group">
