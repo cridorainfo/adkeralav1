@@ -138,10 +138,10 @@ export default function CampaignsPanel({ adminMode = false }) {
                     ))}
                   </div>
                 </div>
-                <div className="form-group">
-                  <label>Fullscreen ad media</label>
-                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
-                </div>
+                <p className="hint">
+                  Set a budget and/or stop-trigger below first, then choose the fullscreen ad
+                  file — selecting the file creates the ad using whatever's filled in here.
+                </p>
                 <div className="inline-form">
                   <div className="form-group">
                     <label>Budget for this ad (₹, optional)</label>
@@ -164,9 +164,10 @@ export default function CampaignsPanel({ adminMode = false }) {
                     />
                   </div>
                 </div>
-                <p className="hint">
-                  Budget and stop-trigger apply to the next fullscreen ad you upload above.
-                </p>
+                <div className="form-group">
+                  <label>Fullscreen ad media</label>
+                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
+                </div>
                 <div className="form-group">
                   <label>Banner ad media (image or video)</label>
                   <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />
