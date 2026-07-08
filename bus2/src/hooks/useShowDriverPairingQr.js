@@ -37,26 +37,33 @@ export function useShowDriverPairingQr(state) {
     const disconnectAt = readDisconnectAt(state);
     const pairingCode = state?.busProfile?.pairingCode ?? '';
 
+    // A phone connected right now always wins — checked first and unconditionally, so no
+    // stale/racy "admin revoked" signal can keep the QR showing while a driver is actively
+    // paired. This used to be checked after the revoke logic below, which meant setting a
+    // pairing code for the very first time (which bumps devicesDisconnectAt as a side effect,
+    // same mechanism as "disconnect all phones") could force the QR to reappear even though a
+    // driver had just successfully connected in that same state update.
+    if (isHubLive(state)) {
+      hadSessionRef.current = true;
+      lastDisconnectAtRef.current = disconnectAt;
+      lastPairingCodeRef.current = pairingCode;
+      setShowQr(false);
+      return undefined;
+    }
+
+    // Only treat a disconnect-stamp/pairing-code change as a genuine revoke if a session was
+    // already live before — otherwise a bus that's never been connected yet would treat its
+    // very first pairing-code setup as an "admin disconnected everyone" event.
     const adminRevoked =
-      (disconnectAt && String(disconnectAt) !== String(lastDisconnectAtRef.current)) ||
-      (hadSessionRef.current &&
-        pairingCode &&
-        lastPairingCodeRef.current &&
-        pairingCode !== lastPairingCodeRef.current);
+      hadSessionRef.current &&
+      ((disconnectAt && String(disconnectAt) !== String(lastDisconnectAtRef.current)) ||
+        (pairingCode && lastPairingCodeRef.current && pairingCode !== lastPairingCodeRef.current));
 
     if (adminRevoked) {
       hadSessionRef.current = false;
       lastDisconnectAtRef.current = disconnectAt;
       lastPairingCodeRef.current = pairingCode;
       setShowQr(true);
-      return undefined;
-    }
-
-    if (isHubLive(state)) {
-      hadSessionRef.current = true;
-      lastDisconnectAtRef.current = disconnectAt;
-      lastPairingCodeRef.current = pairingCode;
-      setShowQr(false);
       return undefined;
     }
 

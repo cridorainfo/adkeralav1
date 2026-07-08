@@ -4,7 +4,9 @@ import { isLanOrigin, isPrivateLanHost, isPhoneReachableHost } from '../cloud/sh
 
 test('isPrivateLanHost accepts RFC1918 addresses', () => {
   assert.equal(isPrivateLanHost('192.168.1.50'), true);
-  assert.equal(isPrivateLanHost('10.0.0.5'), false);
+  // 10.x (other than the 10.255.x VPN-only range) is a legitimate, if deprioritized, LAN
+  // range — matches server/networkInfo.js's own tiering, which still probes it as a fallback.
+  assert.equal(isPrivateLanHost('10.0.0.5'), true);
   assert.equal(isPrivateLanHost('172.16.0.1'), true);
   assert.equal(isPrivateLanHost('192.168.137.1'), true);
 });
@@ -18,8 +20,8 @@ test('isPrivateLanHost rejects VPN-only 10.255.x.x addresses', () => {
   assert.equal(isPrivateLanHost('10.255.253.156'), false);
 });
 
-test('isPhoneReachableHost rejects 10.x VPN-style subnets', () => {
-  assert.equal(isPhoneReachableHost('10.0.0.5'), false);
+test('isPhoneReachableHost only rejects the 10.255.x VPN-only subnet, not all 10.x', () => {
+  assert.equal(isPhoneReachableHost('10.0.0.5'), true);
   assert.equal(isPhoneReachableHost('10.255.253.156'), false);
   assert.equal(isPhoneReachableHost('192.168.137.1'), true);
 });

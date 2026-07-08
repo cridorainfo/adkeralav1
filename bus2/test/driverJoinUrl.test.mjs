@@ -83,7 +83,10 @@ test('saveHubControlUrl rejects cloud control URLs', () => {
   assert.equal(saveHubControlUrl('https://adkerala.com/control'), null);
   assert.equal(saveHubControlUrl('http://192.168.1.50:5174/control'), 'http://192.168.1.50:5174/control');
   assert.equal(saveHubControlUrl('http://10.255.253.156:5174/control'), null);
-  assert.equal(saveHubControlUrl('http://10.0.0.5:5174/control'), null);
+  // Only 10.255.x is treated as VPN-only — other 10.x is a legitimate (if deprioritized) LAN
+  // range some bus PCs' real hotspot/router hands out, and server/networkInfo.js's own tiering
+  // still probes it as a fallback, so the client must accept it too.
+  assert.equal(saveHubControlUrl('http://10.0.0.5:5174/control'), 'http://10.0.0.5:5174/control');
 });
 
 test('readPairingCodeFromLocation reads legacy code param', () => {

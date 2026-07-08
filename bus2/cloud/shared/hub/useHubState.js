@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hubFetch, isOnBusLanOrigin } from './api.js';
+import { hubApiUrl, hubFetch, isOnBusLanOrigin } from './api.js';
 import {
   clearHubSetup,
   getHubToken,
@@ -18,16 +18,14 @@ import { mergeHubPollState } from './mergeHubPollState.js';
 const POLL_MS = 1000;
 const POLL_MS_LIVE = 3000;
 
-function canUseSameOriginEvents() {
-  if (typeof window === 'undefined') return false;
-  if (isOnBusLanOrigin()) return true;
-  const control = loadHubControlUrl();
-  if (!control) return false;
-  try {
-    return new URL(control).origin === window.location.origin;
-  } catch {
-    return false;
-  }
+// server/cors.js sends full CORS (echoed origin + credentials) on the SSE route specifically so
+// a driver phone off the bus PC's origin — a cloud-hosted PWA, or the Capacitor app's own
+// capacitor://localhost origin — can still open it cross-origin. Same-origin was never a real
+// requirement; it only looked that way because the URL below used to be a bare relative path
+// that only resolved correctly when window.location already was the bus PC.
+function canUseHubEvents() {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return false;
+  return isOnBusLanOrigin() || Boolean(loadHubControlUrl());
 }
 
 /** Poll hub state and maintain session — single ping owner via startHubPing. */
@@ -130,9 +128,9 @@ export function useHubState({ onRevoked } = {}) {
     };
     document.addEventListener('visibilitychange', onVisible);
 
-    if (canUseSameOriginEvents() && typeof EventSource !== 'undefined') {
+    if (canUseHubEvents()) {
       try {
-        eventSource = new EventSource('/api/state/events');
+        eventSource = new EventSource(hubApiUrl('/api/state/events'));
         eventSource.onopen = () => schedulePoll(POLL_MS_LIVE);
         eventSource.onmessage = (event) => {
           try {

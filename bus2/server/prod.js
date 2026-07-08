@@ -55,11 +55,16 @@ export async function startBusServer(options = {}) {
 
   let httpsInfo = { httpsEnabled: false, httpsPort: null };
   let firewallStatus = { ok: true, open: [], closed: [] };
-  let lanProbe = { ok: null, error: null, ip: null };
+  let lanProbe = { ok: null, error: null, ip: null, serverListening: null };
 
   const refreshLanProbe = async () => {
     const best = await findBestControlIp(PORT);
-    lanProbe = { ok: best.ok, error: best.error ?? null, ip: best.ip };
+    lanProbe = {
+      ok: best.ok,
+      error: best.error ?? null,
+      ip: best.ip,
+      serverListening: best.serverListening ?? null,
+    };
     return lanProbe;
   };
 
@@ -70,6 +75,7 @@ export async function startBusServer(options = {}) {
       primaryIp: lanProbe.ip,
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
+      serverListening: lanProbe.serverListening,
     });
     const cloudCfg = getCloudConfig(dataRoot);
     res.json({
@@ -82,6 +88,7 @@ export async function startBusServer(options = {}) {
       firewallClosedPorts: firewallStatus.closed,
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
+      serverListening: lanProbe.serverListening,
       adminUrl: localAdmin?.adminUrl ?? null,
       adminKeyHint: localAdmin?.adminKey ?? null,
     });
@@ -119,6 +126,7 @@ export async function startBusServer(options = {}) {
     primaryIp: lanProbe.ip,
     lanReachable: lanProbe.ok,
     lanProbeError: lanProbe.error ?? null,
+    serverListening: lanProbe.serverListening,
   });
   const firewallPorts = [PORT];
   if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
@@ -127,14 +135,32 @@ export async function startBusServer(options = {}) {
   ensureWindowsFirewallPorts(firewallPorts, process.env.ADKERALA_PACKAGED === '1' ? process.execPath : null);
   firewallStatus = checkFirewallPorts(firewallPorts);
   await refreshLanProbe();
+  const startupProbeDelays = [2000, 5000, 10000, 20000];
+  for (const ms of startupProbeDelays) {
+    setTimeout(() => {
+      refreshLanProbe().catch(() => {});
+    }, ms);
+  }
   const probeTimer = setInterval(() => {
     refreshLanProbe().catch(() => {});
   }, 15000);
   if (!lanProbe.ok) {
-    console.warn(
-      `  LAN probe failed (${lanProbe.ip}:${PORT}) — phones cannot connect yet (${lanProbe.error ?? 'blocked'}).\n` +
-        `           Right-click allow-firewall.bat → Run as administrator.`
-    );
+    if (lanProbe.error === 'no_lan_ip') {
+      console.warn(
+        '  No LAN IP yet - connect Wi-Fi or enable Mobile Hotspot on this PC.\n' +
+          '           Driver QR will appear once a 192.168.x address is available.'
+      );
+    } else if (lanProbe.serverListening) {
+      console.warn(
+        `  LAN probe failed (${lanProbe.ip ?? 'unknown'}:${PORT}) - app is running but phones are blocked (firewall).\n` +
+          '           Right-click allow-firewall.bat -> Run as administrator.'
+      );
+    } else {
+      console.warn(
+        `  LAN probe failed (${lanProbe.ip ?? 'unknown'}:${PORT}) - phones cannot connect yet (${lanProbe.error ?? 'blocked'}).\n` +
+          '           Right-click allow-firewall.bat -> Run as administrator.'
+      );
+    }
   }
   if (!firewallStatus.ok) {
     console.warn(
@@ -169,6 +195,7 @@ export async function startBusServer(options = {}) {
       primaryIp: lanProbe.ip,
       lanReachable: lanProbe.ok,
       lanProbeError: lanProbe.error ?? null,
+      serverListening: lanProbe.serverListening,
     }),
     lanProbe,
     refreshLanProbe,

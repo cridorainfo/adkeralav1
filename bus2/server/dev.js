@@ -41,11 +41,16 @@ setupDriveApi(app, root);
 setupCloudProxy(app, root);
 
 let httpsInfo = { httpsEnabled: false, httpsPort: null };
-let lanProbe = { ok: null, error: null, ip: null };
+let lanProbe = { ok: null, error: null, ip: null, serverListening: null };
 
 const refreshLanProbe = async () => {
   const best = await findBestControlIp(PORT);
-  lanProbe = { ok: best.ok, error: best.error ?? null, ip: best.ip };
+  lanProbe = {
+    ok: best.ok,
+    error: best.error ?? null,
+    ip: best.ip,
+    serverListening: best.serverListening ?? null,
+  };
   return lanProbe;
 };
 
@@ -56,6 +61,7 @@ app.get('/api/network', async (_req, res) => {
     primaryIp: lanProbe.ip,
     lanReachable: lanProbe.ok,
     lanProbeError: lanProbe.error ?? null,
+    serverListening: lanProbe.serverListening,
   });
   const cloudCfg = getCloudConfig(root);
   res.json({
@@ -66,6 +72,7 @@ app.get('/api/network', async (_req, res) => {
       : null,
     lanReachable: lanProbe.ok,
     lanProbeError: lanProbe.error ?? null,
+    serverListening: lanProbe.serverListening,
     adminUrl: localAdmin?.adminUrl ?? null,
     adminKeyHint: localAdmin?.adminKey ?? null,
   });
@@ -119,6 +126,12 @@ httpServer.listen(PORT, HOST, async () => {
   }
   ensureWindowsFirewallPorts(firewallPorts);
   await refreshLanProbe();
+  const startupProbeDelays = [2000, 5000, 10000, 20000];
+  for (const ms of startupProbeDelays) {
+    setTimeout(() => {
+      refreshLanProbe().catch(() => {});
+    }, ms);
+  }
   setInterval(() => {
     refreshLanProbe().catch(() => {});
   }, 15000);

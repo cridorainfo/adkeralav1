@@ -84,7 +84,9 @@ export async function pairToHub(controlUrl, pairingCode) {
       deviceId: getHubDeviceId(),
     });
     if (!json.ok) {
-      return { ok: false, error: json.error ?? 'Wrong pairing code — check with admin' };
+      // Server actually answered — this is a real rejection (wrong/expired code), not a
+      // network problem, so callers must not treat it as "keep retrying in the background".
+      return { ok: false, error: json.error ?? 'Wrong pairing code — check with admin', rejected: true };
     }
 
     saveHubPairCode(code);
@@ -102,7 +104,7 @@ export async function pairToHub(controlUrl, pairingCode) {
     if (typeof console !== 'undefined' && err) {
       console.warn('AdKerala hub pair failed:', err?.message ?? err);
     }
-    return { ok: false, error: offlineHint };
+    return { ok: false, error: offlineHint, offline: true };
   }
 }
 
@@ -133,6 +135,9 @@ export async function ensureHubConnected() {
         if (result.ok) {
           return { ok: true, status: 'connected', plate: result.plate ?? getHubPlate() };
         }
+        if (result.rejected) {
+          return { ok: false, status: 'rejected', error: result.error, keepTrying: false };
+        }
         return {
           ok: false,
           status: 'reconnecting',
@@ -157,6 +162,9 @@ export async function ensureHubConnected() {
 
     const result = await pairToHub(controlUrl, code);
     if (result.ok) return { ok: true, status: 'connected', plate: result.plate ?? '' };
+    if (result.rejected) {
+      return { ok: false, status: 'rejected', error: result.error, keepTrying: false };
+    }
     return { ok: false, status: 'reconnecting', error: result.error, keepTrying: true };
   });
 }
@@ -194,7 +202,7 @@ export async function connectAfterBusUrlSaved(controlUrl) {
 
 export function shouldOpenHubControl(auto) {
   if (!auto?.controlUrl) return false;
-  if (auto.status === 'revoked') return false;
+  if (auto.status === 'revoked' || auto.status === 'rejected') return false;
   if (auto.ok && auto.status === 'connected') return true;
   // Already paired — open control and reconnect in background (bus may be offline at app open).
   if (hasStoredDriverCredentials() && (auto.keepTrying || auto.status === 'reconnecting')) {

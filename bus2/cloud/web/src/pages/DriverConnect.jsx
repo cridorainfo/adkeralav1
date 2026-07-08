@@ -16,6 +16,9 @@ export default function DriverConnect() {
   const revokedMessage = location.state?.revoked
     ? location.state?.message ?? 'Admin disconnected all phones — scan the bus QR again'
     : '';
+  const rejectedMessage = location.state?.rejected
+    ? 'Wrong or expired pairing code — enter the current code from admin'
+    : '';
   const [pairCode, setPairCode] = useState('');
   const [busUrl, setBusUrl] = useState(null);
   const [status, setStatus] = useState('Checking saved bus…');
@@ -48,6 +51,12 @@ export default function DriverConnect() {
         return;
       }
 
+      if (boot.auto?.status === 'rejected') {
+        setStatus('Wrong or expired pairing code');
+        setError(boot.auto.error ?? rejectedMessage ?? 'Enter the current pairing code from admin');
+        return;
+      }
+
       if (boot.auto?.keepTrying && boot.busUrl) {
         setStatus('Reconnecting to saved bus…');
         goToHubControl(boot.busUrl);
@@ -64,7 +73,7 @@ export default function DriverConnect() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, navigate, revokedMessage]);
+  }, [location.search, navigate, revokedMessage, rejectedMessage]);
 
   const handlePairCodeChange = (raw) => {
     const digits = raw.replace(/\D/g, '').slice(0, 4);
@@ -172,9 +181,9 @@ export default function DriverConnect() {
                 {busy ? 'Connecting…' : 'Connect to bus'}
               </button>
               {error && <p className="driver-connect-error">{error}</p>}
-              {revokedMessage && !error && (
+              {(revokedMessage || rejectedMessage) && !error && (
                 <p className="driver-connect-error" role="alert">
-                  {revokedMessage}
+                  {revokedMessage || rejectedMessage}
                 </p>
               )}
             </form>
@@ -196,9 +205,9 @@ export default function DriverConnect() {
               <li>Ask admin for the pairing code and enter it here</li>
             </ol>
             {error && <p className="driver-connect-error">{error}</p>}
-            {revokedMessage && !error && (
+            {(revokedMessage || rejectedMessage) && !error && (
               <p className="driver-connect-error" role="alert">
-                {revokedMessage}
+                {revokedMessage || rejectedMessage}
               </p>
             )}
           </div>

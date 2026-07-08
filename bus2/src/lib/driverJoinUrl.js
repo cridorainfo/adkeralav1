@@ -1,4 +1,4 @@
-import { isPhoneReachableHost } from '#hub/lan';
+import { isPhoneReachableHost, parsePairCodeFromSearch } from '#hub/lan';
 
 /** QR on bus display — opens driver panel on the bus PC LAN (same Wi‑Fi origin). */
 export function buildDriverJoinUrl(controlUrlHttp) {
@@ -26,9 +26,7 @@ export function buildDriverQrUrl({ controlUrlHttp }) {
 }
 
 export function readPairingCodeFromLocation(search = '') {
-  const params = new URLSearchParams(search);
-  const raw = params.get('code') || params.get('pair') || '';
-  return raw.replace(/\D/g, '').slice(0, 4);
+  return parsePairCodeFromSearch(search);
 }
 
 /** Build /control URL on the current bus PC origin. */

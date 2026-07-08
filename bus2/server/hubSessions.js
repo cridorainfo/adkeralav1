@@ -16,6 +16,18 @@ const LEGACY_SESSIONS_FILE = '.adkerala-driver-sessions.json';
 const SESSION_SAVE_INTERVAL_MS = 120_000;
 const CONNECT_RATE_LIMIT = 8;
 const CONNECT_RATE_WINDOW_MS = 60_000;
+// A phone that loses network or has its app force-closed never calls /api/hub/disconnect,
+// so without a TTL its session (and connectedDeviceCount) would stay "connected" forever.
+// lastSeenAt is already refreshed by touchSession() on every 5s ping (see client.js's
+// PING_MS) while the app is actually open — this only catches genuinely abandoned sessions.
+// Overridable for tests via setSessionTtlMsForTests(); 6h is a generous single-shift bound.
+const DEFAULT_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+let sessionTtlMs = Number(process.env.ADKERALA_HUB_SESSION_TTL_MS ?? DEFAULT_SESSION_TTL_MS);
+const SESSION_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+
+export function setSessionTtlMsForTests(ms) {
+  sessionTtlMs = ms;
+}
 
 export const HUB_TOKEN_HEADER = 'x-hub-token';
 /** @deprecated accept legacy header during transition */
@@ -153,7 +165,10 @@ export function isLocalRequest(req) {
 
 export function isHubSessionValid(token) {
   if (!token) return false;
-  return sessions.has(token);
+  const session = sessions.get(token);
+  if (!session) return false;
+  if (Date.now() - (session.lastSeenAt ?? 0) > sessionTtlMs) return false;
+  return true;
 }
 
 export function getConnectedDeviceCount() {
@@ -162,6 +177,26 @@ export function getConnectedDeviceCount() {
 
 export function hasActiveHubSession() {
   return sessions.size > 0;
+}
+
+/** Drop sessions whose last ping is older than the TTL. Returns true if anything changed. */
+function pruneExpiredSessions() {
+  const now = Date.now();
+  let removed = false;
+  for (const [token, session] of sessions) {
+    if (now - (session?.lastSeenAt ?? 0) > sessionTtlMs) {
+      if (session.deviceId) deviceTokens.delete(session.deviceId);
+      sessions.delete(token);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+async function pruneExpiredSessionsAndPersist(dataRoot) {
+  if (!pruneExpiredSessions()) return;
+  await saveSessionsToDisk(dataRoot);
+  await refreshConnectedDeviceCountInState(dataRoot);
 }
 
 export async function initHubSessions(dataRoot) {
@@ -457,6 +492,7 @@ export function resetHubSessionsForTests() {
   sessionsReadyPromise = null;
   lastSessionSaveAt = 0;
   connectAttempts.clear();
+  sessionTtlMs = Number(process.env.ADKERALA_HUB_SESSION_TTL_MS ?? DEFAULT_SESSION_TTL_MS);
 }
 
 export function normalizeClientState(state = {}) {
@@ -470,6 +506,16 @@ export function normalizeClientState(state = {}) {
 export function setupHubSessions(app, { dataRoot }) {
   dataRootRef = dataRoot;
   connectAttempts.clear();
+
+  // unref() so this background sweep never keeps the process (or a test's server) alive on
+  // its own — matches how a plain background timer should behave; it still fires normally
+  // whenever the event loop is otherwise busy serving requests.
+  const pruneTimer = setInterval(() => {
+    whenSessionsReady()
+      .then(() => pruneExpiredSessionsAndPersist(dataRootRef))
+      .catch(() => {});
+  }, SESSION_PRUNE_INTERVAL_MS);
+  pruneTimer.unref?.();
 
   app.get('/api/hub/status', async (req, res) => {
     await whenSessionsReady();

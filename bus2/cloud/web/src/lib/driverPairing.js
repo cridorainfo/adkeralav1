@@ -1,18 +1,13 @@
 /** Extract bus control URL from scanned QR (LAN /control or cloud ?control=). */
-import { isPhoneReachableHost } from '#hub/lan';
+import { isPhoneReachableHost, parsePairCodeFromSearch } from '#hub/lan';
 export function parsePairCodeFromScan(raw) {
   const text = String(raw ?? '').trim();
   if (!text) return '';
 
   try {
     const url = new URL(text);
-    const fromQuery =
-      url.searchParams.get('code') ||
-      url.searchParams.get('pair') ||
-      url.searchParams.get('c') ||
-      '';
-    const digits = fromQuery.replace(/\D/g, '').slice(0, 4);
-    if (digits.length === 4) return digits;
+    const fromQuery = parsePairCodeFromSearch(url.search);
+    if (fromQuery) return fromQuery;
   } catch {
     /* not a URL */
   }
@@ -80,9 +75,5 @@ export function parseControlUrlFromScan(raw) {
 }
 
 export function readPairCodeFromLocation(search = '') {
-  const params = new URLSearchParams(search);
-  const raw = params.get('code') || params.get('pair') || '';
-  const digits = raw.replace(/\D/g, '').slice(0, 4);
-  if (digits.length === 4) return digits;
-  return '';
+  return parsePairCodeFromSearch(search);
 }

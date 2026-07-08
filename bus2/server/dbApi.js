@@ -370,10 +370,35 @@ export function setupDbApi(app, root) {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
-    const writeEvent = (payload) => {
-      res.write(`data: ${JSON.stringify(payload)}\n\n`);
-      res.flush?.();
+    let closed = false;
+    let backpressuredSince = null;
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      clearTimeout(maxLifetime);
+      unsub();
+      res.end();
     };
+
+    // stateEvents.js sizes its emitter for many concurrent phones (setMaxListeners(200)) — a
+    // mobile client that goes silent without a clean TCP close (Wi‑Fi → cellular handoff, etc.)
+    // would otherwise leave res.write() buffering forever and this subscription never
+    // unsubscribed. Track backpressure via write()'s boolean return and force-close (the
+    // client's own EventSource auto-reconnects) if it doesn't clear within a grace window.
+    const writeRaw = (chunk) => {
+      if (closed) return;
+      const flushedImmediately = res.write(chunk);
+      res.flush?.();
+      if (!flushedImmediately) {
+        if (backpressuredSince === null) backpressuredSince = Date.now();
+      } else {
+        backpressuredSince = null;
+      }
+    };
+
+    const writeEvent = (payload) => writeRaw(`data: ${JSON.stringify(payload)}\n\n`);
 
     writeEvent({ type: 'connected', at: Date.now() });
 
@@ -381,14 +406,22 @@ export function setupDbApi(app, root) {
       writeEvent({ type: 'state-changed', ...detail });
     });
 
+    const BACKPRESSURE_GRACE_MS = 30000;
     const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
+      if (backpressuredSince !== null && Date.now() - backpressuredSince > BACKPRESSURE_GRACE_MS) {
+        cleanup();
+        return;
+      }
+      writeRaw(': heartbeat\n\n');
     }, 25000);
+    heartbeat.unref?.();
 
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      unsub();
-    });
+    // Bound worst-case zombie lifetime even if req.on('close') never fires at all. unref()'d
+    // so a lingering connection can never be the sole reason the process/a test stays alive.
+    const maxLifetime = setTimeout(cleanup, 10 * 60 * 1000);
+    maxLifetime.unref?.();
+
+    req.on('close', cleanup);
   });
 
   app.post('/api/state', requireHubAuthUnlessLocal, async (req, res) => {

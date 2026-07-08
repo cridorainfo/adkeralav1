@@ -1,4 +1,5 @@
 import { isOnBusLanOrigin } from './api.js';
+import { parsePairCodeFromSearch } from './lan.js';
 import {
   hydrateHubStorage,
   loadHubControlUrl,
@@ -8,13 +9,6 @@ import {
 } from './persist.js';
 import { connectAfterBusUrlSaved, goToHubControl, pairToHub, shouldOpenHubControl } from './client.js';
 
-function readPairCodeFromSearch(search = '') {
-  const params = new URLSearchParams(search);
-  const raw = params.get('code') || params.get('pair') || '';
-  const digits = raw.replace(/\D/g, '').slice(0, 4);
-  return digits.length === 4 ? digits : '';
-}
-
 /**
  * Shared /driver boot — QR saves bus URL only; stored session reconnects without re-entering code.
  * Returns { redirected: true } when navigation to /control already started.
@@ -22,7 +16,7 @@ function readPairCodeFromSearch(search = '') {
 export async function bootDriverConnect({ locationSearch, navigate }) {
   await hydrateHubStorage();
 
-  const codeFromQr = readPairCodeFromSearch(locationSearch);
+  const codeFromQr = parsePairCodeFromSearch(locationSearch);
   if (codeFromQr) saveHubPairCode(codeFromQr);
 
   const fromQr = readHubControlFromLocation(locationSearch);

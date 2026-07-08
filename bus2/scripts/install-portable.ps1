@@ -29,6 +29,10 @@ if (Test-Path $FirewallBat) {
     $firewallOk = $false
   }
 }
+if ($firewallOk) {
+  $rule5174 = netsh advfirewall firewall show rule name="AdKerala Bus Port 5174" 2>$null
+  if ($rule5174 -notmatch '5174') { $firewallOk = $false }
+}
 
 Write-Host ''
 Write-Host 'AdKerala installed.' -ForegroundColor Green

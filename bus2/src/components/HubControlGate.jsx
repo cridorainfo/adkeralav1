@@ -12,6 +12,7 @@ import {
   hydrateHubStorage,
   loadHubControlUrl,
   getHubPlate,
+  hasStoredDriverCredentials,
 } from '#hub/persist';
 import { DriverControlContext } from './DriverControlContext';
 
@@ -33,11 +34,26 @@ export default function HubControlGate({ children }) {
       setReconnecting(false);
       return 'revoked';
     }
-    if (result.ok || result.keepTrying) {
+    if (result.status === 'rejected') {
+      // Wrong/expired pairing code — a real rejection, not a network drop. Don't leave the
+      // driver staring at a control screen stuck on "Reconnecting…" forever; send them back
+      // to re-pair, same as a revoked session.
+      setUnlocked(false);
+      setPlate('');
+      setReconnecting(false);
+      return 'rejected';
+    }
+    if (result.ok) {
       setPlate(result.plate ?? getHubPlate());
       setUnlocked(true);
-      setReconnecting(Boolean(result.keepTrying && !result.ok));
-      return result.ok ? true : 'reconnecting';
+      setReconnecting(false);
+      return true;
+    }
+    if (result.keepTrying && hasStoredDriverCredentials()) {
+      setPlate(result.plate ?? getHubPlate());
+      setUnlocked(true);
+      setReconnecting(true);
+      return 'reconnecting';
     }
     setUnlocked(false);
     setPlate('');
@@ -81,6 +97,8 @@ export default function HubControlGate({ children }) {
         setChecking(false);
         if (ok === 'revoked') {
           navigate('/driver', { replace: true, state: { revoked: true } });
+        } else if (ok === 'rejected') {
+          navigate('/driver', { replace: true, state: { rejected: true } });
         } else if (ok === false) {
           navigate('/driver', { replace: true });
         }

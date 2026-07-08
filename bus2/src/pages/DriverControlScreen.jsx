@@ -76,8 +76,12 @@ export default function DriverControlScreen({ serialRuntime = null }) {
         setError(
           err.code === 'NO_ROUTE'
             ? 'Route not on bus yet — wait a few seconds for fleet sync'
-            : err.code === 'HUB_RECONNECTING' || err.code === 'HUB_BOOT' || err.code === 'HUB_LOCKED'
+            : err.code === 'HUB_LOCKED'
+            ? 'Open /driver, scan the QR, and enter the pairing code from admin'
+            : err.code === 'HUB_RECONNECTING' || err.code === 'HUB_BOOT'
             ? 'Reconnecting to bus — stay on bus Wi‑Fi'
+            : err.code === 'HUB_OFFLINE'
+            ? 'Lost connection to bus — check Wi‑Fi (turn off mobile data) and try again'
             : (err.message ?? 'Could not reach bus — stay on bus Wi‑Fi')
         );
       } finally {

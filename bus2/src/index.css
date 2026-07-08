@@ -3850,6 +3850,15 @@ html.kiosk-hide-cursor * {
   color: #6ee7b7;
 }
 
+.driver-pairing-banner--setup {
+  border-color: rgba(255, 193, 7, 0.55);
+  background: rgba(255, 193, 7, 0.12);
+}
+
+.driver-pairing-banner--compact.driver-pairing-banner--setup {
+  min-width: 12rem;
+}
+
 .driver-pairing-banner--compact {
   top: auto;
   bottom: 1rem;
@@ -3859,12 +3868,13 @@ html.kiosk-hide-cursor * {
   max-width: none;
 }
 
-.driver-pairing-banner--compact .driver-pairing-banner-body {
-  gap: 0.55rem;
-  align-items: center;
+.driver-pairing-banner--compact .driver-pairing-hint {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
-.driver-pairing-banner--compact .driver-pairing-hint {
+.driver-pairing-banner--compact:not(.driver-pairing-banner--setup) .driver-pairing-hint {
   display: none;
 }
 

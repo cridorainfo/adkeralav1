@@ -1,3 +1,4 @@
+import dns from 'dns';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
@@ -18,6 +19,13 @@ import { syncStopAudioWithCatalog } from './audioMerge.js';
 import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
 import { DEFAULT_CLOUD_URLS, DEFAULT_PUBLIC_CLOUD_URL, resolveCloudUrl } from '../shared/cloudUrls.js';
+
+// Bus PCs are often on mobile hotspots / consumer routers with flaky or half-configured IPv6.
+// Node's fetch (undici) can intermittently stall trying an IPv6 address before falling back to
+// IPv4 — this reproduced as exactly the multi-second hangs above (adkerala.com resolves to both
+// Cloudflare IPv6 and IPv4 addresses). Preferring IPv4 first avoids that stall outright, on top
+// of the timeout safety net, since a fast reliable connection is better than a fast failure.
+dns.setDefaultResultOrder('ipv4first');
 
 const require = createRequire(import.meta.url);
 const { dispatchKioskCommand } = require('../kiosk/kioskBridge.cjs');
@@ -40,6 +48,27 @@ let lastPushedAt = 0;
 let dataRootRef = null;
 let unclaimInProgress = false;
 let syncRunning = false;
+
+// None of the fetch() calls in this file had a timeout — a single hung request to the cloud
+// (network blip, slow response, dropped connection) left the promise awaiting forever. Since
+// runCloudSync's `syncRunning` guard only clears in its `finally`, that permanently wedged ALL
+// future sync ticks with zero error logged: the bus keeps working locally, but silently stops
+// pushing telemetry, so it goes "offline" in the fleet dashboard forever until the app restarts.
+// Every outbound cloud call below now gets a bounded timeout.
+const CLOUD_FETCH_TIMEOUT_MS = 8000;
+function cloudTimeoutSignal(ms = CLOUD_FETCH_TIMEOUT_MS) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+// Defense in depth: even if some future call site forgets a timeout, this bounds the whole
+// tick so `syncRunning` can never stay stuck forever — it's released by runCloudSync's finally
+// regardless of what's still pending underneath once this deadline passes.
+const SYNC_TICK_TIMEOUT_MS = 25000;
 
 function getCredentials(dataRoot) {
   return getDeviceCredentials(dataRoot ?? dataRootRef);
@@ -90,7 +119,11 @@ async function cloudFetch(creds, path, options = {}) {
     ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
     ...(options.headers ?? {}),
   };
-  const res = await fetch(`${cloudUrl}${path}`, { ...options, headers });
+  const res = await fetch(`${cloudUrl}${path}`, {
+    ...options,
+    headers,
+    signal: options.signal ?? cloudTimeoutSignal(),
+  });
   const json = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
 }
@@ -98,7 +131,13 @@ async function cloudFetch(creds, path, options = {}) {
 function buildTelemetry(state, busId) {
   const stopInfo = getStopInfo(state);
   const current = stopInfo.atTripStart ? stopInfo.start : stopInfo.current;
-  const upcoming = stopInfo.allStops?.[state.currentStopIndex + 1] ?? stopInfo.final;
+  // getStopInfo() already computed the correct, direction-aware upcoming stop as `.next`
+  // (see getUpcomingStopIndex — reverse-direction routes count DOWN from tripDeparted, not up).
+  // This used to recompute its own `currentStopIndex + 1`, which is only ever correct for
+  // routeDirection: 'forward' — on a reverse trip it silently reported the wrong next stop to
+  // the cloud/admin dashboard (confirmed live: phone + local display showed the correct stop,
+  // while telemetry reported the one two stops ahead in the wrong direction).
+  const upcoming = stopInfo.next ?? stopInfo.final;
 
   return {
     busId,
@@ -175,6 +214,7 @@ async function syncGlobalPhraseAudio(root, creds) {
         ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
         ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
       },
+      signal: cloudTimeoutSignal(),
     });
     if (!res.ok) return;
     const json = await res.json();
@@ -223,6 +263,7 @@ async function syncAssignedRoutesFromCloud(root, creds) {
         ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
         ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
       },
+      signal: cloudTimeoutSignal(),
     });
     if (!res.ok) return;
     const json = await res.json();
@@ -366,6 +407,7 @@ async function syncAdsFromCloud(root, creds) {
           ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
           ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
         },
+        signal: cloudTimeoutSignal(),
       }
     );
     if (!res.ok) return;
@@ -459,6 +501,7 @@ async function syncDisplaySettingsFromCloud(root, creds) {
           ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
           ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
         },
+        signal: cloudTimeoutSignal(),
       }
     );
     if (!res.ok) return;
@@ -580,6 +623,7 @@ async function syncStopAudioFromCloud(root, creds) {
         ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
         ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
       },
+      signal: cloudTimeoutSignal(),
     });
     if (!res.ok) return;
     const json = await res.json();
@@ -621,7 +665,12 @@ export async function runCloudSync(root) {
   syncRunning = true;
   dataRootRef = root;
   try {
-    await runCloudSyncInner(root);
+    await Promise.race([
+      runCloudSyncInner(root),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('cloud sync tick timed out')), SYNC_TICK_TIMEOUT_MS)
+      ),
+    ]);
   } finally {
     syncRunning = false;
   }
@@ -636,12 +685,18 @@ async function runCloudSyncInner(root) {
 
   let state;
   try {
-    state = await readInfoFile(root);
+    // A genuinely fresh install (no db/info.txt yet — no bundled template, nothing has written
+    // to it locally) used to bail out here entirely, forever: this was the ONLY place in the
+    // whole file that treated "file doesn't exist yet" as "stop, nothing to do" instead of
+    // "treat as empty" — every other cloud-sync function already does `?? {}` for exactly this
+    // reason. That meant a brand-new bus PC could never push its first telemetry, never receive
+    // its pushed routes/pairing code, and would show "offline" in the fleet dashboard forever,
+    // even though the cloud side was working perfectly (confirmed by testing this exact bus).
+    state = (await readInfoFile(root)) ?? {};
   } catch (err) {
     console.warn('AdKerala cloud sync: could not read db/info.txt —', err.message);
     return;
   }
-  if (!state) return;
 
   const telemetry = buildTelemetry(state, busId);
   const displaySnapshot = buildDisplaySnapshot(state);

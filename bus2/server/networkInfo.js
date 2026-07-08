@@ -178,11 +178,14 @@ export async function findBestControlIp(port, lan = getLanAddresses()) {
     return { ip: null, name: null, ok: false, error: 'no_lan_ip' };
   }
 
+  const loopbackProbe = await probeLanHttp('127.0.0.1', port);
+
   return {
     ip: fallback,
     name: lan.find((n) => n.address === fallback)?.name ?? null,
     ok: false,
     error: 'probe_failed',
+    serverListening: loopbackProbe.ok,
   };
 }
 
@@ -250,12 +253,26 @@ export function buildNetworkUrls(port, host = '0.0.0.0', options = {}) {
   };
 }
 
+export function lanSetupHint(error) {
+  if (error === 'no_lan_ip') {
+    return 'Connect this PC to Wi‑Fi, or turn on Windows Mobile Hotspot (Settings → Mobile hotspot). The driver QR appears automatically.';
+  }
+  if (error === 'probe_failed') {
+    return 'Run allow-firewall.bat as administrator on this PC, then wait a few seconds.';
+  }
+  return 'Connect Wi‑Fi or turn on Mobile Hotspot on this PC so driver phones can join.';
+}
+
 export function logNetworkStartup(urls, extras = {}) {
   console.log(`\n  AdKerala${extras.production ? ' (production)' : ''}`);
-  console.log(`  Display: ${urls.displayUrl}  (bus PC)`);
-  console.log(`  Control: ${urls.controlUrlHttp}  (driver phone — use HTTP on same Wi‑Fi)`);
+  console.log(`  Display: ${urls.displayUrl ?? '(waiting for Wi-Fi / hotspot)'}  (bus PC)`);
+  console.log(
+    `  Control: ${urls.controlUrlHttp ?? '(waiting for Wi-Fi / hotspot)'}  (driver phone - use HTTP on same Wi-Fi)`
+  );
   if (urls.httpsEnabled) {
-    console.log(`  Control: ${urls.controlUrlHttps}  (HTTPS — for GPS; accept certificate once)`);
+    console.log(
+      `  Control: ${urls.controlUrlHttps ?? '(waiting for Wi-Fi / hotspot)'}  (HTTPS - for GPS; accept certificate once)`
+    );
   }
   if (extras.adminUrl) {
     console.log(`  Admin:   ${extras.adminUrl}  (fleet dashboard)`);
@@ -266,7 +283,7 @@ export function logNetworkStartup(urls, extras = {}) {
   if (lan.length) {
     console.log(`  LAN:     ${lan.map((n) => `${n.address} (${n.name})`).join(', ')}`);
   } else {
-    console.log(`  LAN:     none — connect Wi‑Fi or set ADKERALA_LAN_IP for driver phones`);
+    console.log(`  LAN:     none - connect Wi-Fi, enable Mobile Hotspot, or set ADKERALA_LAN_IP`);
     console.log(`  Local:   http://127.0.0.1:${urls.port}/`);
   }
   console.log('');
