@@ -33,6 +33,8 @@ const defaultStore = () => ({
   routeCatalogUpdatedAt: 0,
   stopAudioCatalog: {},
   stopAudioSavedAt: 0,
+  stopVoiceAds: {},
+  stopVoiceAdsSavedAt: 0,
   busAdsCatalog: {},
   busDisplaySettingsCatalog: {},
   globalAudioFragments: {},
@@ -356,6 +358,7 @@ const PG_KEY_BUS_ADS_PREFIX = 'bus_ads:';
 const PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX = 'bus_display_settings:';
 const PG_KEY_PRICING_SETTINGS = 'pricing_settings';
 const PG_KEY_HOUSE_ADS = 'house_ads_catalog';
+const PG_KEY_STOP_VOICE_ADS = 'stop_voice_ads_catalog';
 
 const DEFAULT_PRICING_SETTINGS = {
   ratePerSecond: 0,
@@ -775,6 +778,58 @@ export function getStopAudioForRoute(route, stopAudioCatalog = {}) {
     if (entry) result[key] = entry;
   }
   return result;
+}
+
+function collectStopVoiceAdMediaPaths(map = {}) {
+  const paths = new Set();
+  for (const entry of Object.values(map ?? {})) {
+    if (entry?.audioFile) paths.add(entry.audioFile);
+  }
+  return [...paths];
+}
+
+/** Per-stop voice ads — admin-managed from the cloud dashboard only (deliberately kept as its
+ * own catalog rather than extra keys on stopAudio: the periodic stop-audio resync,
+ * syncStopAudioWithCatalog in server/audioMerge.js, assumes every stopAudio sub-key is a plain
+ * {audioFile} lang entry and silently deletes anything shaped differently, so a boolean
+ * `enabled` flag or a non-lang key living inside stopAudio would get wiped on the bus's next
+ * sync). Single clip + toggle per stop, no per-language variants. */
+export async function getStopVoiceAdsCatalog() {
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(PG_KEY_STOP_VOICE_ADS, null);
+    const stopVoiceAds = row?.stopVoiceAds ?? {};
+    return {
+      stopVoiceAds,
+      savedAt: row?.savedAt ?? 0,
+      mediaFiles: collectStopVoiceAdMediaPaths(stopVoiceAds),
+    };
+  }
+  const store = await loadStore();
+  const stopVoiceAds = store.stopVoiceAds ?? {};
+  return {
+    stopVoiceAds,
+    savedAt: store.stopVoiceAdsSavedAt ?? 0,
+    mediaFiles: collectStopVoiceAdMediaPaths(stopVoiceAds),
+  };
+}
+
+export async function setStopVoiceAdsCatalog(entries = {}) {
+  const savedAt = Date.now();
+  const normalized = {};
+  for (const [key, val] of Object.entries(entries ?? {})) {
+    const trimmedKey = String(key ?? '').trim().toLowerCase();
+    if (!trimmedKey || !val?.audioFile) continue;
+    normalized[trimmedKey] = { audioFile: val.audioFile, enabled: Boolean(val.enabled) };
+  }
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(PG_KEY_STOP_VOICE_ADS, { stopVoiceAds: normalized, savedAt });
+    return { stopVoiceAds: normalized, savedAt, mediaFiles: collectStopVoiceAdMediaPaths(normalized) };
+  }
+  const store = await loadStore();
+  store.stopVoiceAds = normalized;
+  store.stopVoiceAdsSavedAt = savedAt;
+  await saveStore();
+  return { stopVoiceAds: normalized, savedAt, mediaFiles: collectStopVoiceAdMediaPaths(normalized) };
 }
 
 export async function searchRoutes(query = '', { ownerId = null } = {}) {

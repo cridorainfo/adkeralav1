@@ -287,3 +287,32 @@ test('mergeRemoteState keeps activeRouteId when remote poll clears it but routes
   assert.equal(merged.routes.length, 1);
   assert.equal(merged.activeRouteId, 'route-a');
 });
+
+test('mergeIncomingState strips stopVoiceAds from any client POST — cloud-managed only', () => {
+  const current = {
+    savedAt: 1000,
+    stopVoiceAds: { 'main street': { audioFile: 'ad.mp3', enabled: true } },
+  };
+  const incoming = {
+    savedAt: 2000,
+    // A driver phone or PC control app POSTing /api/state with a stale/empty cached copy.
+    stopVoiceAds: {},
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.deepEqual(merged.stopVoiceAds, { 'main street': { audioFile: 'ad.mp3', enabled: true } });
+});
+
+test('mergeRemoteState always prefers the server\'s stopVoiceAds over a stale local copy', () => {
+  const prev = {
+    savedAt: 2000,
+    stopVoiceAds: { 'main street': { audioFile: 'old.mp3', enabled: true } },
+  };
+  const remote = {
+    savedAt: 1000,
+    stopVoiceAds: { 'main street': { audioFile: 'new.mp3', enabled: true } },
+  };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.stopVoiceAds['main street'].audioFile, 'new.mp3');
+});

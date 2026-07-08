@@ -66,6 +66,8 @@ import {
   setPricingSettings,
   getHouseAds,
   setHouseAds,
+  getStopVoiceAdsCatalog,
+  setStopVoiceAdsCatalog,
 } from './store.js';
 import { computeAdSpend, isAdExhausted } from './pricing.js';
 import {
@@ -1449,6 +1451,23 @@ app.put('/api/stops/audio', authCatalog, async (req, res) => {
   const { stopAudio, mediaFiles } = req.body ?? {};
   const payload = await mergeStopAudioCatalog(stopAudio ?? {}, mediaFiles);
   await purgeRemovedMediaFiles(payload.removedFiles ?? []);
+  res.json({ ok: true, ...payload });
+});
+
+// Per-stop voice ads — deliberately a separate catalog/endpoint from /api/stops/audio above,
+// not extra fields on it (see getStopVoiceAdsCatalog's comment in cloud/store.js for why).
+app.get('/api/stops/voice-ads', authBus, async (_req, res) => {
+  const payload = await getStopVoiceAdsCatalog();
+  res.json({ ok: true, ...payload });
+});
+
+app.get('/api/stops/voice-ads/catalog', authCatalog, async (_req, res) => {
+  const payload = await getStopVoiceAdsCatalog();
+  res.json({ ok: true, ...payload });
+});
+
+app.put('/api/stops/voice-ads', authCatalog, async (req, res) => {
+  const payload = await setStopVoiceAdsCatalog(req.body?.stopVoiceAds ?? {});
   res.json({ ok: true, ...payload });
 });
 

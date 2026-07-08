@@ -10,6 +10,7 @@ function baseState(overrides = {}) {
       pleaseAlight: { en: { audioUrl: 'alight-en.mp3' } },
     },
     stopAudio: {},
+    stopVoiceAds: {},
     announcementSettings: { languages: ['en'], pauseBetweenFragmentsMs: 300 },
     ...overrides,
   };
@@ -17,9 +18,8 @@ function baseState(overrides = {}) {
 
 test('buildAnnouncementSequence appends the voice ad once at the end when enabled', () => {
   const state = baseState({
-    stopAudio: {
-      'main street': { en: { audioUrl: 'mainstreet-en.mp3' }, ad: { audioUrl: 'ad.mp3' }, adEnabled: true },
-    },
+    stopAudio: { 'main street': { en: { audioUrl: 'mainstreet-en.mp3' } } },
+    stopVoiceAds: { 'main street': { audioUrl: 'ad.mp3', enabled: true } },
   });
   const seq = buildAnnouncementSequence(state, { en: 'Main Street' });
   const urls = seq.filter((item) => typeof item === 'string');
@@ -36,9 +36,8 @@ test('buildAnnouncementSequence appends the voice ad once at the end when enable
 
 test('buildAnnouncementSequence omits the voice ad when the per-stop toggle is off', () => {
   const state = baseState({
-    stopAudio: {
-      'main street': { en: { audioUrl: 'mainstreet-en.mp3' }, ad: { audioUrl: 'ad.mp3' }, adEnabled: false },
-    },
+    stopAudio: { 'main street': { en: { audioUrl: 'mainstreet-en.mp3' } } },
+    stopVoiceAds: { 'main street': { audioUrl: 'ad.mp3', enabled: false } },
   });
   const seq = buildAnnouncementSequence(state, { en: 'Main Street' });
   assert.ok(!seq.includes('ad.mp3'));
@@ -46,7 +45,8 @@ test('buildAnnouncementSequence omits the voice ad when the per-stop toggle is o
 
 test('buildAnnouncementSequence omits the voice ad when no clip is assigned even if toggled on', () => {
   const state = baseState({
-    stopAudio: { 'main street': { en: { audioUrl: 'mainstreet-en.mp3' }, adEnabled: true } },
+    stopAudio: { 'main street': { en: { audioUrl: 'mainstreet-en.mp3' } } },
+    stopVoiceAds: { 'main street': { enabled: true } },
   });
   const seq = buildAnnouncementSequence(state, { en: 'Main Street' });
   assert.ok(!seq.some((item) => typeof item === 'string' && item.includes('ad')));
@@ -55,7 +55,8 @@ test('buildAnnouncementSequence omits the voice ad when no clip is assigned even
 test('buildAnnouncementSequence never adds a voice ad to an otherwise-empty announcement', () => {
   const state = {
     audioFragments: {},
-    stopAudio: { 'main street': { ad: { audioUrl: 'ad.mp3' }, adEnabled: true } },
+    stopAudio: {},
+    stopVoiceAds: { 'main street': { audioUrl: 'ad.mp3', enabled: true } },
     announcementSettings: { languages: ['en'] },
   };
   const seq = buildAnnouncementSequence(state, { en: 'Main Street' });

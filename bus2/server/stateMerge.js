@@ -70,6 +70,10 @@ function stripHubOnlyFields(incoming = {}) {
   const body = { ...incoming };
   delete body.connectedDeviceCount;
   delete body.driverLink;
+  // Cloud-managed only (server/cloudSync.js syncStopVoiceAdsFromCloud writes it directly,
+  // bypassing this merge entirely) — a driver phone or PC control app POSTing /api/state with
+  // a stale cached copy must never be able to clobber the current value.
+  delete body.stopVoiceAds;
   if (body.busProfile && typeof body.busProfile === 'object') {
     body.busProfile = { ...body.busProfile };
     delete body.busProfile.pairingCode;

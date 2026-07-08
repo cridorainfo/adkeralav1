@@ -80,7 +80,7 @@ export function buildLanguageSequence({ fragments, stopAudio, stop, lang, isTerm
  * Plays shared phrase clips plus stop name when available — missing stop names are skipped.
  */
 export function buildAnnouncementSequence(state, stop, { isTerminus = false } = {}) {
-  const { audioFragments = {}, stopAudio = {}, announcementSettings = {} } = state;
+  const { audioFragments = {}, stopAudio = {}, stopVoiceAds = {}, announcementSettings = {} } = state;
   const configuredLangs = announcementSettings.languages ?? ['ml', 'en'];
 
   const blocks = configuredLangs.map((lang) =>
@@ -103,12 +103,15 @@ export function buildAnnouncementSequence(state, stop, { isTerminus = false } = 
     }
   }
 
-  // Voice ad — one clip per stop (not per-language), admin-toggled, appended once at the very
-  // end so it plays as the tail of a single continuous announcement rather than being repeated
-  // after every language block.
+  // Voice ad — one clip per stop (not per-language), managed from the cloud dashboard (its own
+  // catalog, state.stopVoiceAds — kept separate from stopAudio so the periodic cloud resync of
+  // stop-name clips, which assumes every stopAudio sub-key is {audioFile}-shaped, can't silently
+  // wipe it out) and synced down like ads/routes. Appended once at the very end so it plays as
+  // the tail of a single continuous announcement rather than being repeated after every
+  // language block.
   const key = stopAudioKey(stop);
-  const stopEntry = stopAudio?.[key];
-  const adUrl = stopEntry?.adEnabled ? resolveClipUrl(stopEntry.ad) : null;
+  const voiceAdEntry = stopVoiceAds?.[key];
+  const adUrl = voiceAdEntry?.enabled ? resolveClipUrl(voiceAdEntry) : null;
   if (adUrl && flat.length) {
     flat.push({ pause: pauseMs });
     flat.push(adUrl);

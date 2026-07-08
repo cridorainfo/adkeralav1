@@ -37,7 +37,9 @@ export default function StopsCatalog() {
   const { selectedBusId, pushToBus, targetBusIds } = useSelectedBus();
   const [stops, setStops] = useState([]);
   const [stopAudioCatalog, setStopAudioCatalog] = useState({});
+  const [stopVoiceAdsCatalog, setStopVoiceAdsCatalog] = useState({});
   const [audioBusy, setAudioBusy] = useState(false);
+  const [voiceAdBusy, setVoiceAdBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState(searchParams.get('missing') || 'all');
   const [selectedEn, setSelectedEn] = useState(searchParams.get('highlight') || '');
@@ -72,10 +74,20 @@ export default function StopsCatalog() {
     }
   }, []);
 
+  const loadStopVoiceAds = useCallback(async () => {
+    try {
+      const json = await api('/api/stops/voice-ads/catalog');
+      setStopVoiceAdsCatalog(json.stopVoiceAds ?? {});
+    } catch {
+      setStopVoiceAdsCatalog({});
+    }
+  }, []);
+
   useEffect(() => {
     load().catch((err) => setError(err.message ?? 'Could not load stops'));
     loadStopAudio();
-  }, [load, loadStopAudio]);
+    loadStopVoiceAds();
+  }, [load, loadStopAudio, loadStopVoiceAds]);
 
   useEffect(() => {
     const highlight = searchParams.get('highlight');
@@ -113,6 +125,11 @@ export default function StopsCatalog() {
     if (!selectedEn) return null;
     return stopAudioCatalog[selectedEn.trim().toLowerCase()]?.en?.audioFile ?? null;
   }, [selectedEn, stopAudioCatalog]);
+
+  const selectedVoiceAd = useMemo(() => {
+    if (!selectedEn) return null;
+    return stopVoiceAdsCatalog[selectedEn.trim().toLowerCase()] ?? null;
+  }, [selectedEn, stopVoiceAdsCatalog]);
 
   async function persistStopAudioPatch(stopEn, patch, mediaFiles = []) {
     setAudioBusy(true);
@@ -155,6 +172,54 @@ export default function StopsCatalog() {
     const patch = { [key]: { en: { audioFile: null } } };
     await persistStopAudioPatch(selectedEn, patch);
     setMessage(`Voice audio removed for "${selectedEn}"`);
+  }
+
+  // Voice ads are a separate catalog from stop-name audio above (see getStopVoiceAdsCatalog's
+  // comment in cloud/store.js) — this always saves the FULL catalog with this stop's entry
+  // patched in, not an incremental merge, matching setStopVoiceAdsCatalog's wholesale-replace
+  // contract.
+  async function saveVoiceAdEntry(key, patch) {
+    setVoiceAdBusy(true);
+    setError('');
+    try {
+      const next = { ...stopVoiceAdsCatalog };
+      if (patch === null) {
+        delete next[key];
+      } else {
+        next[key] = { ...(next[key] ?? {}), ...patch };
+      }
+      const saved = await api('/api/stops/voice-ads', {
+        method: 'PUT',
+        body: JSON.stringify({ stopVoiceAds: next }),
+      });
+      setStopVoiceAdsCatalog(saved.stopVoiceAds ?? {});
+    } finally {
+      setVoiceAdBusy(false);
+    }
+  }
+
+  async function handleVoiceAdUpload(file) {
+    if (!selectedEn || !file) return;
+    const key = selectedEn.trim().toLowerCase();
+    const up = await uploadMedia(file, 'stops');
+    const relPath = up.path ?? up.audioFile;
+    if (!relPath) throw new Error('Upload did not return a file path.');
+    await saveVoiceAdEntry(key, { audioFile: relPath, enabled: stopVoiceAdsCatalog[key]?.enabled ?? true });
+    setMessage(`Ad voice updated for "${selectedEn}"`);
+  }
+
+  async function handleVoiceAdDelete() {
+    if (!selectedEn || !selectedVoiceAd) return;
+    if (!confirm(`Remove the ad voice for "${selectedEn}"?`)) return;
+    const key = selectedEn.trim().toLowerCase();
+    await saveVoiceAdEntry(key, null);
+    setMessage(`Ad voice removed for "${selectedEn}"`);
+  }
+
+  async function handleVoiceAdToggle(enabled) {
+    if (!selectedEn || !selectedVoiceAd?.audioFile) return;
+    const key = selectedEn.trim().toLowerCase();
+    await saveVoiceAdEntry(key, { audioFile: selectedVoiceAd.audioFile, enabled });
   }
 
   async function saveStop(patch, stopEn = selectedEn) {
@@ -493,6 +558,62 @@ export default function StopsCatalog() {
                       </button>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="stops-audio-section">
+                  <h4>Ad voice (plays after the announcement)</h4>
+                  <p className="hint">
+                    When enabled, this clip plays once at the end of this stop's spoken
+                    announcement — synced to every bus automatically, no PC-side recording needed.
+                  </p>
+                  <p className="hint">
+                    Current: {selectedVoiceAd?.audioFile ? basename(selectedVoiceAd.audioFile) : 'No ad voice'}
+                  </p>
+                  <div className="toolbar">
+                    <input
+                      type="file"
+                      accept={AUDIO_ACCEPT}
+                      disabled={voiceAdBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (file) {
+                          handleVoiceAdUpload(file).catch((err) =>
+                            setError(err.message ?? 'Ad voice upload failed')
+                          );
+                        }
+                      }}
+                    />
+                    {selectedVoiceAd?.audioFile ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={voiceAdBusy}
+                        onClick={() =>
+                          handleVoiceAdDelete().catch((err) =>
+                            setError(err.message ?? 'Could not remove ad voice')
+                          )
+                        }
+                      >
+                        Remove ad voice
+                      </button>
+                    ) : null}
+                  </div>
+                  {selectedVoiceAd?.audioFile && (
+                    <label className="stops-push-label">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selectedVoiceAd?.enabled)}
+                        disabled={voiceAdBusy}
+                        onChange={(e) =>
+                          handleVoiceAdToggle(e.target.checked).catch((err) =>
+                            setError(err.message ?? 'Could not update ad voice toggle')
+                          )
+                        }
+                      />
+                      Play this ad after the announcement
+                    </label>
+                  )}
                 </div>
 
                 <div className="stops-field-capture">

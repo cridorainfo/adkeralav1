@@ -1093,23 +1093,6 @@ function useBusStoreLogic() {
     [update]
   );
 
-  // Voice ad clip itself reuses updateStopAudioClip/clearStopAudioClip with lang='ad' — it's
-  // stored as a sibling of the en/ml entries under the same stopAudio[stopKey] object (see
-  // buildAnnouncementSequence in audioFragments.js). Only the on/off toggle needs its own
-  // setter since it's a boolean flag, not a {audioUrl} clip entry.
-  const toggleStopAdEnabled = useCallback(
-    (stopKey, enabled) => {
-      update((s) => ({
-        ...s,
-        stopAudio: {
-          ...s.stopAudio,
-          [stopKey]: { ...s.stopAudio?.[stopKey], adEnabled: Boolean(enabled) },
-        },
-      }));
-    },
-    [update]
-  );
-
   const requestAnnouncement = useCallback(
     (stop, { isTerminus = false } = {}) => {
       if (!stop) return;
@@ -1176,7 +1159,6 @@ function useBusStoreLogic() {
     clearAudioFragment,
     updateStopAudioClip,
     clearStopAudioClip,
-    toggleStopAdEnabled,
     requestAnnouncement,
     clearAnnouncementRequest,
     setAnnouncementStatus,

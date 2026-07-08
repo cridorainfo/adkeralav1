@@ -59,7 +59,6 @@ export default function ControlScreen({
     clearAudioFragment,
     updateStopAudioClip,
     clearStopAudioClip,
-    toggleStopAdEnabled,
     requestAnnouncement,
   } = useBusStore();
 
@@ -676,7 +675,6 @@ export default function ControlScreen({
             onClearFragment={clearAudioFragment}
             onUpdateStopAudio={updateStopAudioClip}
             onClearStopAudio={clearStopAudioClip}
-            onToggleStopAd={toggleStopAdEnabled}
             onUpdateSettings={updateAnnouncementSettings}
             onTestAnnouncement={handleTestAnnouncement}
           />

@@ -660,6 +660,57 @@ async function syncStopAudioFromCloud(root, creds) {
   }
 }
 
+function collectStopVoiceAdPaths(stopVoiceAds = {}) {
+  return Object.values(stopVoiceAds ?? {})
+    .map((entry) => entry?.audioFile)
+    .filter(Boolean);
+}
+
+// Cloud-managed only — no local authoring on the bus PC, so this is a plain wholesale replace
+// (unlike syncStopAudioFromCloud's reconciliation) rather than a merge of local + cloud state.
+async function syncStopVoiceAdsFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(`${creds.cloudUrl}/api/stops/voice-ads`, {
+      headers: {
+        ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+        ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+      },
+      signal: cloudTimeoutSignal(),
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const cloudCatalog = json.stopVoiceAds ?? {};
+    const current = (await readInfoFile(root)) ?? {};
+    if (JSON.stringify(current.stopVoiceAds ?? {}) === JSON.stringify(cloudCatalog)) return;
+
+    const oldPaths = collectStopVoiceAdPaths(current.stopVoiceAds);
+    const newPaths = new Set(collectStopVoiceAdPaths(cloudCatalog));
+    const removedPaths = oldPaths.filter((p) => !newPaths.has(p));
+
+    const pushAt = Date.now();
+    const merged = {
+      ...current,
+      stopVoiceAds: cloudCatalog,
+      savedAt: Math.max(current.savedAt ?? 0, json.savedAt ?? 0, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    };
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-stop-voice-ads' });
+    if (removedPaths.length) await deleteLocalMediaFiles(root, removedPaths);
+    if (newPaths.size) await syncCloudMedia(root, [...newPaths], creds);
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-media',
+    });
+  } catch {
+    /* cloud offline */
+  }
+}
+
 // Ad plays are recorded locally (BusStoreProvider.jsx appends to state.pendingAdPlays) so
 // playback is never blocked on the network. Upload is purely best-effort, same pattern as the
 // rest of this file: skip silently offline, and only drop uploaded entries from local state
@@ -793,6 +844,7 @@ async function runCloudSyncInner(root) {
   await syncAdsFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
+  await syncStopVoiceAdsFromCloud(root, creds);
   await syncAdPlaysToCloud(root, creds, busId);
 
   // Catch up any ad/banner media referenced in state but not yet on disk.

@@ -29,7 +29,6 @@ export default function AnnouncementManager({
   onClearFragment,
   onUpdateStopAudio,
   onClearStopAudio,
-  onToggleStopAd,
   onUpdateSettings,
   onTestAnnouncement,
 }) {
@@ -145,23 +144,6 @@ export default function AnnouncementManager({
                     onClearEn={() => onClearStopAudio(key, 'en')}
                     onClearMl={() => onClearStopAudio(key, 'ml')}
                   />
-                  <div className="voice-lang-pair voice-ad-slot">
-                    <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(saved.adEnabled)}
-                        onChange={(e) => onToggleStopAd(key, e.target.checked)}
-                      />
-                      Play ad after this announcement
-                    </label>
-                    <VoiceRecorder
-                      label="Ad voice"
-                      audioUrl={saved.ad?.audioUrl}
-                      onSave={(url) => onUpdateStopAudio(key, 'ad', url)}
-                      onClear={() => onClearStopAudio(key, 'ad')}
-                      compact
-                    />
-                  </div>
                   <button
                     type="button"
                     className="btn btn-ghost voice-test-btn"

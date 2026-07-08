@@ -414,6 +414,10 @@ function mergeStoredIntoPrev(prev, parsed) {
       adsSavedAt: remoteAdsNewer ? (stored.adsSavedAt ?? 0) : (prev?.adsSavedAt ?? 0),
       lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
       pendingAdPlays: mergeAdPlayQueues(prev?.pendingAdPlays, stored.pendingAdPlays),
+      // Cloud-managed only (server/cloudSync.js syncStopVoiceAdsFromCloud) — always prefer
+      // whatever the server just returned over a possibly-stale local copy, regardless of
+      // which side's savedAt happens to be newer.
+      stopVoiceAds: stored.stopVoiceAds ?? prev?.stopVoiceAds ?? {},
     };
 
     const remoteDriverId = stored.driverLink?.driverId ?? null;
