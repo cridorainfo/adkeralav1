@@ -71,7 +71,11 @@ export default function DriverControlScreen({ serialRuntime = null }) {
             { force: true }
           );
         }
-        await refreshRemoteState(applyRemoteState, { force: true });
+        // Don't block on this — the drive response above already has everything needed to
+        // update the screen, and the live SSE sync (useRemoteStateSync, always running on this
+        // page) picks up the authoritative write moments later anyway. Awaiting it here used to
+        // keep the button disabled for a second full round-trip on every single tap.
+        refreshRemoteState(applyRemoteState, { force: true }).catch(() => {});
       } catch (err) {
         setError(
           err.code === 'NO_ROUTE'
