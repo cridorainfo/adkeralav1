@@ -824,14 +824,39 @@ function useBusStoreLogic() {
 
   const endAd = useCallback(() => {
     setState((prev) => {
+      // Ad-play tracking (monetization foundation) — endAd() is the single chokepoint every
+      // ad-ending path already funnels through (natural end, error fallback, no-ads-configured
+      // cleanup), so this is instrumented here rather than in each DisplayScreen.jsx effect.
+      // Only counts as a real play when an ad was genuinely showing with a start time — guards
+      // against the "force out of ad view" cleanup call below firing a bogus event.
+      const currentAd = prev.ads?.[prev.currentAdIndex ?? -1] ?? null;
+      let pendingAdPlays = prev.pendingAdPlays;
+      if (prev.displayView === 'ad' && currentAd?.id && prev.adStartedAt) {
+        const endedAt = Date.now();
+        const durationPlayedSec = Math.max(0, Math.round((endedAt - prev.adStartedAt) / 1000));
+        const adDurationSec = Number(currentAd.durationSec) || 12;
+        const playEvent = {
+          id: `${prev.adStartedAt}-${currentAd.id}`,
+          adId: currentAd.id,
+          campaignId: currentAd.campaignId ?? null,
+          playedAt: prev.adStartedAt,
+          durationPlayedSec,
+          completed: durationPlayedSec >= adDurationSec - 1,
+        };
+        // Bounded so a long offline stretch can't grow db/info.txt unboundedly — cloudSync.js
+        // uploads and prunes these in small batches whenever the cloud is reachable.
+        pendingAdPlays = [...(prev.pendingAdPlays ?? []), playEvent].slice(-500);
+      }
+
       const next = !prev.ads.length
-        ? { ...prev, displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null }
+        ? { ...prev, displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null, pendingAdPlays }
         : {
             ...prev,
             displayView: 'route',
             lastAdEndedAt: Date.now(),
             nextAdIndex: ((prev.currentAdIndex ?? 0) + 1) % prev.ads.length,
             adStartedAt: null,
+            pendingAdPlays,
           };
       const stamped = { ...next, savedAt: Date.now() };
       lastWriteAtRef.current = stamped.savedAt;

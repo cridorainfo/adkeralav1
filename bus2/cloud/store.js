@@ -16,6 +16,7 @@ const defaultStore = () => ({
   drivers: {},
   users: {},
   adCampaigns: {},
+  adPlays: [],
   commands: [],
   fleetEnrollments: {},
   busDevices: {},
@@ -432,6 +433,58 @@ export async function syncBusAdsCatalogFromTelemetry(busId, state = {}) {
     adsSavedAt: busAdsAt || Date.now(),
     source: 'bus',
   });
+}
+
+const JSON_STORE_MAX_AD_PLAYS = 20000;
+
+/** Record ad plays reported by a bus. Idempotent on id (JSON backend) so a retried upload
+ * after a partial network failure never double-counts — mirrors pgRecordAdPlays' ON CONFLICT. */
+export async function recordAdPlays(busId, plays = []) {
+  if (!busId || !plays.length) return { inserted: 0 };
+  if (usePostgres()) return pg.pgRecordAdPlays(busId, plays);
+
+  const store = await loadStore();
+  if (!store.adPlays) store.adPlays = [];
+  const existingIds = new Set(store.adPlays.map((p) => p.id));
+  let inserted = 0;
+  for (const play of plays) {
+    if (!play?.id || !play?.adId || existingIds.has(play.id)) continue;
+    store.adPlays.push({
+      id: play.id,
+      busId,
+      adId: play.adId,
+      campaignId: play.campaignId ?? null,
+      playedAt: Number(play.playedAt) || Date.now(),
+      durationPlayedSec: Math.max(0, Math.round(Number(play.durationPlayedSec) || 0)),
+      completed: Boolean(play.completed),
+    });
+    existingIds.add(play.id);
+    inserted += 1;
+  }
+  if (store.adPlays.length > JSON_STORE_MAX_AD_PLAYS) {
+    store.adPlays = store.adPlays
+      .sort((a, b) => b.playedAt - a.playedAt)
+      .slice(0, JSON_STORE_MAX_AD_PLAYS);
+  }
+  if (inserted) await saveStore();
+  return { inserted };
+}
+
+export async function getCampaignPlaysSummary(campaignId) {
+  if (usePostgres()) return pg.pgGetCampaignPlaysSummary(campaignId);
+
+  const store = await loadStore();
+  const rows = (store.adPlays ?? []).filter((p) => p.campaignId === campaignId);
+  const plays = rows.length;
+  const totalWatchSec = rows.reduce((sum, p) => sum + (p.durationPlayedSec ?? 0), 0);
+  const completedPlays = rows.filter((p) => p.completed).length;
+  return {
+    plays,
+    totalWatchSec,
+    completedPlays,
+    completionRate: plays ? completedPlays / plays : 0,
+    avgWatchSec: plays ? Math.round(totalWatchSec / plays) : 0,
+  };
 }
 
 export async function getBusDisplaySettingsCatalog(busId) {

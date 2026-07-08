@@ -10,11 +10,26 @@ export default function CampaignsPanel({ adminMode = false }) {
   const [buses, setBuses] = useState([]);
   const [form, setForm] = useState({ name: '', targetBusIds: [] });
   const [message, setMessage] = useState('');
+  const [plays, setPlays] = useState({});
 
   async function load() {
     const [cJson, bJson] = await Promise.all([api('/api/campaigns'), api('/api/buses')]);
-    setCampaigns(cJson.campaigns ?? []);
+    const loadedCampaigns = cJson.campaigns ?? [];
+    setCampaigns(loadedCampaigns);
     setBuses(bJson.buses ?? []);
+
+    // Proof-of-play summary per campaign — best-effort, one card's fetch failing (e.g. a
+    // campaign with no plays yet) shouldn't block the others from showing.
+    const summaries = await Promise.all(
+      loadedCampaigns.map((c) =>
+        api(`/api/campaigns/${encodeURIComponent(c.id)}/plays`).catch(() => null)
+      )
+    );
+    const nextPlays = {};
+    loadedCampaigns.forEach((c, i) => {
+      if (summaries[i]) nextPlays[c.id] = summaries[i];
+    });
+    setPlays(nextPlays);
   }
 
   useEffect(() => {
@@ -124,6 +139,11 @@ export default function CampaignsPanel({ adminMode = false }) {
               <p className="hint">
                 {c.ads?.length ?? 0} fullscreen · {c.bannerAds?.length ?? 0} banner · targets:{' '}
                 {(c.targetBusIds ?? []).join(', ') || 'none'}
+              </p>
+              <p className="hint">
+                {plays[c.id]
+                  ? `Plays: ${plays[c.id].plays} · Avg watch: ${plays[c.id].avgWatchSec}s · Completion: ${Math.round((plays[c.id].completionRate ?? 0) * 100)}%`
+                  : 'Plays: —'}
               </p>
               <div className="editor-actions">
                 {adminMode && c.status === 'pending' && (

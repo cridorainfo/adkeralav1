@@ -59,6 +59,8 @@ import {
   listBusIdsWithAssignedRoute,
   hasPendingCommandType,
   getRouteCatalogRevision,
+  recordAdPlays,
+  getCampaignPlaysSummary,
 } from './store.js';
 import {
   CLOUD_VERSION,
@@ -489,6 +491,27 @@ app.post('/api/campaigns/:id/approve', authAdminOnly, async (req, res) => {
   res.json(result);
 });
 
+// Proof-of-play summary for a campaign — foundation for monetization; no pricing/billing here,
+// just what actually played, where, and for how long (see server/cloudSync.js + BusStoreProvider.jsx
+// endAd() for how these events get recorded and uploaded).
+app.get('/api/campaigns/:id/plays', authSession, requireAuth, async (req, res) => {
+  const campaign = await getCampaign(req.params.id);
+  if (!campaign) {
+    res.status(404).json({ ok: false, error: 'Campaign not found' });
+    return;
+  }
+  if (req.user.role === 'advertiser' && campaign.advertiserId !== req.user.id) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  if (!['admin', 'advertiser'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const summary = await getCampaignPlaysSummary(req.params.id);
+  res.json({ ok: true, campaignId: req.params.id, ...summary });
+});
+
 app.get('/api/driver/account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
   const session = await getDriverAccountSession(req.user.id);
   res.json(session);
@@ -817,6 +840,20 @@ app.get('/api/buses/:busId/routes', authBusOrFleet, async (req, res) => {
   });
 });
 
+// Same `/driver?control=<lan-url>&code=<4digits>` format the passenger-display QR already
+// encodes (see cloud/shared/hub/persist.js readHubControlFromLocation / lan.js
+// parsePairCodeFromSearch) — this just lets admin regenerate that link/QR for a conductor who
+// needs access after the driver has already paired and the QR is no longer shown. Same trust
+// model as the QR itself: whoever gets this link gets full control, same as the driver.
+function buildDriverConnectUrl(telemetry) {
+  const lanIp = telemetry?.lanIp;
+  const controlPort = telemetry?.controlPort;
+  const pairingCode = telemetry?.pairingCode;
+  if (!lanIp || !controlPort || !pairingCode) return null;
+  const controlUrl = `http://${lanIp}:${controlPort}`;
+  return `${getPublicUrl()}/driver?control=${encodeURIComponent(controlUrl)}&code=${encodeURIComponent(pairingCode)}`;
+}
+
 app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const row = await getBus(req.params.busId);
@@ -834,6 +871,7 @@ app.get('/api/buses/:busId/telemetry', authFleet, async (req, res) => {
     displaySnapshot: row.displaySnapshot,
     profile,
     updatedAt: row.updatedAt,
+    driverConnectUrl: online ? buildDriverConnectUrl(row.telemetry) : null,
   });
 });
 
@@ -1016,6 +1054,15 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
     commands,
     wasOffline,
   });
+});
+
+// Bus-reported ad play events — best-effort proof-of-play for campaign reporting. The bus
+// queues these locally and uploads in small batches (see server/cloudSync.js); idempotent on
+// play.id so a retried upload after a partial failure never double-counts.
+app.post('/api/buses/:busId/ad-plays', authBus, async (req, res) => {
+  const plays = Array.isArray(req.body?.plays) ? req.body.plays : [];
+  const result = await recordAdPlays(req.params.busId, plays);
+  res.json({ ok: true, ...result });
 });
 
 app.get('/api/buses/:busId/commands', authBus, async (req, res) => {

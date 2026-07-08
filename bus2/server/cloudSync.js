@@ -4,7 +4,7 @@ import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia, deleteLocalMediaFiles } from './cloudMediaSync.js';
 import { getStopInfo } from '../src/store/busStore.js';
-import { getLanAddresses } from './networkInfo.js';
+import { getLanAddresses, getWifiSsid } from './networkInfo.js';
 import {
   loadDeviceConfig,
   getDeviceCredentials,
@@ -158,6 +158,7 @@ function buildTelemetry(state, busId) {
     driverLocation: state.driverLocation ?? null,
     lanIp: getLanAddresses()[0]?.address ?? null,
     controlPort: Number(process.env.PORT ?? 5174),
+    wifiSsid: getWifiSsid(),
     pairingCode: state.busProfile?.pairingCode ?? null,
     plateDisplay: state.busProfile?.plateDisplay || state.busProfile?.plate || null,
     linkedDriverId: state.driverLink?.driverId ?? null,
@@ -659,6 +660,48 @@ async function syncStopAudioFromCloud(root, creds) {
   }
 }
 
+// Ad plays are recorded locally (BusStoreProvider.jsx appends to state.pendingAdPlays) so
+// playback is never blocked on the network. Upload is purely best-effort, same pattern as the
+// rest of this file: skip silently offline, and only drop uploaded entries from local state
+// once the cloud has actually accepted them — a failed/offline tick just retries next time.
+const AD_PLAYS_BATCH_SIZE = 200;
+
+async function syncAdPlaysToCloud(root, creds, busId) {
+  if (!creds.cloudUrl || !busId) return;
+
+  const current = (await readInfoFile(root)) ?? {};
+  const pending = current.pendingAdPlays ?? [];
+  if (!pending.length) return;
+
+  const batch = pending.slice(0, AD_PLAYS_BATCH_SIZE);
+  try {
+    const res = await cloudFetch(creds, `/api/buses/${encodeURIComponent(busId)}/ad-plays`, {
+      method: 'POST',
+      body: JSON.stringify({ plays: batch }),
+    });
+    if (!res.ok) return;
+
+    const uploadedIds = new Set(batch.map((p) => p.id));
+    const latest = (await readInfoFile(root)) ?? {};
+    const remaining = (latest.pendingAdPlays ?? []).filter((p) => !uploadedIds.has(p.id));
+    if (remaining.length === (latest.pendingAdPlays ?? []).length) return;
+
+    const pushAt = Date.now();
+    await writeInfoFileSerialized(
+      root,
+      {
+        ...latest,
+        pendingAdPlays: remaining,
+        savedAt: pushAt,
+        lastCloudPushAt: Math.max(latest.lastCloudPushAt ?? 0, pushAt),
+      },
+      { source: 'cloud-ad-plays' }
+    );
+  } catch {
+    /* cloud offline — retry next tick */
+  }
+}
+
 /** Push bus telemetry + pull per-bus command queue when cloud URL is configured. */
 export async function runCloudSync(root) {
   if (syncRunning) return;
@@ -750,6 +793,7 @@ async function runCloudSyncInner(root) {
   await syncAdsFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
+  await syncAdPlaysToCloud(root, creds, busId);
 
   // Catch up any ad/banner media referenced in state but not yet on disk.
   try {

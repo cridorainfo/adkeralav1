@@ -1,4 +1,4 @@
-import { dedupeRoutes, mergeRoutesForSync } from '../src/store/busStore.js';
+import { dedupeRoutes, mergeRoutesForSync, mergeAdPlayQueues } from '../src/store/busStore.js';
 import { mergeAudioMap } from './audioMerge.js';
 import { resolveTripFields } from '../src/store/tripMerge.js';
 import { ensureActiveRouteId } from '../src/store/busStore.js';
@@ -119,6 +119,7 @@ export function mergeIncomingState(current = {}, incoming = {}) {
 
   base.savedAt = Math.max(curSaved, incSaved);
   base.lastCloudPushAt = Math.max(current.lastCloudPushAt ?? 0, incoming.lastCloudPushAt ?? 0);
+  base.pendingAdPlays = mergeAdPlayQueues(current.pendingAdPlays, sanitized.pendingAdPlays);
   resolveTripFields(current, sanitized, base);
   mergeDriverLink(current, sanitized, base);
   mergeBusProfileOntoState(current, sanitized, base);

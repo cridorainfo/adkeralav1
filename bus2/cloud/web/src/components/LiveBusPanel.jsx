@@ -7,6 +7,7 @@ export default function LiveBusPanel() {
   const [data, setData] = useState(null);
   const [driveMessage, setDriveMessage] = useState('');
   const [lastQueuedAt, setLastQueuedAt] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const refresh = useCallback(async () => {
     const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/telemetry`);
@@ -42,6 +43,18 @@ export default function LiveBusPanel() {
   const snapshot = data?.displaySnapshot;
   const view = snapshot?.displayView ?? telemetry?.displayView ?? 'route';
   const online = Boolean(data?.online);
+  const driverConnectUrl = data?.driverConnectUrl ?? null;
+
+  async function copyConnectLink() {
+    if (!driverConnectUrl) return;
+    try {
+      await navigator.clipboard.writeText(driverConnectUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — link is still shown as selectable text below */
+    }
+  }
 
   return (
     <div className="grid-2">
@@ -77,6 +90,36 @@ export default function LiveBusPanel() {
         <pre style={{ background: '#f3f4f6', padding: '0.75rem', borderRadius: 8, overflow: 'auto', fontSize: '0.78rem', marginTop: '1rem' }}>
           {JSON.stringify(telemetry, null, 2)}
         </pre>
+      </div>
+      <div className="card">
+        <h2>Conductor access</h2>
+        {online && driverConnectUrl ? (
+          <>
+            <p className="hint">
+              Wi‑Fi network: <strong>{telemetry?.wifiSsid ?? 'unknown — check with driver'}</strong>
+            </p>
+            <p className="hint">
+              Send this link to the conductor once they're on that Wi‑Fi. It pairs them
+              alongside the driver, same as the QR the driver already scanned.
+            </p>
+            <div className="editor-actions">
+              <input type="text" readOnly value={driverConnectUrl} onFocus={(e) => e.target.select()} style={{ flex: 1, minWidth: 0 }} />
+              <button type="button" className="btn btn-secondary btn-sm" onClick={copyConnectLink}>
+                {linkCopied ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
+            <p className="hint" style={{ marginTop: '0.5rem' }}>
+              This grants the same level of control as the driver's own connection — treat it
+              like the pairing code, not a read-only view.
+            </p>
+          </>
+        ) : (
+          <p className="hint">
+            {online
+              ? 'Bus is online but has not reported a pairing code yet.'
+              : `Bus offline${data?.updatedAt ? ` — last seen ${new Date(data.updatedAt).toLocaleString()}` : ''}.`}
+          </p>
+        )}
       </div>
       <div className="card">
         <h2>Passenger screen mirror</h2>

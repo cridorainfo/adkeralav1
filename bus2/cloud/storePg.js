@@ -406,6 +406,56 @@ export async function pgPruneCommands() {
   await query(`DELETE FROM bus_commands WHERE status = 'acked' AND acked_at < $1`, [cutoff]);
   const locCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
   await query(`DELETE FROM bus_location_history WHERE recorded_at < $1`, [locCutoff]);
+  // Ad plays are proof-of-play/billing records, not a live trail like locations — keep them
+  // much longer (roughly a year) so campaign reporting can still cover a full billing cycle.
+  const adPlaysCutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  await query(`DELETE FROM ad_plays WHERE played_at < $1`, [adPlaysCutoff]);
+}
+
+/** Batch-insert reported ad plays for a bus — idempotent on id so a retried upload after a
+ * partial network failure never double-counts. */
+export async function pgRecordAdPlays(busId, plays = []) {
+  if (!busId || !plays.length) return { inserted: 0 };
+  const now = Date.now();
+  let inserted = 0;
+  for (const play of plays) {
+    if (!play?.id || !play?.adId) continue;
+    await query(
+      `INSERT INTO ad_plays (id, bus_id, ad_id, campaign_id, played_at, duration_played_sec, completed, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        play.id,
+        busId,
+        play.adId,
+        play.campaignId ?? null,
+        Number(play.playedAt) || now,
+        Math.max(0, Math.round(Number(play.durationPlayedSec) || 0)),
+        Boolean(play.completed),
+        now,
+      ]
+    );
+    inserted += 1;
+  }
+  return { inserted };
+}
+
+export async function pgGetCampaignPlaysSummary(campaignId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS plays,
+            COALESCE(SUM(duration_played_sec), 0)::int AS total_watch_sec,
+            COALESCE(SUM(CASE WHEN completed THEN 1 ELSE 0 END), 0)::int AS completed_plays
+     FROM ad_plays WHERE campaign_id = $1`,
+    [campaignId]
+  );
+  const row = rows[0] ?? { plays: 0, total_watch_sec: 0, completed_plays: 0 };
+  return {
+    plays: row.plays,
+    totalWatchSec: row.total_watch_sec,
+    completedPlays: row.completed_plays,
+    completionRate: row.plays ? row.completed_plays / row.plays : 0,
+    avgWatchSec: row.plays ? Math.round(row.total_watch_sec / row.plays) : 0,
+  };
 }
 
 export async function pgGetLocationHistory(busId, { minutes = 120, limit = 500 } = {}) {

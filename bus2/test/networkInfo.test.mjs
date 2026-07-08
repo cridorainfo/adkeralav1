@@ -5,11 +5,37 @@ import {
   controlIpForPhones,
   isVirtualNicName,
   lanAddressTier,
+  parseSsidFromNetshOutput,
   pickPrimaryLanAddress,
   preferredProbeTiers,
   rankLanAddresses,
 } from '../server/networkInfo.js';
 import { isVpnOnlyAddress } from '../cloud/shared/hub/lan.js';
+
+test('parseSsidFromNetshOutput reads the SSID line from real netsh output', () => {
+  const output = [
+    'Name                   : Wi-Fi',
+    'Description            : Intel(R) Wi-Fi 6 AX201',
+    'GUID                   : 12345678-1234-1234-1234-123456789abc',
+    'Physical address       : aa:bb:cc:dd:ee:ff',
+    'State                  : connected',
+    'SSID                   : BusFleet-42',
+    'BSSID                  : 11:22:33:44:55:66',
+    'Network type           : Infrastructure',
+  ].join('\r\n');
+  assert.equal(parseSsidFromNetshOutput(output), 'BusFleet-42');
+});
+
+test('parseSsidFromNetshOutput never matches the BSSID line', () => {
+  const output = 'BSSID                  : 11:22:33:44:55:66\r\nSSID                   : \r\n';
+  assert.equal(parseSsidFromNetshOutput(output), null);
+});
+
+test('parseSsidFromNetshOutput returns null when disconnected or on unexpected output', () => {
+  assert.equal(parseSsidFromNetshOutput('State                  : disconnected'), null);
+  assert.equal(parseSsidFromNetshOutput(''), null);
+  assert.equal(parseSsidFromNetshOutput(null), null);
+});
 
 test('controlIpForPhones rejects loopback', () => {
   assert.equal(controlIpForPhones('127.0.0.1'), null);

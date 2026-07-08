@@ -92,9 +92,12 @@ export async function pushCampaignToBuses(id, user, busProfiles) {
       if (profile?.ownerId !== user.id) continue;
     }
     const adsSavedAt = Date.now();
+    // Stamp campaignId onto each ad so play events the bus reports later (POST .../ad-plays)
+    // can be attributed back to this campaign without a separate lookup.
+    const stampCampaign = (ad) => ({ ...ad, campaignId: campaign.id });
     const catalog = await setBusAdsCatalog(busId, {
-      ads: campaign.ads,
-      bannerAds: campaign.bannerAds,
+      ads: (campaign.ads ?? []).map(stampCampaign),
+      bannerAds: (campaign.bannerAds ?? []).map(stampCampaign),
       adsSavedAt,
       source: 'campaign',
     });

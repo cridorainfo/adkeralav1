@@ -354,6 +354,16 @@ function mergeHydratedAudioMap(existing = {}, incoming = {}) {
   return out;
 }
 
+/** Union-merge queued ad-play events by id instead of letting either side's savedAt clobber
+ * the other's unsent events — a driver-phone GPS save or any other write with a newer savedAt
+ * must never wipe out plays the display queued but the bus hasn't uploaded to cloud yet. */
+export function mergeAdPlayQueues(current = [], incoming = []) {
+  const byId = new Map();
+  for (const p of current ?? []) if (p?.id) byId.set(p.id, p);
+  for (const p of incoming ?? []) if (p?.id) byId.set(p.id, p);
+  return [...byId.values()].slice(-500);
+}
+
 function mergeStopCatalogs(prev = [], stored = []) {
   const byKey = new Map();
   const add = (entry) => {
@@ -403,6 +413,7 @@ function mergeStoredIntoPrev(prev, parsed) {
       bannerAds: remoteAdsNewer ? (stored.bannerAds ?? []) : (prev?.bannerAds ?? []),
       adsSavedAt: remoteAdsNewer ? (stored.adsSavedAt ?? 0) : (prev?.adsSavedAt ?? 0),
       lastCloudPushAt: Math.max(prev?.lastCloudPushAt ?? 0, stored.lastCloudPushAt ?? 0),
+      pendingAdPlays: mergeAdPlayQueues(prev?.pendingAdPlays, stored.pendingAdPlays),
     };
 
     const remoteDriverId = stored.driverLink?.driverId ?? null;

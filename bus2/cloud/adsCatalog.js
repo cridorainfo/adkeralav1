@@ -26,6 +26,9 @@ export function normalizeAdForCatalog(ad) {
     ...(ad.adFormat ? { adFormat: ad.adFormat } : {}),
     ...(ad.width ? { width: ad.width } : {}),
     ...(ad.height ? { height: ad.height } : {}),
+    // Round-trips through the bus's own ad catalog so play events reported back (see
+    // BusStoreProvider.jsx's endAd()) can be attributed to the campaign that bought the slot.
+    ...(ad.campaignId ? { campaignId: ad.campaignId } : {}),
   };
 }
 

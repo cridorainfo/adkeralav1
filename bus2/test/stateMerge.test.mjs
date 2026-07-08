@@ -1,7 +1,51 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeIncomingState } from '../server/stateMerge.js';
-import { mergeRemoteState } from '../src/store/busStore.js';
+import { mergeAdPlayQueues, mergeRemoteState } from '../src/store/busStore.js';
+
+test('mergeAdPlayQueues unions by id instead of letting either side win wholesale', () => {
+  const current = [{ id: 'a', adId: 'ad1' }, { id: 'b', adId: 'ad2' }];
+  const incoming = [{ id: 'b', adId: 'ad2' }, { id: 'c', adId: 'ad3' }];
+  const merged = mergeAdPlayQueues(current, incoming);
+  assert.deepEqual(merged.map((p) => p.id).sort(), ['a', 'b', 'c']);
+});
+
+test('mergeAdPlayQueues caps at 500 entries', () => {
+  const current = Array.from({ length: 300 }, (_, i) => ({ id: `c${i}` }));
+  const incoming = Array.from({ length: 300 }, (_, i) => ({ id: `i${i}` }));
+  assert.equal(mergeAdPlayQueues(current, incoming).length, 500);
+});
+
+test('mergeIncomingState never lets a newer-savedAt write wipe out unsent ad plays', () => {
+  // A driver-phone GPS save (or any other write) that bumps savedAt must not clobber ad
+  // plays the display queued locally but the bus hasn't uploaded to cloud yet.
+  const current = {
+    savedAt: 1000,
+    pendingAdPlays: [{ id: 'play-1', adId: 'ad1', durationPlayedSec: 12, completed: true }],
+  };
+  const incoming = {
+    savedAt: 2000,
+    driverLocation: { lat: 10, lng: 76, at: 2000 },
+    // Phone never ran the ad view, so its own copy is stale/empty.
+    pendingAdPlays: [],
+  };
+
+  const merged = mergeIncomingState(current, incoming);
+  assert.equal(merged.pendingAdPlays.length, 1);
+  assert.equal(merged.pendingAdPlays[0].id, 'play-1');
+});
+
+test('mergeRemoteState never lets a newer remote savedAt wipe out local unsent ad plays', () => {
+  const prev = {
+    savedAt: 1000,
+    pendingAdPlays: [{ id: 'play-1', adId: 'ad1', durationPlayedSec: 12, completed: true }],
+  };
+  const remote = { savedAt: 2000, pendingAdPlays: [] };
+
+  const merged = mergeRemoteState(prev, remote);
+  assert.equal(merged.pendingAdPlays.length, 1);
+  assert.equal(merged.pendingAdPlays[0].id, 'play-1');
+});
 
 test('mergeIncomingState prefers newer cloud route names', () => {
   const current = {

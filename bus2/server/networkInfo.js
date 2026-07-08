@@ -62,6 +62,33 @@ function getWindowsLanAddressesFallback() {
   }
 }
 
+/** Extracts the SSID line from `netsh wlan show interfaces` output — anchored on leading
+ * whitespace + literal "SSID" so it never matches the "BSSID" line just below it. */
+export function parseSsidFromNetshOutput(output) {
+  for (const line of String(output ?? '').split(/\r?\n/)) {
+    const match = line.match(/^\s*SSID\s*:\s*(.*)$/);
+    if (match) return match[1].trim() || null;
+  }
+  return null;
+}
+
+/** Wi‑Fi network name this PC is currently joined to — lets admin tell a conductor which
+ * network to join before opening the control link. Windows-only; returns null everywhere
+ * else or if the adapter is disconnected, and never throws. */
+export function getWifiSsid() {
+  if (process.platform !== 'win32') return null;
+  try {
+    const out = execFileSync('netsh', ['wlan', 'show', 'interfaces'], {
+      encoding: 'utf8',
+      timeout: 4000,
+      windowsHide: true,
+    });
+    return parseSsidFromNetshOutput(out);
+  } catch {
+    return null;
+  }
+}
+
 function scoreNic(name) {
   if (WIFI_NIC.test(name)) return 30;
   if (ETHERNET_NIC.test(name)) return 20;
