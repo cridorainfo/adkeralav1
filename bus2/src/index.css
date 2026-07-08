@@ -2261,6 +2261,11 @@ html.kiosk-hide-cursor * {
   min-height: 0;
 }
 
+/* Fullscreen ad: give the ad the whole screen — branding moves into the bottom stop bar instead. */
+.display-screen:has(.display-ad-view) .display-top-bar {
+  display: none;
+}
+
 .display-route-view {
   text-align: center;
   width: 100%;
@@ -3418,6 +3423,17 @@ html.kiosk-hide-cursor * {
   background: linear-gradient(180deg, rgba(6, 61, 50, 0.98) 0%, rgba(11, 92, 74, 1) 100%);
   border-top: 3px solid var(--kerala-gold);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.display-ad-stop-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.display-ad-stop-bar-logo {
+  flex-shrink: 0;
 }
 
 .display-ad-stop-bar-main {

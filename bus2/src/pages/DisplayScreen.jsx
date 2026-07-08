@@ -20,6 +20,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const videoRef = useRef(null);
   const stateRef = useRef(s);
   const adCountdownRef = useRef({ adKey: null, startedAt: 0 });
+  const videoAdKeyRef = useRef(null);
+  const audioAdKeyRef = useRef(null);
   stateRef.current = s;
 
   const stopInfo = getStopInfo(s);
@@ -124,6 +126,15 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     return () => clearInterval(interval);
   }, [showingAd, isVideoAd, currentAd?.id, s.currentAdIndex, adDuration, endAd]);
 
+  // Marks the ad each media element currently holds — reset only when the ad view fully closes
+  // (not on every announcement pause/resume), so pausing for an announcement mid-ad and resuming
+  // continues from currentTime instead of restarting the same ad from 0.
+  useEffect(() => {
+    if (showingAd) return;
+    videoAdKeyRef.current = null;
+    audioAdKeyRef.current = null;
+  }, [showingAd]);
+
   useEffect(() => {
     if (!showingAd || !isVideoAd) return;
     if (announcementPlaying) {
@@ -135,7 +146,10 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     const video = videoRef.current;
     if (!video) return;
 
-    video.currentTime = 0;
+    const isNewAd = videoAdKeyRef.current !== currentAd?.id;
+    videoAdKeyRef.current = currentAd?.id ?? null;
+
+    if (isNewAd) video.currentTime = 0;
     video.loop = false;
 
     const syncTimer = () => {
@@ -183,8 +197,10 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     }
 
     if (currentAd?.audioUrl && audioRef.current) {
+      const isNewAd = audioAdKeyRef.current !== currentAd.id;
+      audioAdKeyRef.current = currentAd.id ?? null;
       audioRef.current.muted = false;
-      audioRef.current.src = currentAd.audioUrl;
+      if (isNewAd) audioRef.current.src = currentAd.audioUrl;
       audioRef.current.play().catch(() => {});
     }
 
@@ -288,22 +304,35 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
               </div>
             </div>
 
-            {showingAd && showTripOnDisplay && (displayStop || stopInfo.current) && (
+            {showingAd && (
               <section
                 className="display-ad-stop-bar"
-                aria-label={tripEnded ? 'Destination reached' : stopInfo.atTripStart ? 'At origin' : 'Next stop'}
+                aria-label={
+                  showTripOnDisplay
+                    ? tripEnded
+                      ? 'Destination reached'
+                      : stopInfo.atTripStart
+                      ? 'At origin'
+                      : 'Next stop'
+                    : 'Advertisement'
+                }
               >
-                <div className="display-ad-stop-bar-main">
-                  <span className="display-ad-stop-bar-label">
-                    {tripEnded ? 'Destination reached' : stopInfo.atTripStart ? 'At origin' : 'Next Stop'}
-                  </span>
-                  <strong className="display-ad-stop-bar-name">
-                    <BilingualStop
-                      stop={tripEnded ? destinationStop : displayStop ?? stopInfo.current}
-                      size="sm"
-                      mode="alternate"
-                    />
-                  </strong>
+                <div className="display-ad-stop-bar-left">
+                  <AdKeralaLogo className="display-ad-stop-bar-logo" size="md" />
+                  {showTripOnDisplay && (displayStop || stopInfo.current) && (
+                    <div className="display-ad-stop-bar-main">
+                      <span className="display-ad-stop-bar-label">
+                        {tripEnded ? 'Destination reached' : stopInfo.atTripStart ? 'At origin' : 'Next Stop'}
+                      </span>
+                      <strong className="display-ad-stop-bar-name">
+                        <BilingualStop
+                          stop={tripEnded ? destinationStop : displayStop ?? stopInfo.current}
+                          size="sm"
+                          mode="alternate"
+                        />
+                      </strong>
+                    </div>
+                  )}
                 </div>
                 {showTripOnDisplay &&
                   stopInfo.final &&
