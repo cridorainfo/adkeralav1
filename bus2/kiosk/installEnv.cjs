@@ -1,8 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-/** Production cloud — baked into packaged bus PC builds when CI secret is unset. */
+/** Human-facing domain — behind Cloudflare, fine for browsers but challenges/blocks
+ *  non-browser clients (confirmed: Cloudflare returns 403 cf-mitigated:challenge to
+ *  both curl and, by the same token, electron-updater/fetch traffic). */
 const PRODUCTION_CLOUD_URL = 'https://adkerala.com';
+/** Raw Railway URL — same backend, no Cloudflare in front. Used for all
+ *  machine-to-machine bus-PC traffic (route/media sync, telemetry, update checks). */
 const FALLBACK_CLOUD_URL = 'https://adkeralav1-production.up.railway.app';
 
 /**
@@ -17,7 +21,7 @@ function applyPackagedDefaults(app) {
 
   if (!process.env.ADKERALA_CLOUD_URL) {
     process.env.ADKERALA_CLOUD_URL =
-      process.env.VITE_CLOUD_URL || PRODUCTION_CLOUD_URL || FALLBACK_CLOUD_URL;
+      process.env.VITE_CLOUD_URL || FALLBACK_CLOUD_URL || PRODUCTION_CLOUD_URL;
   }
 
   process.env.ADKERALA_DATA_ROOT = resolveWritableDataRoot(app);
