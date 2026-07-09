@@ -1132,12 +1132,14 @@ app.get('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
 });
 
 // Stamps `exhausted` onto each budgeted ad (spend computed fresh from reported plays against
-// current pricing settings — see cloud/pricing.js) and appends the always-on house-ad catalog,
-// so the bus's own rotation (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid
-// ads and fall back to house ads without needing any cloud round-trip of its own.
-async function stampExhaustionAndAppendHouseAds(list = []) {
+// current pricing settings — see cloud/pricing.js), so the bus's own rotation
+// (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid ads and fall back to
+// house ads without needing any cloud round-trip of its own. Budget/exhaustion is a fullscreen-
+// only concept (banner ads aren't instrumented by endAd()'s play tracking), so this only
+// applies to the fullscreen list — banner house ads are appended separately, unconditionally.
+async function stampExhaustion(list = []) {
   const pricingSettings = await getPricingSettings();
-  const stamped = await Promise.all(
+  return Promise.all(
     list.map(async (ad) => {
       if (!Number.isFinite(Number(ad.amount)) || Number(ad.amount) <= 0) return ad;
       const plays = await getAdPlaysRaw(ad.id);
@@ -1145,8 +1147,6 @@ async function stampExhaustionAndAppendHouseAds(list = []) {
       return { ...ad, exhausted: isAdExhausted(ad.amount, spend) };
     })
   );
-  const houseAds = await getHouseAds();
-  return [...stamped, ...houseAds];
 }
 
 // Bus device pull sync for ads/banner ads (full reconciliation, mirrors GET .../routes above).
@@ -1159,13 +1159,15 @@ app.get('/api/buses/:busId/ads', authBus, async (req, res) => {
   const row = await getBus(busId);
   await syncBusAdsCatalogFromTelemetry(busId, row?.state ?? {});
   const catalog = await getBusAdsCatalog(busId);
-  const ads = await stampExhaustionAndAppendHouseAds(catalog.ads);
+  const houseAds = await getHouseAds();
+  const ads = [...(await stampExhaustion(catalog.ads)), ...houseAds.ads];
+  const bannerAds = [...catalog.bannerAds, ...houseAds.bannerAds];
   res.json({
     ok: true,
     ads,
-    bannerAds: catalog.bannerAds,
+    bannerAds,
     adsSavedAt: catalog.adsSavedAt,
-    mediaFiles: collectAdMediaPathsFromLists(ads, catalog.bannerAds),
+    mediaFiles: collectAdMediaPathsFromLists(ads, bannerAds),
   });
 });
 
@@ -1182,16 +1184,20 @@ app.put('/api/pricing-settings', authAdminOnly, async (req, res) => {
 });
 
 // House/free ads — admin-managed, pushed to every bus regardless of campaign targeting (see
-// stampExhaustionAndAppendHouseAds above). Reuses the same ad-object shape/upload flow as
-// campaign ads; the only difference is isHouseAd stamped in, no amount/campaignId/targeting.
+// the ads-serving route above). Covers both fullscreen and banner ads; reuses the same
+// ad-object shape/upload flow as campaign ads, the only difference is isHouseAd stamped in,
+// no amount/campaignId/targeting.
 app.get('/api/house-ads', authAdminOnly, async (_req, res) => {
-  const ads = await getHouseAds();
-  res.json({ ok: true, ads });
+  const houseAds = await getHouseAds();
+  res.json({ ok: true, ...houseAds });
 });
 
 app.put('/api/house-ads', authAdminOnly, async (req, res) => {
-  const ads = await setHouseAds(Array.isArray(req.body?.ads) ? req.body.ads : []);
-  res.json({ ok: true, ads });
+  const houseAds = await setHouseAds({
+    ads: Array.isArray(req.body?.ads) ? req.body.ads : [],
+    bannerAds: Array.isArray(req.body?.bannerAds) ? req.body.bannerAds : [],
+  });
+  res.json({ ok: true, ...houseAds });
 });
 
 // Per-ad spend vs budget — admin visibility into where a campaign's money is actually going,

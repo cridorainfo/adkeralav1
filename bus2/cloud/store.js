@@ -547,20 +547,34 @@ export async function setPricingSettings(patch = {}) {
 }
 
 /** House/free ads — admin-managed catalog pushed to every bus regardless of campaign targeting,
- * used to fill rotation once paid ads exhaust their budget (see cloud/pricing.js). */
+ * used to fill rotation once paid ads exhaust their budget (see cloud/pricing.js). Covers both
+ * fullscreen and banner ads. `raw` may still be the old flat-array shape (fullscreen only, from
+ * before banner support existed) — read defensively so any house ads already saved keep working. */
+function normalizeHouseAdsRaw(raw) {
+  const rawAds = Array.isArray(raw) ? raw : (raw?.ads ?? []);
+  const rawBanners = Array.isArray(raw) ? [] : (raw?.bannerAds ?? []);
+  return {
+    ads: normalizeAdsList(rawAds).map((ad) => ({ ...ad, isHouseAd: true })),
+    bannerAds: normalizeAdsList(rawBanners).map((ad) => ({ ...ad, isHouseAd: true })),
+  };
+}
+
 export async function getHouseAds() {
   if (usePostgres()) {
     const row = await pg.pgGetPlatformSetting(PG_KEY_HOUSE_ADS, null);
-    return normalizeAdsList(row?.ads ?? []).map((ad) => ({ ...ad, isHouseAd: true }));
+    return normalizeHouseAdsRaw(row);
   }
   const store = await loadStore();
-  return normalizeAdsList(store.houseAds ?? []).map((ad) => ({ ...ad, isHouseAd: true }));
+  return normalizeHouseAdsRaw(store.houseAds);
 }
 
-export async function setHouseAds(ads = []) {
-  const normalized = normalizeAdsList(ads).map((ad) => ({ ...ad, isHouseAd: true }));
+export async function setHouseAds({ ads = [], bannerAds = [] } = {}) {
+  const normalized = {
+    ads: normalizeAdsList(ads).map((ad) => ({ ...ad, isHouseAd: true })),
+    bannerAds: normalizeAdsList(bannerAds).map((ad) => ({ ...ad, isHouseAd: true })),
+  };
   if (usePostgres()) {
-    await pg.pgSetPlatformSetting(PG_KEY_HOUSE_ADS, { ads: normalized });
+    await pg.pgSetPlatformSetting(PG_KEY_HOUSE_ADS, normalized);
     return normalized;
   }
   const store = await loadStore();
