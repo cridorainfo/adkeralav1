@@ -427,15 +427,18 @@ export async function pgRecordAdPlays(busId, plays = []) {
   let inserted = 0;
   for (const play of plays) {
     if (!play?.id || !play?.adId) continue;
+    const format = play.format === 'banner' || play.format === 'audio' ? play.format : 'fullscreen';
     await query(
-      `INSERT INTO ad_plays (id, bus_id, ad_id, campaign_id, played_at, duration_played_sec, completed, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO ad_plays (id, bus_id, ad_id, campaign_id, route_id, format, played_at, duration_played_sec, completed, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO NOTHING`,
       [
         play.id,
         busId,
         play.adId,
         play.campaignId ?? null,
+        play.routeId ?? null,
+        format,
         Number(play.playedAt) || now,
         Math.max(0, Math.round(Number(play.durationPlayedSec) || 0)),
         Boolean(play.completed),
@@ -456,6 +459,25 @@ export async function pgGetAdPlaysRaw(adId) {
     playedAt: Number(row.played_at),
     durationPlayedSec: row.duration_played_sec,
   }));
+}
+
+export async function pgGetPlaysGroupedByAdBusRoute(adIds) {
+  if (!adIds?.length) return {};
+  const { rows } = await query(
+    `SELECT ad_id, bus_id, route_id, COUNT(*)::int AS plays
+     FROM ad_plays WHERE ad_id = ANY($1::text[])
+     GROUP BY ad_id, bus_id, route_id`,
+    [adIds]
+  );
+  const result = {};
+  for (const row of rows) {
+    const bucket = (result[row.ad_id] ??= { totalPlays: 0, byBus: {}, byRoute: {} });
+    bucket.totalPlays += row.plays;
+    bucket.byBus[row.bus_id] = (bucket.byBus[row.bus_id] ?? 0) + row.plays;
+    const routeKey = row.route_id ?? '__unassigned__';
+    bucket.byRoute[routeKey] = (bucket.byRoute[routeKey] ?? 0) + row.plays;
+  }
+  return result;
 }
 
 export async function pgGetCampaignPlaysSummary(campaignId) {

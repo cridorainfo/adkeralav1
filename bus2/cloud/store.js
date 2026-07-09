@@ -365,6 +365,9 @@ const DEFAULT_PRICING_SETTINGS = {
   peakRatePerSecond: 0,
   // Minutes-since-midnight windows, Asia/Kolkata — e.g. 7-9am + 5-7pm rush hours.
   peakHours: [],
+  // Flat per-second rates — banner/audio have no peak-attention concept to split on.
+  bannerRatePerSecond: 0,
+  audioRatePerSecond: 0,
 };
 
 const DISPLAY_SETTINGS_KEYS = [
@@ -468,6 +471,8 @@ export async function recordAdPlays(busId, plays = []) {
       busId,
       adId: play.adId,
       campaignId: play.campaignId ?? null,
+      routeId: play.routeId ?? null,
+      format: play.format === 'banner' || play.format === 'audio' ? play.format : 'fullscreen',
       playedAt: Number(play.playedAt) || Date.now(),
       durationPlayedSec: Math.max(0, Math.round(Number(play.durationPlayedSec) || 0)),
       completed: Boolean(play.completed),
@@ -511,6 +516,25 @@ export async function getAdPlaysRaw(adId) {
     .map((p) => ({ playedAt: p.playedAt, durationPlayedSec: p.durationPlayedSec }));
 }
 
+/** Play counts for a set of ad ids, grouped by bus and by route — the data half of a campaign
+ * report (cloud/campaigns.js's getCampaignReport adds ad names/formats on top). */
+export async function getPlaysGroupedByAdBusRoute(adIds) {
+  if (usePostgres()) return pg.pgGetPlaysGroupedByAdBusRoute(adIds);
+  if (!adIds?.length) return {};
+  const idSet = new Set(adIds);
+  const store = await loadStore();
+  const result = {};
+  for (const play of store.adPlays ?? []) {
+    if (!idSet.has(play.adId)) continue;
+    const bucket = (result[play.adId] ??= { totalPlays: 0, byBus: {}, byRoute: {} });
+    bucket.totalPlays += 1;
+    bucket.byBus[play.busId] = (bucket.byBus[play.busId] ?? 0) + 1;
+    const routeKey = play.routeId ?? '__unassigned__';
+    bucket.byRoute[routeKey] = (bucket.byRoute[routeKey] ?? 0) + 1;
+  }
+  return result;
+}
+
 /** Platform-wide ad pricing — not a per-bus concept, so this is a single global settings blob,
  * same shape as the global phrase-audio catalog above. */
 export async function getPricingSettings() {
@@ -535,6 +559,8 @@ export async function setPricingSettings(patch = {}) {
           }))
           .filter((w) => w.endMin > w.startMin)
       : current.peakHours,
+    bannerRatePerSecond: Number.isFinite(Number(patch.bannerRatePerSecond)) ? Math.max(0, Number(patch.bannerRatePerSecond)) : current.bannerRatePerSecond,
+    audioRatePerSecond: Number.isFinite(Number(patch.audioRatePerSecond)) ? Math.max(0, Number(patch.audioRatePerSecond)) : current.audioRatePerSecond,
   };
   if (usePostgres()) {
     await pg.pgSetPlatformSetting(PG_KEY_PRICING_SETTINGS, next);
@@ -833,7 +859,16 @@ export async function setStopVoiceAdsCatalog(entries = {}) {
   for (const [key, val] of Object.entries(entries ?? {})) {
     const trimmedKey = String(key ?? '').trim().toLowerCase();
     if (!trimmedKey || !val?.audioFile) continue;
-    normalized[trimmedKey] = { audioFile: val.audioFile, enabled: Boolean(val.enabled) };
+    // id is stable across saves (round-tripped by the caller from a prior GET) so play
+    // records and campaign-ad linking have something immutable to reference — stop-name
+    // strings alone aren't a safe key for that (can be renamed/reused).
+    normalized[trimmedKey] = {
+      id: val.id || randomUUID(),
+      audioFile: val.audioFile,
+      enabled: Boolean(val.enabled),
+      ...(val.campaignId ? { campaignId: val.campaignId } : {}),
+      ...(Number(val.amount) > 0 ? { amount: Number(val.amount) } : {}),
+    };
   }
   if (usePostgres()) {
     await pg.pgSetPlatformSetting(PG_KEY_STOP_VOICE_ADS, { stopVoiceAds: normalized, savedAt });

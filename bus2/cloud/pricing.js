@@ -27,9 +27,30 @@ export function isPeakMinute(minute, peakHours = []) {
   return (peakHours ?? []).some((w) => minute >= w.startMin && minute < w.endMin);
 }
 
-/** Splits an ad's raw play events into peak/off-peak watched seconds and the resulting spend. */
-export function computeAdSpend(plays, pricingSettings) {
-  const { ratePerSecond = 0, peakRatePerSecond = 0, peakHours = [] } = pricingSettings ?? {};
+/**
+ * Splits an ad's raw play events into watched seconds and the resulting spend.
+ * Fullscreen ads keep the peak/off-peak split; banner and audio ads use a flat
+ * per-second rate each (no natural "peak attention" concept for those two, and
+ * simpler for admins to reason about — see PricingPanel.jsx).
+ */
+export function computeAdSpend(plays, format, pricingSettings) {
+  const {
+    ratePerSecond = 0,
+    peakRatePerSecond = 0,
+    peakHours = [],
+    bannerRatePerSecond = 0,
+    audioRatePerSecond = 0,
+  } = pricingSettings ?? {};
+
+  if (format === 'banner' || format === 'audio') {
+    const rate = format === 'banner' ? bannerRatePerSecond : audioRatePerSecond;
+    const sec = (plays ?? []).reduce(
+      (sum, play) => sum + Math.max(0, Number(play.durationPlayedSec) || 0),
+      0
+    );
+    return { peakSec: 0, offPeakSec: sec, spend: sec * rate };
+  }
+
   let peakSec = 0;
   let offPeakSec = 0;
   for (const play of plays ?? []) {

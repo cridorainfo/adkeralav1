@@ -110,6 +110,9 @@ import {
   deleteCampaign,
   pushCampaignToBuses,
   findCampaignByAdId,
+  adFormatInCampaign,
+  rerunCampaign,
+  getCampaignReport,
 } from './campaigns.js';
 import {
   enrollDevice,
@@ -501,6 +504,17 @@ app.post('/api/campaigns/:id/approve', authAdminOnly, async (req, res) => {
   res.json(result);
 });
 
+// Rerun a completed campaign with fresh budgets — clones its ads under new ids into a brand
+// new campaign; the original is never touched, so its Completed-section report stays intact.
+app.post('/api/campaigns/:id/rerun', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const result = await rerunCampaign(req.params.id, req.user, req.body ?? {});
+  if (!result.ok) {
+    res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
+    return;
+  }
+  res.json(result);
+});
+
 // Proof-of-play summary for a campaign — foundation for monetization; no pricing/billing here,
 // just what actually played, where, and for how long (see server/cloudSync.js + BusStoreProvider.jsx
 // endAd() for how these events get recorded and uploaded).
@@ -520,6 +534,26 @@ app.get('/api/campaigns/:id/plays', authSession, requireAuth, async (req, res) =
   }
   const summary = await getCampaignPlaysSummary(req.params.id);
   res.json({ ok: true, campaignId: req.params.id, ...summary });
+});
+
+// Per-ad × per-bus × per-route play breakdown — the Completed-campaign report. Same auth as
+// .../plays above; fetched on-demand (not eagerly for every campaign) since it's heavier.
+app.get('/api/campaigns/:id/report', authSession, requireAuth, async (req, res) => {
+  const campaign = await getCampaign(req.params.id);
+  if (!campaign) {
+    res.status(404).json({ ok: false, error: 'Campaign not found' });
+    return;
+  }
+  if (req.user.role === 'advertiser' && campaign.advertiserId !== req.user.id) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  if (!['admin', 'advertiser'].includes(req.user.role)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return;
+  }
+  const report = await getCampaignReport(req.params.id);
+  res.json({ ok: true, ...report });
 });
 
 app.get('/api/driver/account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
@@ -1164,13 +1198,13 @@ app.get('/api/buses/:busId/ads/live', authFleet, async (req, res) => {
 // house ads without needing any cloud round-trip of its own. Budget/exhaustion is a fullscreen-
 // only concept (banner ads aren't instrumented by endAd()'s play tracking), so this only
 // applies to the fullscreen list — banner house ads are appended separately, unconditionally.
-async function stampExhaustion(list = []) {
+async function stampExhaustion(list = [], format = 'fullscreen') {
   const pricingSettings = await getPricingSettings();
   return Promise.all(
     list.map(async (ad) => {
       if (!Number.isFinite(Number(ad.amount)) || Number(ad.amount) <= 0) return ad;
       const plays = await getAdPlaysRaw(ad.id);
-      const { spend } = computeAdSpend(plays, pricingSettings);
+      const { spend } = computeAdSpend(plays, format, pricingSettings);
       return { ...ad, exhausted: isAdExhausted(ad.amount, spend) };
     })
   );
@@ -1244,8 +1278,9 @@ app.get('/api/ads/:adId/spend', authSession, requireAuth, async (req, res) => {
   }
   const pricingSettings = await getPricingSettings();
   const plays = await getAdPlaysRaw(req.params.adId);
-  const { peakSec, offPeakSec, spend } = computeAdSpend(plays, pricingSettings);
-  res.json({ ok: true, adId: req.params.adId, plays: plays.length, peakSec, offPeakSec, spend });
+  const format = await adFormatInCampaign(campaign, req.params.adId);
+  const { peakSec, offPeakSec, spend } = computeAdSpend(plays, format, pricingSettings);
+  res.json({ ok: true, adId: req.params.adId, format, plays: plays.length, peakSec, offPeakSec, spend });
 });
 
 app.get('/api/buses/:busId/display-settings/catalog', authFleet, async (req, res) => {
