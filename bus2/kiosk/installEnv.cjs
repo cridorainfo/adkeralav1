@@ -27,6 +27,21 @@ function applyPackagedDefaults(app) {
   process.env.ADKERALA_DATA_ROOT = resolveWritableDataRoot(app);
 }
 
+/**
+ * A genuine NSIS install (has "Uninstall *.exe" beside the exe) gets wiped and
+ * recreated by the installer on every auto-update — including the bus's data
+ * root, since it used to live "beside the exe" unconditionally. A true
+ * portable copy (no uninstaller, per portable-template/INSTALL.txt) has no
+ * such installer step, so it's safe to keep its data alongside the exe there.
+ */
+function hasNsisUninstaller(dir) {
+  try {
+    return fs.readdirSync(dir).some((f) => /^Uninstall .*\.exe$/i.test(f));
+  } catch {
+    return false;
+  }
+}
+
 function resolveWritableDataRoot(app) {
   if (process.env.ADKERALA_DATA_ROOT) return process.env.ADKERALA_DATA_ROOT;
 
@@ -34,11 +49,29 @@ function resolveWritableDataRoot(app) {
     process.env.PORTABLE_EXECUTABLE_DIR ||
     path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe'));
 
-  if (isWritableDir(besideExe)) return besideExe;
+  if (!hasNsisUninstaller(besideExe) && isWritableDir(besideExe)) return besideExe;
 
   const userData = path.join(app.getPath('userData'), 'bus-data');
-  fs.mkdirSync(userData, { recursive: true });
+  migrateBesideExeDataOnce(besideExe, userData);
   return userData;
+}
+
+/** One-time carry-over so upgrading an existing beside-exe install doesn't re-trigger a fleet claim. */
+function migrateBesideExeDataOnce(besideExe, userData) {
+  const alreadyMigrated = fs.existsSync(path.join(userData, 'adkerala.device.json'));
+  const hasOldData = fs.existsSync(path.join(besideExe, 'adkerala.device.json'));
+  fs.mkdirSync(userData, { recursive: true });
+  if (alreadyMigrated || !hasOldData) return;
+
+  try {
+    for (const name of fs.readdirSync(besideExe)) {
+      if (!/^(adkerala\.device\.json.*|db)$/i.test(name)) continue;
+      fs.cpSync(path.join(besideExe, name), path.join(userData, name), { recursive: true });
+    }
+    console.log(`AdKerala: migrated bus data from ${besideExe} to ${userData} (update-safe location)`);
+  } catch (err) {
+    console.warn('AdKerala: data migration to update-safe location failed:', err?.message ?? err);
+  }
 }
 
 function isWritableDir(dir) {
