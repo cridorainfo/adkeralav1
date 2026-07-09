@@ -1,7 +1,7 @@
 {
   "name": "kerala-bus-display",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AdKerala — bus route display and advertising platform",
   "type": "module",
   "imports": {
