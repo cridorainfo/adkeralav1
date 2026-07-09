@@ -1,0 +1,49 @@
+name: Diagnose cloud admin auth
+
+# Manual, read-only diagnostic — cannot change any state. Run from
+# GitHub → Actions → "Diagnose cloud admin auth" → Run workflow.
+#
+# Uses a deliberately WRONG admin key throughout (never a real secret),
+# so every request is rejected by auth before any handler logic runs,
+# regardless of whether the rejection comes from the app or a proxy/WAF
+# in front of it. Compares GET vs PUT and custom-domain vs raw Railway
+# URL to localize where a write request gets blocked.
+on:
+  workflow_dispatch:
+
+env:
+  FAKE_KEY: this-is-a-deliberately-wrong-test-key
+  CUSTOM_DOMAIN: https://adkerala.com
+  RAILWAY_DOMAIN: https://adkeralav1-production.up.railway.app
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: GET via custom domain (expect 401 — wrong key, no state change possible)
+        run: |
+          curl -sS -i -X GET "$CUSTOM_DOMAIN/api/releases" \
+            -H "X-Admin-Key: $FAKE_KEY" | head -c 1200
+          echo
+
+      - name: PUT via custom domain (expect 401 — wrong key rejected before any write)
+        run: |
+          curl -sS -i -X PUT "$CUSTOM_DOMAIN/api/releases/pc" \
+            -H "X-Admin-Key: $FAKE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' | head -c 1200
+          echo
+
+      - name: GET via raw Railway URL (expect 401 — wrong key, no state change possible)
+        run: |
+          curl -sS -i -X GET "$RAILWAY_DOMAIN/api/releases" \
+            -H "X-Admin-Key: $FAKE_KEY" | head -c 1200
+          echo
+
+      - name: PUT via raw Railway URL (expect 401 — wrong key rejected before any write)
+        run: |
+          curl -sS -i -X PUT "$RAILWAY_DOMAIN/api/releases/pc" \
+            -H "X-Admin-Key: $FAKE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' | head -c 1200
+          echo
