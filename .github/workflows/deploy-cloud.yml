@@ -1,0 +1,35 @@
+name: Deploy Cloud
+
+# Cloud-only deploy — no version tag, no PC installer rebuild, no bus auto-update
+# triggered. Use this for changes confined to bus2/cloud (admin dashboard, API routes,
+# pricing, etc). If a change touches bus2/cloud/shared/hub/** it's also bundled into the
+# PC app (see bus2/electron-builder.yml's extraResources) and should ship as a normal
+# `npm run ship` release instead, so buses pick it up too.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bus2/cloud/**'
+      - '!bus2/cloud/shared/hub/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-cloud:
+    name: Deploy cloud to Railway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy cloud to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "Skipping Railway deploy — add RAILWAY_TOKEN repo secret"
+            exit 0
+          fi
+          npm install -g @railway/cli
+          cd bus2/cloud && railway up --service adkeralav1
