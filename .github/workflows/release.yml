@@ -48,65 +48,9 @@ jobs:
             bus2/release/*.exe
             bus2/release/latest.yml
 
-  build-driver:
-    name: Build driver APK
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: bus2
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: bus2/package-lock.json
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Sync version from tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          npm pkg set version="$VERSION"
-
-      - name: Build web + sync Capacitor
-        run: npm run build:driver
-        env:
-          VITE_CLOUD_URL: ${{ secrets.ADKERALA_CLOUD_URL }}
-
-      - name: Build debug APK (fleet sideload)
-        run: cd android && ./gradlew assembleDebug
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-
-      - name: Build release APK (when keystore configured)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        run: cd android && ./gradlew assembleRelease
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          ADKERALA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ADKERALA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ADKERALA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
-      - name: Upload driver APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: driver-apk
-          path: bus2/android/app/build/outputs/apk/debug/app-debug.apk
-
   publish:
     name: GitHub Release + cloud register
-    needs: [build-pc, build-driver]
+    needs: [build-pc]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,21 +61,11 @@ jobs:
           name: pc-release
           path: artifacts/pc
 
-      - name: Download driver APK
-        uses: actions/download-artifact@v4
-        with:
-          name: driver-apk
-          path: artifacts/driver
-
       - name: Prepare release files
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release-upload
           cp artifacts/pc/*.exe release-upload/ 2>/dev/null || true
           cp artifacts/pc/latest.yml release-upload/ 2>/dev/null || true
-          if [ -f artifacts/driver/app-debug.apk ]; then
-            cp artifacts/driver/app-debug.apk "release-upload/AdKeralaDriver-${VERSION}.apk"
-          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -160,19 +94,19 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           PC_FILE=$(ls ../release-upload/*.exe 2>/dev/null | head -1)
           PC_NAME=$(basename "$PC_FILE")
-          DRIVER_NAME="AdKeralaDriver-${VERSION}.apk"
           SHA512=""
+          SIZE=""
           if [ -f ../release-upload/latest.yml ]; then
             SHA512=$(grep -E '^sha512:' ../release-upload/latest.yml | head -1 | awk '{print $2}')
+            SIZE=$(grep -E 'size:' ../release-upload/latest.yml | head -1 | awk '{print $2}')
           fi
           node scripts/register-release.mjs \
             --cloud-url "$ADKERALA_CLOUD_URL" \
             --admin-key "$ADKERALA_ADMIN_KEY" \
             --version "$VERSION" \
             --pc-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${PC_NAME}" \
-            --driver-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DRIVER_NAME}" \
             --sha512 "$SHA512" \
-            --set-min
+            --size "$SIZE"
 
   deploy-cloud:
     name: Deploy cloud to Railway
