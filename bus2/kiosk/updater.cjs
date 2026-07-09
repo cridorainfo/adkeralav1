@@ -1,3 +1,5 @@
+const path = require('path');
+const { pathToFileURL } = require('url');
 const { autoUpdater } = require('electron-updater');
 const { APP_VERSION } = require('./version.cjs');
 
@@ -8,7 +10,6 @@ const BOOT_CHECK_TIMEOUT_MS = Number(process.env.ADKERALA_UPDATE_BOOT_TIMEOUT_MS
 
 let getMainWindow = () => null;
 let setAllowQuit = () => {};
-let restartTimer = null;
 let countdownTimer = null;
 let updateDownloaded = false;
 let pendingVersion = null;
@@ -31,6 +32,35 @@ function getCloudUrl() {
   return (process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
 }
 
+let readInfoFilePromise = null;
+
+/** Lazily loads the ESM server module from this CJS context (same trick main.cjs uses for prod.js). */
+function getReadInfoFile() {
+  if (!readInfoFilePromise) {
+    const dbApiPath = path.join(__dirname, '..', 'server', 'dbApi.js');
+    readInfoFilePromise = import(pathToFileURL(dbApiPath).href).then((mod) => mod.readInfoFile);
+  }
+  return readInfoFilePromise;
+}
+
+/**
+ * A bus mid-route (trip started, not yet ended) has passengers on board and an
+ * active display — restarting to install now would be far more disruptive
+ * than restarting between trips. Fails open (treated as "no active trip") so
+ * a data-root read error can never block an update forever.
+ */
+async function isTripInProgress() {
+  const root = process.env.ADKERALA_DATA_ROOT || process.env.ADKERALA_ROOT;
+  if (!root) return false;
+  try {
+    const readInfoFile = await getReadInfoFile();
+    const info = await readInfoFile(root);
+    return Boolean(info?.tripStarted) && !info?.tripEnded;
+  } catch {
+    return false;
+  }
+}
+
 function compareSemver(a, b) {
   const pa = String(a ?? '0').split('.').map((n) => Number(n) || 0);
   const pb = String(b ?? '0').split('.').map((n) => Number(n) || 0);
@@ -51,10 +81,6 @@ function emitStatus(payload) {
 }
 
 function clearRestartTimers() {
-  if (restartTimer) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
-  }
   if (countdownTimer) {
     clearInterval(countdownTimer);
     countdownTimer = null;
@@ -70,26 +96,31 @@ function performInstall() {
 
 function scheduleInstall(delayMs, reason) {
   clearRestartTimers();
-  const delay = Math.max(5000, Number(delayMs) || RESTART_DELAY_MS);
-  const deadline = Date.now() + delay;
+  let remainingMs = Math.max(5000, Number(delayMs) || RESTART_DELAY_MS);
 
-  const tick = () => {
-    const leftMs = Math.max(0, deadline - Date.now());
+  // The countdown only burns down while the bus is idle between trips — a
+  // trip in progress freezes it (and re-emits the same restartInSec) instead
+  // of restarting mid-route, however small the configured delay is.
+  const tick = async () => {
+    const waitingForTrip = await isTripInProgress();
+    if (!waitingForTrip) {
+      remainingMs = Math.max(0, remainingMs - 1000);
+    }
     emitStatus({
       visible: true,
       phase: 'downloaded',
       version: pendingVersion,
-      restartInSec: Math.ceil(leftMs / 1000),
+      restartInSec: Math.ceil(remainingMs / 1000),
+      waitingForTrip,
       reason,
     });
-    if (leftMs <= 0) {
+    if (remainingMs <= 0 && !waitingForTrip) {
       performInstall();
     }
   };
 
   tick();
   countdownTimer = setInterval(tick, 1000);
-  restartTimer = setTimeout(performInstall, delay);
 }
 
 /** Wakes up a pending checkForUpdatesAtBoot() call (found nothing / error / timeout). */

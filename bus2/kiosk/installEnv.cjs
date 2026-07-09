@@ -28,6 +28,24 @@ function applyPackagedDefaults(app) {
 }
 
 /**
+ * True only for a copy the NSIS installer actually knows about (has an
+ * "Uninstall *.exe" beside it) — the only case where electron-updater's
+ * silent `Setup.exe /S` can update this exact install in place. Running that
+ * silent installer against a copy it doesn't recognize (a manually copied
+ * "dir"/portable build) doesn't update it at all: NSIS just performs a fresh
+ * install to its own default location, creating an orphaned, unclaimed
+ * second bus identity next to the original — reproduced live on a field PC
+ * where the portable copy stayed on v1.0.0 while a ghost install silently
+ * climbed to v1.0.7, unclaimed, in %LOCALAPPDATA%\Programs.
+ */
+function isGenuineNsisInstall(app) {
+  const besideExe =
+    process.env.PORTABLE_EXECUTABLE_DIR ||
+    path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe'));
+  return hasNsisUninstaller(besideExe);
+}
+
+/**
  * A genuine NSIS install (has "Uninstall *.exe" beside the exe) gets wiped and
  * recreated by the installer on every auto-update — including the bus's data
  * root, since it used to live "beside the exe" unconditionally. A true
@@ -86,4 +104,9 @@ function isWritableDir(dir) {
   }
 }
 
-module.exports = { applyPackagedDefaults, PRODUCTION_CLOUD_URL, FALLBACK_CLOUD_URL };
+module.exports = {
+  applyPackagedDefaults,
+  isGenuineNsisInstall,
+  PRODUCTION_CLOUD_URL,
+  FALLBACK_CLOUD_URL,
+};

@@ -11,7 +11,7 @@ const {
   handleKioskCommand,
 } = require('./updater.cjs');
 const { setKioskCommandHandler } = require('./kioskBridge.cjs');
-const { applyPackagedDefaults } = require('./installEnv.cjs');
+const { applyPackagedDefaults, isGenuineNsisInstall } = require('./installEnv.cjs');
 const { setupWebSerial } = require('./serialPort.cjs');
 
 const PORT = Number(process.env.PORT ?? 5174);
@@ -137,7 +137,22 @@ app.whenReady().then(async () => {
     await startServer();
     await waitForServer(`http://127.0.0.1:${PORT}/`);
 
-    if (app.isPackaged) {
+    // Auto-update only works for a copy the NSIS installer recognizes (has
+    // an Uninstall*.exe) — it can silently update that install in place. Any
+    // other packaged copy (a manually placed "dir"/portable build) would have
+    // its silent Setup.exe run land a fresh, unclaimed install elsewhere
+    // instead of updating itself — see isGenuineNsisInstall in installEnv.cjs.
+    const canAutoUpdate = app.isPackaged && isGenuineNsisInstall(app);
+
+    if (app.isPackaged && !canAutoUpdate) {
+      console.warn(
+        'AdKerala: this copy is not a registered NSIS install (no Uninstall*.exe) — ' +
+          'auto-update disabled to avoid spawning a duplicate, unclaimed install elsewhere. ' +
+          'Run the official AdKeralaDisplay-Setup-X.Y.Z.exe on this PC to enable updates.'
+      );
+    }
+
+    if (canAutoUpdate) {
       setKioskCommandHandler(handleKioskCommand);
       configureAutoUpdater({
         getMainWindow: () => mainWindow,
@@ -153,7 +168,7 @@ app.whenReady().then(async () => {
 
     createWindow();
 
-    if (app.isPackaged) {
+    if (canAutoUpdate) {
       startPeriodicUpdateChecks();
     }
 

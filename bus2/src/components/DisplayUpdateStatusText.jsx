@@ -11,7 +11,11 @@ export default function DisplayUpdateStatusText() {
     text = status.percent != null ? `Updating… ${status.percent}%` : 'Updating…';
   } else if (status.phase === 'downloaded') {
     const sec = status.restartInSec ?? 0;
-    text = sec > 0 ? `Update ready — restarting in ${sec}s` : 'Installing update…';
+    if (status.waitingForTrip) {
+      text = 'Update ready — will install after this trip ends';
+    } else {
+      text = sec > 0 ? `Update ready — restarting in ${sec}s` : 'Installing update…';
+    }
   } else if (status.phase === 'installing') {
     text = 'Installing update…';
   }
