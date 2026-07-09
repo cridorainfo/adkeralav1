@@ -37,6 +37,7 @@ export default function AdsPanel() {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [live, setLive] = useState(null);
+  const [liveAds, setLiveAds] = useState(null);
   const dirtyRef = useRef(false);
 
   const markDirty = useCallback(() => {
@@ -98,6 +99,25 @@ export default function AdsPanel() {
     const t = setInterval(refreshLive, 5000);
     return () => clearInterval(t);
   }, [refreshLive]);
+
+  const loadLiveAds = useCallback(async () => {
+    if (!selectedBusId || selectedBusId === 'bus-1') {
+      setLiveAds(null);
+      return;
+    }
+    try {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/ads/live`);
+      setLiveAds(json);
+    } catch {
+      setLiveAds(null);
+    }
+  }, [selectedBusId]);
+
+  useEffect(() => {
+    loadLiveAds();
+    const t = setInterval(loadLiveAds, 5000);
+    return () => clearInterval(t);
+  }, [loadLiveAds]);
 
   const busState = live?.state ?? {};
   const onDisplay = Boolean(live?.online && busState.displayView === 'ad');
@@ -291,6 +311,51 @@ export default function AdsPanel() {
         )}
         {live?.online && onDisplay && !playingFullscreenAd?.mediaFile && (
           <p className="hint">An ad slot is active on the bus but has no media file.</p>
+        )}
+      </section>
+
+      <section className="ads-live-preview">
+        <h3>All ads on this bus (house + campaign)</h3>
+        <p className="hint">
+          Read-only — shows exactly what the bus itself sees, including house ads filling in
+          once a campaign ad runs out of budget. Edit campaign ads below; house ads are managed
+          on the House Ads page.
+        </p>
+        {!liveAds && <p className="hint">Loading…</p>}
+        {liveAds && !liveAds.ads?.length && !liveAds.bannerAds?.length && (
+          <p className="hint">No ads configured for this bus yet.</p>
+        )}
+        {liveAds?.ads?.length > 0 && (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Source</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {liveAds.ads.map((ad) => (
+                <tr key={ad.id}>
+                  <td>{ad.name?.trim() || ad.id}</td>
+                  <td>Fullscreen</td>
+                  <td>{ad.isHouseAd ? 'House' : ad.campaignId ? 'Campaign' : 'Direct'}</td>
+                  <td>
+                    {ad.isHouseAd ? (
+                      <span className="hint">always on</span>
+                    ) : ad.exhausted ? (
+                      <span className="version-pill version-below">budget exhausted</span>
+                    ) : Number.isFinite(Number(ad.amount)) && Number(ad.amount) > 0 ? (
+                      <span className="version-pill version-current">active</span>
+                    ) : (
+                      <span className="hint">unbudgeted</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </section>
 

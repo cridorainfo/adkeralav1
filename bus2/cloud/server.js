@@ -1143,6 +1143,21 @@ app.get('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
   });
 });
 
+// Read-only dashboard view of what's *actually* playing on a bus — mirrors the device-facing
+// GET .../ads below (house ads merged in, exhaustion stamped), but deliberately kept separate
+// from the editable .../ads/catalog route above: that one's payload gets PUT back verbatim on
+// save, so mixing house ads into it would persist stray copies into the bus's own catalog.
+app.get('/api/buses/:busId/ads/live', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const row = await getBus(req.params.busId);
+  await syncBusAdsCatalogFromTelemetry(req.params.busId, row?.state ?? {});
+  const catalog = await getBusAdsCatalog(req.params.busId);
+  const houseAds = await getHouseAds();
+  const ads = [...(await stampExhaustion(catalog.ads)), ...houseAds.ads];
+  const bannerAds = [...catalog.bannerAds, ...houseAds.bannerAds];
+  res.json({ ok: true, ads, bannerAds, adsSavedAt: catalog.adsSavedAt });
+});
+
 // Stamps `exhausted` onto each budgeted ad (spend computed fresh from reported plays against
 // current pricing settings — see cloud/pricing.js), so the bus's own rotation
 // (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid ads and fall back to
