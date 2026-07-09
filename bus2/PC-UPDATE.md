@@ -41,26 +41,31 @@ That single command:
 
 1. Creates git tag `v1.2.0`
 2. Pushes the tag to GitHub
-3. GitHub Actions builds the PC installer + driver APK
-4. Publishes files to **GitHub Releases**
+3. GitHub Actions builds the PC installer
+4. Publishes the installer to **GitHub Releases**
 5. Registers the download URL on **cloud admin** (needs repo secrets below)
-6. Redeploys cloud to Railway (if `RAILWAY_TOKEN` is set)
 
-### One-time GitHub secrets (Settings → Secrets)
+The driver app is a PWA at `/driver` and updates itself like any web app —
+it's not part of this pipeline.
+
+### One-time GitHub secrets (Settings → Secrets and variables → Actions)
 
 | Secret | Value |
 |--------|--------|
 | `ADKERALA_CLOUD_URL` | Your cloud URL, e.g. `https://adkerala.com` or Railway URL |
-| `ADKERALA_ADMIN_KEY` | Same as cloud `ADKERALA_ADMIN_KEY` |
-| `RAILWAY_TOKEN` | Optional — auto-deploys cloud on each release |
+| `ADKERALA_ADMIN_KEY` | Same as cloud's `ADKERALA_ADMIN_KEY` env var |
 
 ### After shipping
 
-1. GitHub → **Actions** → wait for **Release** workflow (≈10–20 min).
+1. GitHub → **Actions** → wait for **Release PC app** workflow (≈5–10 min).
 2. Cloud admin → **Releases** tab → confirm **Latest PC v1.2.0**.
 3. Optional: click **Push update to all buses now** — restarts fleet within ~2 minutes to install immediately.
 
-Without step 3, buses still update automatically (check every **15 minutes**, restart **3 minutes** after download).
+Without step 3, buses still update automatically: they check every **15
+minutes** and download in the background, but only **install at the next
+power-on** — never mid-route — since a bus reliably powers off at the end of
+every shift. Use "Push update to all buses now" only when a fix is urgent
+enough to warrant an immediate restart mid-shift.
 
 ---
 
@@ -71,18 +76,20 @@ Admin: npm run ship -- 1.2.0
         ↓
 GitHub Actions → cloud stores latest.yml + download URL
         ↓
-Bus PC (installed app) polls cloud every 15 min
+Bus PC (installed app) polls cloud every 15 min while running,
+and once immediately at every launch/power-on
         ↓
-Downloads new .exe in background
+Downloads new .exe in the background (routes/ads in db/ are kept)
         ↓
-Shows “Restarting in …” on passenger screen
-        ↓
-Restarts and installs (routes/ads in db/ are kept)
+Found at power-on, before the display is shown → installs immediately
+Found mid-shift → stays queued silently, installs at the *next* power-on
 ```
 
 - **Internet required** on the bus (4G dongle / hotspot).
 - **No RDP** needed — buses pull updates outbound.
-- Admin can **force restart** via Releases → **Push update to all buses now**.
+- Admin can force an immediate mid-shift restart via Releases → **Push
+  update to all buses now**, or by lowering the minimum version — both
+  bypass the "wait for next boot" behavior for urgent fixes.
 
 ---
 
@@ -96,6 +103,10 @@ Restarts and installs (routes/ads in db/ are kept)
 | **Status `below-minimum`** | Below min version you set |
 
 Set **minimum versions** to flag buses that must upgrade.
+
+The running version is also shown as a small `vX.Y.Z` label in the bottom-right
+corner of the passenger screen itself — useful for a driver or field tech to
+confirm the build without opening the dashboard.
 
 ---
 
