@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api, uploadMedia } from '../lib/api.js';
 import { AD_MEDIA_ACCEPT, adMediaTypeFromFile, validateAdMediaFile } from '../lib/adMedia.js';
+import AdMediaPreview from './AdMediaPreview.jsx';
 
-function AdList({ ads, onRemove }) {
+function AdList({ ads, format, onRemove }) {
   if (!ads.length) return <p className="empty-state">None yet.</p>;
   return ads.map((ad) => (
     <div key={ad.id} className="campaign-card">
+      <AdMediaPreview ad={ad} format={format} />
       <strong>{ad.name || ad.id}</strong> <span className="hint">{ad.type} · {ad.durationSec}s</span>
       <div className="editor-actions">
         <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemove(ad.id)}>
@@ -97,14 +99,14 @@ export default function HouseAdsPanel() {
       {loading && <p className="hint">Loading…</p>}
 
       <h3>Fullscreen house ads</h3>
-      <AdList ads={ads} onRemove={removeAd} />
+      <AdList ads={ads} format="fullscreen" onRemove={removeAd} />
       <div className="form-group">
         <label>Add a fullscreen house ad (image or video)</label>
         <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
       </div>
 
       <h3>Banner house ads</h3>
-      <AdList ads={bannerAds} onRemove={removeBannerAd} />
+      <AdList ads={bannerAds} format="banner" onRemove={removeBannerAd} />
       <div className="form-group">
         <label>Add a banner house ad (image or video)</label>
         <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />

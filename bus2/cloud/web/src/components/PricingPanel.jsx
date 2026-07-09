@@ -16,6 +16,8 @@ export default function PricingPanel() {
   const [ratePerSecond, setRatePerSecond] = useState(0);
   const [peakRatePerSecond, setPeakRatePerSecond] = useState(0);
   const [peakHours, setPeakHours] = useState([]);
+  const [bannerRatePerSecond, setBannerRatePerSecond] = useState(0);
+  const [audioRatePerSecond, setAudioRatePerSecond] = useState(0);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -26,6 +28,8 @@ export default function PricingPanel() {
       setRatePerSecond(json.ratePerSecond ?? 0);
       setPeakRatePerSecond(json.peakRatePerSecond ?? 0);
       setPeakHours(json.peakHours ?? []);
+      setBannerRatePerSecond(json.bannerRatePerSecond ?? 0);
+      setAudioRatePerSecond(json.audioRatePerSecond ?? 0);
     } catch (err) {
       setMessage(err.message ?? 'Could not load pricing settings');
     } finally {
@@ -56,11 +60,19 @@ export default function PricingPanel() {
     try {
       const json = await api('/api/pricing-settings', {
         method: 'PUT',
-        body: JSON.stringify({ ratePerSecond, peakRatePerSecond, peakHours }),
+        body: JSON.stringify({
+          ratePerSecond,
+          peakRatePerSecond,
+          peakHours,
+          bannerRatePerSecond,
+          audioRatePerSecond,
+        }),
       });
       setRatePerSecond(json.ratePerSecond ?? 0);
       setPeakRatePerSecond(json.peakRatePerSecond ?? 0);
       setPeakHours(json.peakHours ?? []);
+      setBannerRatePerSecond(json.bannerRatePerSecond ?? 0);
+      setAudioRatePerSecond(json.audioRatePerSecond ?? 0);
       setMessage('Saved');
     } catch (err) {
       setMessage(err.message ?? 'Could not save pricing settings');
@@ -98,7 +110,31 @@ export default function PricingPanel() {
             onChange={(e) => setPeakRatePerSecond(Number(e.target.value))}
           />
         </div>
+        <div className="form-group">
+          <label>Banner ad rate per second (₹)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={bannerRatePerSecond}
+            onChange={(e) => setBannerRatePerSecond(Number(e.target.value))}
+          />
+        </div>
+        <div className="form-group">
+          <label>Audio stop-ad rate per second (₹)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={audioRatePerSecond}
+            onChange={(e) => setAudioRatePerSecond(Number(e.target.value))}
+          />
+        </div>
       </div>
+      <p className="hint">
+        Banner and audio ads use a flat rate (no peak-hour split) — banner tracks how long it
+        was shown before rotating away, audio tracks how long the stop-ad clip played.
+      </p>
 
       <h3>Peak hours (Asia/Kolkata)</h3>
       <p className="hint">Windows where the peak rate applies instead — e.g. morning + evening rush.</p>
