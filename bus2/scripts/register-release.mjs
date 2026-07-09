@@ -9,7 +9,8 @@
  *     --version 1.0.0 \
  *     --pc-url https://github.com/org/repo/releases/download/v1.0.0/AdKeralaDisplay-Setup-1.0.0.exe \
  *     --driver-url https://github.com/org/repo/releases/download/v1.0.0/AdKeralaDriver-1.0.0.apk \
- *     --sha512 BASE64_SHA512_OPTIONAL
+ *     --sha512 BASE64_SHA512_OPTIONAL \
+ *     --size BYTES_OPTIONAL
  */
 
 function readArg(name) {
@@ -23,6 +24,7 @@ const version = readArg('--version');
 const pcUrl = readArg('--pc-url');
 const driverUrl = readArg('--driver-url');
 const sha512 = readArg('--sha512');
+const size = readArg('--size');
 const releaseNotes = readArg('--notes') || `Release ${version}`;
 
 if (!cloudUrl || !adminKey || !version) {
@@ -62,6 +64,7 @@ async function main() {
       version,
       downloadUrl: pcUrl,
       sha512,
+      size: size ? Number(size) : undefined,
       releaseNotes,
     });
     console.log('Registered PC release', version);

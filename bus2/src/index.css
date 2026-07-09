@@ -4193,6 +4193,21 @@ html.kiosk-hide-cursor * {
   font-size: 0.95rem;
 }
 
+.app-version-badge {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 0.35rem;
+  z-index: 99997;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  font-family: monospace;
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+}
+
 .fleet-setup-overlay {
   position: fixed;
   inset: 0;

@@ -7,6 +7,7 @@ import { useBusPcEspSerial } from '../hooks/useBusPcEspSerial';
 import { isKioskMode, isLaunchedByRunScript } from '../lib/appRole';
 import FleetSetupOverlay from '../components/FleetSetupOverlay';
 import UpdateOverlay from '../components/UpdateOverlay';
+import AppVersionBadge from '../components/AppVersionBadge';
 import DisplayScreen from './DisplayScreen';
 
 /** Passenger screen — open on bus PC at /display */
@@ -56,6 +57,7 @@ export default function DisplayApp() {
     <>
       <FleetSetupOverlay />
       {kioskMode && <UpdateOverlay />}
+      <AppVersionBadge />
       <DisplayScreen passengerMode />
     </>
   );

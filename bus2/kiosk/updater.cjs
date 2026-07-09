@@ -4,6 +4,7 @@ const { APP_VERSION } = require('./version.cjs');
 const CHECK_INTERVAL_MS = Number(process.env.ADKERALA_UPDATE_INTERVAL_MS ?? 15 * 60 * 1000);
 const RESTART_DELAY_MS = Number(process.env.ADKERALA_UPDATE_RESTART_DELAY_MS ?? 3 * 60 * 1000);
 const ADMIN_RESTART_DELAY_MS = Number(process.env.ADKERALA_UPDATE_ADMIN_DELAY_MS ?? 60 * 1000);
+const BOOT_CHECK_TIMEOUT_MS = Number(process.env.ADKERALA_UPDATE_BOOT_TIMEOUT_MS ?? 8000);
 
 let getMainWindow = () => null;
 let setAllowQuit = () => {};
@@ -13,6 +14,18 @@ let updateDownloaded = false;
 let pendingVersion = null;
 let pendingRestartDelayMs = RESTART_DELAY_MS;
 let minVersionRequired = null;
+let configured = false;
+
+// True only while checkForUpdatesAtBoot() is waiting on a check result, before
+// the kiosk window exists — lets onUpdateDownloaded tell "found at boot" apart
+// from "found mid-session" without threading state through electron-updater.
+let awaitingBootDecision = false;
+let resolveBootCheck = null;
+
+// Set right before a check that must apply immediately (admin push, forced
+// minimum-version upgrade) — anything else discovered mid-session is deferred
+// to the next boot instead of interrupting the passenger display.
+let forceImmediateInstall = false;
 
 function getCloudUrl() {
   return (process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
@@ -79,12 +92,35 @@ function scheduleInstall(delayMs, reason) {
   restartTimer = setTimeout(performInstall, delay);
 }
 
+/** Wakes up a pending checkForUpdatesAtBoot() call (found nothing / error / timeout). */
+function settleBootCheck() {
+  resolveBootCheck?.();
+}
+
 function onUpdateDownloaded(info) {
   updateDownloaded = true;
   pendingVersion = info?.version ?? null;
-  console.log('AdKerala updater: downloaded v' + pendingVersion + ' — restart scheduled');
-  scheduleInstall(pendingRestartDelayMs, 'update');
-  pendingRestartDelayMs = RESTART_DELAY_MS;
+
+  if (awaitingBootDecision) {
+    // Fresh launch, kiosk window not shown yet — nothing to interrupt.
+    console.log('AdKerala updater: v' + pendingVersion + ' ready at boot — installing now');
+    awaitingBootDecision = false;
+    performInstall();
+    return;
+  }
+
+  if (forceImmediateInstall) {
+    console.log('AdKerala updater: downloaded v' + pendingVersion + ' — restart scheduled');
+    scheduleInstall(pendingRestartDelayMs, 'update');
+    pendingRestartDelayMs = RESTART_DELAY_MS;
+    forceImmediateInstall = false;
+    return;
+  }
+
+  // Found during a normal background poll while the bus is in service — don't
+  // interrupt the passenger display. It installs automatically at next power-on
+  // via checkForUpdatesAtBoot().
+  console.log('AdKerala updater: downloaded v' + pendingVersion + ' — will install at next boot');
 }
 
 function handleAdminPushUpdate(payload = {}) {
@@ -102,6 +138,7 @@ function handleAdminPushUpdate(payload = {}) {
   }
 
   pendingRestartDelayMs = delayMs;
+  forceImmediateInstall = true;
   autoUpdater.checkForUpdates().catch((err) => {
     console.warn('AdKerala updater check failed:', err?.message ?? err);
   });
@@ -113,16 +150,19 @@ function handleKioskCommand(type, payload) {
   }
 }
 
-/** Configure electron-updater to pull latest.yml from the cloud admin server. */
-function setupAutoUpdater(deps = {}) {
+/** Configure electron-updater's feed + event listeners. Call once, before checkForUpdatesAtBoot(). */
+function configureAutoUpdater(deps = {}) {
   getMainWindow = deps.getMainWindow ?? getMainWindow;
   setAllowQuit = deps.setAllowQuit ?? setAllowQuit;
+
+  if (configured) return true;
 
   const cloudUrl = getCloudUrl();
   if (!cloudUrl) {
     console.log('AdKerala updater: disabled (set ADKERALA_CLOUD_URL)');
-    return;
+    return false;
   }
+  configured = true;
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
@@ -146,6 +186,7 @@ function setupAutoUpdater(deps = {}) {
   autoUpdater.on('update-not-available', () => {
     console.log('AdKerala updater: up to date');
     emitStatus({ visible: false, phase: 'current', version: APP_VERSION });
+    settleBootCheck();
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -159,7 +200,50 @@ function setupAutoUpdater(deps = {}) {
   autoUpdater.on('error', (err) => {
     console.warn('AdKerala updater:', err?.message ?? err);
     emitStatus({ visible: false, phase: 'error', message: String(err?.message ?? err) });
+    settleBootCheck();
   });
+
+  return true;
+}
+
+/**
+ * Runs once at launch, before the kiosk window is created. If an update is
+ * already fully downloaded and verified from a previous session, installs it
+ * immediately — safe because nothing is on screen yet, so power-on is when
+ * updates actually land. Otherwise resolves quickly (bounded by timeoutMs) so
+ * a slow or absent network right at ignition never delays the kiosk from
+ * showing; any update found keeps downloading in the background for next boot.
+ */
+function checkForUpdatesAtBoot(timeoutMs = BOOT_CHECK_TIMEOUT_MS) {
+  if (!configured) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      awaitingBootDecision = false;
+      resolveBootCheck = null;
+      resolve();
+    };
+
+    awaitingBootDecision = true;
+    resolveBootCheck = finish;
+    timer = setTimeout(finish, timeoutMs);
+
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.warn('AdKerala updater boot check failed:', err?.message ?? err);
+      finish();
+    });
+  });
+}
+
+/** Periodic background checks + forced-minimum-version enforcement. Call once, after the boot check. */
+function startPeriodicUpdateChecks() {
+  if (!configured) return;
 
   const check = () => {
     autoUpdater.checkForUpdates().catch((err) => {
@@ -167,12 +251,11 @@ function setupAutoUpdater(deps = {}) {
     });
   };
 
-  setTimeout(check, 15000);
   setInterval(check, CHECK_INTERVAL_MS);
 
   setTimeout(async () => {
     try {
-      const res = await fetch(`${cloudUrl}/api/releases/pc/latest`);
+      const res = await fetch(`${getCloudUrl()}/api/releases/pc/latest`);
       const json = await res.json();
       minVersionRequired = json?.minVersion ?? null;
       if (minVersionRequired && compareSemver(APP_VERSION, minVersionRequired) < 0) {
@@ -180,6 +263,7 @@ function setupAutoUpdater(deps = {}) {
           `AdKerala updater: below minimum PC version (${APP_VERSION} < ${minVersionRequired}) — forcing update`
         );
         pendingRestartDelayMs = ADMIN_RESTART_DELAY_MS;
+        forceImmediateInstall = true;
         check();
       }
     } catch {
@@ -188,4 +272,10 @@ function setupAutoUpdater(deps = {}) {
   }, 20000);
 }
 
-module.exports = { setupAutoUpdater, handleKioskCommand, compareSemver };
+module.exports = {
+  configureAutoUpdater,
+  checkForUpdatesAtBoot,
+  startPeriodicUpdateChecks,
+  handleKioskCommand,
+  compareSemver,
+};

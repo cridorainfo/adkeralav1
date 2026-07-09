@@ -4,7 +4,12 @@ const http = require('http');
 const { execSync } = require('child_process');
 const { pathToFileURL } = require('url');
 const { ensureFirewallOnce } = require('./firewall.cjs');
-const { setupAutoUpdater, handleKioskCommand } = require('./updater.cjs');
+const {
+  configureAutoUpdater,
+  checkForUpdatesAtBoot,
+  startPeriodicUpdateChecks,
+  handleKioskCommand,
+} = require('./updater.cjs');
 const { setKioskCommandHandler } = require('./kioskBridge.cjs');
 const { applyPackagedDefaults } = require('./installEnv.cjs');
 const { setupWebSerial } = require('./serialPort.cjs');
@@ -131,15 +136,25 @@ app.whenReady().then(async () => {
     setupWebSerial(session.defaultSession);
     await startServer();
     await waitForServer(`http://127.0.0.1:${PORT}/`);
-    createWindow();
+
     if (app.isPackaged) {
       setKioskCommandHandler(handleKioskCommand);
-      setupAutoUpdater({
+      configureAutoUpdater({
         getMainWindow: () => mainWindow,
         setAllowQuit: (value = true) => {
           allowQuit = value;
         },
       });
+      // Power-on is when this bus reliably has no passengers mid-route yet, so
+      // it's the safest moment to apply a pending update — check (and install
+      // if one's already downloaded) before the kiosk window ever appears.
+      await checkForUpdatesAtBoot();
+    }
+
+    createWindow();
+
+    if (app.isPackaged) {
+      startPeriodicUpdateChecks();
     }
 
     globalShortcut.register('Control+Shift+Q', () => {

@@ -1,0 +1,63 @@
+name: Release PC app
+
+# Triggered by `npm run ship -- X.Y.Z`, which tags and pushes vX.Y.Z.
+# Builds the Windows installer, publishes it as a GitHub Release asset, then
+# registers it with the cloud so every bus picks it up automatically
+# (see kiosk/updater.cjs and cloud/releases.js).
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Build PC installer
+        run: npm run build:release
+
+      - name: Read build info from electron-builder output
+        id: relinfo
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version:' release/latest.yml | sed -E 's/version:[[:space:]]*//')
+          sha512=$(grep -m1 '^sha512:' release/latest.yml | sed -E 's/sha512:[[:space:]]*//')
+          size=$(grep -m1 'size:' release/latest.yml | sed -E 's/.*size:[[:space:]]*//')
+          if [ -z "$version" ] || [ -z "$sha512" ]; then
+            echo "Could not parse version/sha512 from release/latest.yml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha512=$sha512" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "release/AdKeralaDisplay-${{ steps.relinfo.outputs.version }}.exe" \
+            --title "AdKerala PC v${{ steps.relinfo.outputs.version }}" \
+            --generate-notes
+
+      - name: Register release with cloud
+        shell: bash
+        run: |
+          node scripts/register-release.mjs \
+            --cloud-url "${{ secrets.ADKERALA_CLOUD_URL }}" \
+            --admin-key "${{ secrets.ADKERALA_ADMIN_KEY }}" \
+            --version "${{ steps.relinfo.outputs.version }}" \
+            --pc-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AdKeralaDisplay-${{ steps.relinfo.outputs.version }}.exe" \
+            --sha512 "${{ steps.relinfo.outputs.sha512 }}" \
+            --size "${{ steps.relinfo.outputs.size }}"
