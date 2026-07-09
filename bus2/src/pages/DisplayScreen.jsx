@@ -19,7 +19,7 @@ import {
 import { mediaPathToUrl } from '../lib/fileStorage';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
-  const { state, endAd, playAdNow, update } = useBusStore();
+  const { state, endAd, endBannerAd, playAdNow, update } = useBusStore();
   const s = state;
   const [adTimer, setAdTimer] = useState(0);
   const audioRef = useRef(null);
@@ -422,7 +422,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           aria-hidden={playableBannerAds.length ? undefined : true}
         >
           {playableBannerAds.length > 0 && (
-            <BannerAdStrip bannerAds={bannerAds} settings={s.bannerAdSettings} />
+            <BannerAdStrip bannerAds={bannerAds} settings={s.bannerAdSettings} onAdEnd={endBannerAd} />
           )}
         </div>
       )}

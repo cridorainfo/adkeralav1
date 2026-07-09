@@ -12,7 +12,7 @@ import { isDisplayRole } from '../lib/appRole';
  * Control phone only queues the request — audio plays on the passenger display.
  */
 export function useAnnouncementPlayback() {
-  const { state, clearAnnouncementRequest, setAnnouncementStatus } = useBusStore();
+  const { state, clearAnnouncementRequest, setAnnouncementStatus, endAudioAd } = useBusStore();
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -37,6 +37,7 @@ export function useAnnouncementPlayback() {
       onEmpty: () => {
         if (!cancelled) clearAnnouncementRequest();
       },
+      onAudioAdPlayed: endAudioAd,
     });
 
     return () => {
@@ -44,5 +45,5 @@ export function useAnnouncementPlayback() {
       cancelAnnouncement();
       setAnnouncementStatus(null);
     };
-  }, [requestId, clearAnnouncementRequest, setAnnouncementStatus]);
+  }, [requestId, clearAnnouncementRequest, setAnnouncementStatus, endAudioAd]);
 }

@@ -49,6 +49,26 @@ import {
   applyUndoForward,
 } from '../store/driveActions';
 
+/**
+ * Shared by endAd/endBannerAd/endAudioAd — builds one play event and appends it to the
+ * pending upload queue, stamping the bus's currently active route (server/cloudSync.js
+ * uploads and prunes these; cloud/store.js persists routeId/format alongside the rest).
+ * Bounded so a long offline stretch can't grow db/info.txt unboundedly.
+ */
+function pushPendingAdPlay(prev, { adId, campaignId, playedAt, durationPlayedSec, completed, format }) {
+  const playEvent = {
+    id: `${playedAt}-${adId}-${format}`,
+    adId,
+    campaignId: campaignId ?? null,
+    routeId: prev.activeRouteId ?? null,
+    format,
+    playedAt,
+    durationPlayedSec,
+    completed,
+  };
+  return [...(prev.pendingAdPlays ?? []), playEvent].slice(-500);
+}
+
 function useBusStoreLogic() {
   const [state, setState] = useState(defaultState);
   const [storageError, setStorageError] = useState(null);
@@ -296,6 +316,31 @@ function useBusStoreLogic() {
     );
   }, []);
 
+  /** Stop-voice-ad equivalent of endAd() — called from runAnnouncementPlayback.js once the
+   *  ad-voice fragment in an announcement sequence finishes (or the sequence is interrupted). */
+  const endAudioAd = useCallback((voiceAdEntry, playedAt, durationPlayedSec, completed) => {
+    if (!voiceAdEntry?.id || !playedAt) return;
+    setState((prev) => {
+      const pendingAdPlays = pushPendingAdPlay(prev, {
+        adId: voiceAdEntry.id,
+        campaignId: voiceAdEntry.campaignId ?? null,
+        playedAt,
+        durationPlayedSec,
+        completed,
+        format: 'audio',
+      });
+      const stamped = { ...prev, pendingAdPlays, savedAt: Date.now() };
+      lastWriteAtRef.current = stamped.savedAt;
+      const result = saveState(stamped);
+      if (!result.ok) {
+        setTimeout(() => setStorageError(result.error), 0);
+      } else {
+        setTimeout(() => setStorageError(null), 0);
+      }
+      return stamped;
+    });
+  }, []);
+
   const playAnnouncementNow = useCallback(
     (stateAfter) => {
       if (!isDisplayRole()) return;
@@ -306,9 +351,10 @@ function useBusStoreLogic() {
           clearAnnouncementRequest();
         },
         onEmpty: () => clearAnnouncementRequest(),
+        onAudioAdPlayed: endAudioAd,
       });
     },
-    [clearAnnouncementRequest, setAnnouncementStatus]
+    [clearAnnouncementRequest, setAnnouncementStatus, endAudioAd]
   );
 
   const addRoute = useCallback(
@@ -839,17 +885,14 @@ function useBusStoreLogic() {
         const endedAt = Date.now();
         const durationPlayedSec = Math.max(0, Math.round((endedAt - prev.adStartedAt) / 1000));
         const adDurationSec = Number(currentAd.durationSec) || 12;
-        const playEvent = {
-          id: `${prev.adStartedAt}-${currentAd.id}`,
+        pendingAdPlays = pushPendingAdPlay(prev, {
           adId: currentAd.id,
           campaignId: currentAd.campaignId ?? null,
           playedAt: prev.adStartedAt,
           durationPlayedSec,
           completed: durationPlayedSec >= adDurationSec - 1,
-        };
-        // Bounded so a long offline stretch can't grow db/info.txt unboundedly — cloudSync.js
-        // uploads and prunes these in small batches whenever the cloud is reachable.
-        pendingAdPlays = [...(prev.pendingAdPlays ?? []), playEvent].slice(-500);
+          format: 'fullscreen',
+        });
       }
 
       const next = !prev.ads.length
@@ -863,6 +906,31 @@ function useBusStoreLogic() {
             pendingAdPlays,
           };
       const stamped = { ...next, savedAt: Date.now() };
+      lastWriteAtRef.current = stamped.savedAt;
+      const result = saveState(stamped);
+      if (!result.ok) {
+        setTimeout(() => setStorageError(result.error), 0);
+      } else {
+        setTimeout(() => setStorageError(null), 0);
+      }
+      return stamped;
+    });
+  }, []);
+
+  /** Banner-ad equivalent of endAd() — BannerAdStrip.jsx tracks its own start time (no shared
+   *  displayView state to key off, unlike fullscreen ads) and reports the finished play here. */
+  const endBannerAd = useCallback((ad, playedAt, durationPlayedSec, completed) => {
+    if (!ad?.id || !playedAt) return;
+    setState((prev) => {
+      const pendingAdPlays = pushPendingAdPlay(prev, {
+        adId: ad.id,
+        campaignId: ad.campaignId ?? null,
+        playedAt,
+        durationPlayedSec,
+        completed,
+        format: 'banner',
+      });
+      const stamped = { ...prev, pendingAdPlays, savedAt: Date.now() };
       lastWriteAtRef.current = stamped.savedAt;
       const result = saveState(stamped);
       if (!result.ok) {
@@ -1145,6 +1213,8 @@ function useBusStoreLogic() {
     updateBannerAdSettings,
     playAdNow,
     endAd,
+    endBannerAd,
+    endAudioAd,
     toggleDisplayMode,
     enterDisplayMode,
     markDisplayOpened,
