@@ -2155,6 +2155,14 @@ html.kiosk-hide-cursor * {
   }
 }
 
+.display-update-status-text {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: rgba(248, 250, 252, 0.55);
+  white-space: nowrap;
+  text-align: center;
+}
+
 .display-brand-text h2 {
   font-family: var(--font-display);
   font-size: 1.35rem;
@@ -4159,39 +4167,6 @@ html.kiosk-hide-cursor * {
   cursor: pointer;
 }
 
-.update-overlay {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 99998;
-  display: flex;
-  justify-content: center;
-  padding: 1rem 1.25rem 1.5rem;
-  pointer-events: none;
-}
-
-.update-overlay__card {
-  max-width: 520px;
-  width: 100%;
-  padding: 0.85rem 1.1rem;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.92);
-  color: #f8fafc;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(232, 185, 35, 0.45);
-}
-
-.update-overlay__card strong {
-  display: block;
-  margin-bottom: 0.25rem;
-  color: #f5d76e;
-}
-
-.update-overlay__card p {
-  margin: 0;
-  font-size: 0.95rem;
-}
 
 .app-version-badge {
   position: fixed;

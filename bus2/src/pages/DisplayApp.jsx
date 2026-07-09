@@ -6,7 +6,6 @@ import { useRemoteStateSync } from '../hooks/useRemoteStateSync';
 import { useBusPcEspSerial } from '../hooks/useBusPcEspSerial';
 import { isKioskMode, isLaunchedByRunScript } from '../lib/appRole';
 import FleetSetupOverlay from '../components/FleetSetupOverlay';
-import UpdateOverlay from '../components/UpdateOverlay';
 import AppVersionBadge from '../components/AppVersionBadge';
 import DisplayScreen from './DisplayScreen';
 
@@ -56,7 +55,6 @@ export default function DisplayApp() {
   return (
     <>
       <FleetSetupOverlay />
-      {kioskMode && <UpdateOverlay />}
       <AppVersionBadge />
       <DisplayScreen passengerMode />
     </>

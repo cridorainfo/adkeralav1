@@ -8,6 +8,7 @@ import { BilingualStop, LanguageAlternateProvider } from '../components/Bilingua
 import { useBusStore } from '../hooks/useBusStore';
 import AdKeralaLogo from '../components/AdKeralaLogo';
 import DisplayStatusDots from '../components/DisplayStatusDots';
+import DisplayUpdateStatusText from '../components/DisplayUpdateStatusText';
 import { APP_NAME, APP_DISPLAY_TAGLINE } from '../lib/brand';
 import {
   adHasPlayableMedia,
@@ -274,6 +275,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           <div className="display-brand-logo-wrap">
             <AdKeralaLogo className="display-brand-icon" size="md" />
             <DisplayStatusDots />
+            <DisplayUpdateStatusText />
           </div>
           <div className="display-brand-text">
             <h2>{brandTitle}</h2>
