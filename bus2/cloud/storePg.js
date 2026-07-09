@@ -313,8 +313,15 @@ export async function pgDeleteBus(busId) {
 
   await pgRevokeDevicesForBus(busId);
   await pgResetEnrollmentsForBus(busId);
+  await query('UPDATE drivers SET linked_bus_id = NULL, linked_at = NULL WHERE linked_bus_id = $1', [busId]);
   await query('DELETE FROM bus_profiles WHERE bus_id = $1', [busId]);
   return { ok: true, busId };
+}
+
+export async function pgDeleteDriver(driverId) {
+  const { rowCount } = await query('DELETE FROM drivers WHERE driver_id = $1', [driverId]);
+  if (!rowCount) return { ok: false, error: 'Driver not found' };
+  return { ok: true, driverId };
 }
 
 export async function pgHasPendingCommandType(busId, type) {

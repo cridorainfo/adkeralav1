@@ -123,6 +123,7 @@ export async function getFleetVersions() {
   const buses = await listBuses();
   const latestPc = config.pc?.version ?? null;
   const latestDriver = config.driver?.version ?? null;
+  const busIds = new Set(buses.map((b) => b.busId));
 
   return {
     cloudVersion: CLOUD_VERSION,
@@ -130,7 +131,7 @@ export async function getFleetVersions() {
     latestDriver,
     minPcVersion: config.minPcVersion,
     minDriverVersion: config.minDriverVersion,
-    buses: buses.map(({ busId, updatedAt, telemetry }) => {
+    buses: buses.map(({ busId, updatedAt, telemetry, profile }) => {
       const appVersion = telemetry?.appVersion ?? null;
       const online = Date.now() - updatedAt < ONLINE_MS;
       let pcStatus = 'unknown';
@@ -148,14 +149,15 @@ export async function getFleetVersions() {
         updatedAt,
         appVersion,
         pcStatus,
-        plateDisplay: telemetry?.plateDisplay ?? null,
+        displayName: profile?.displayName ?? null,
+        plateDisplay: profile?.plateDisplay ?? telemetry?.plateDisplay ?? null,
       };
     }),
-    drivers: await getDriverFleetVersions(config),
+    drivers: await getDriverFleetVersions(config, busIds),
   };
 }
 
-async function getDriverFleetVersions(config) {
+async function getDriverFleetVersions(config, busIds) {
   if (usePostgres()) {
     const { query } = await import('./db/pool.js');
     const { rows } = await query(
@@ -167,6 +169,7 @@ async function getDriverFleetVersions(config) {
       appVersion: row.app_version,
       lastSeenAt: row.last_seen_at ? Number(row.last_seen_at) : null,
       status: driverVersionStatus(row.app_version, config),
+      orphaned: !row.linked_bus_id || !busIds.has(row.linked_bus_id),
     }));
   }
   const store = await loadStore();
@@ -176,6 +179,7 @@ async function getDriverFleetVersions(config) {
     appVersion: d.appVersion ?? null,
     lastSeenAt: d.lastSeenAt ?? null,
     status: driverVersionStatus(d.appVersion, config),
+    orphaned: !d.linkedBusId || !busIds.has(d.linkedBusId),
   }));
 }
 

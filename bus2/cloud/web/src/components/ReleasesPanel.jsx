@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
+import { busDisplayLabel } from './BusContext.jsx';
 
 export default function ReleasesPanel() {
   const [fleet, setFleet] = useState(null);
@@ -9,6 +10,8 @@ export default function ReleasesPanel() {
   const [driverRelease, setDriverReleaseForm] = useState({ version: '', downloadUrl: '', releaseNotes: '' });
   const [message, setMessage] = useState('');
   const [pushing, setPushing] = useState(false);
+  const [busQuery, setBusQuery] = useState('');
+  const [removingDriverId, setRemovingDriverId] = useState(null);
 
   async function pushUpdateToFleet() {
     if (!window.confirm('Restart all buses to install the latest PC app? Buses restart in ~2 minutes.')) {
@@ -61,6 +64,50 @@ export default function ReleasesPanel() {
     load();
   }
 
+  const filteredBuses = useMemo(() => {
+    const rows = fleet?.buses ?? [];
+    const q = busQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) =>
+      [row.busId, row.displayName, row.plateDisplay].some((v) => v?.toLowerCase().includes(q))
+    );
+  }, [fleet, busQuery]);
+
+  const orphanedDrivers = (fleet?.drivers ?? []).filter((d) => d.orphaned);
+
+  async function removeDriver(driverId) {
+    if (!window.confirm('Remove this driver app record? It can reconnect and re-register later.')) return;
+    setRemovingDriverId(driverId);
+    try {
+      await api(`/api/drivers/${driverId}`, { method: 'DELETE' });
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Failed to remove driver');
+    } finally {
+      setRemovingDriverId(null);
+    }
+  }
+
+  async function removeAllOrphanedDrivers() {
+    if (!orphanedDrivers.length) return;
+    if (
+      !window.confirm(
+        `Remove ${orphanedDrivers.length} driver app record(s) not linked to any current bus?`
+      )
+    ) {
+      return;
+    }
+    setMessage('');
+    for (const driver of orphanedDrivers) {
+      try {
+        await api(`/api/drivers/${driver.driverId}`, { method: 'DELETE' });
+      } catch (err) {
+        setMessage(err.message ?? 'Failed to remove some driver records');
+      }
+    }
+    load();
+  }
+
   return (
     <>
       <div className="card">
@@ -86,20 +133,32 @@ export default function ReleasesPanel() {
             Cloud v{fleet.cloudVersion} · Latest PC v{fleet.latestPc ?? 'none'} · Latest driver v{fleet.latestDriver ?? 'none'}
           </p>
         )}
+        <div className="toolbar">
+          <input
+            placeholder="Search by bus name, plate, or ID…"
+            value={busQuery}
+            onChange={(e) => setBusQuery(e.target.value)}
+          />
+        </div>
         <table className="data-table">
           <thead>
             <tr>
               <th>Bus</th>
+              <th>Plate</th>
               <th>Online</th>
               <th>App version</th>
               <th>Status</th>
-              <th>Plate</th>
             </tr>
           </thead>
           <tbody>
-            {(fleet?.buses ?? []).map((row) => (
+            {filteredBuses.map((row) => (
               <tr key={row.busId}>
-                <td>{row.busId}</td>
+                <td>
+                  {busDisplayLabel({ busId: row.busId, profile: { displayName: row.displayName, plateDisplay: row.plateDisplay } })}
+                  <br />
+                  <small className="hint">{row.busId}</small>
+                </td>
+                <td>{row.plateDisplay ?? '—'}</td>
                 <td>{row.online ? 'Yes' : 'No'}</td>
                 <td>{row.appVersion ?? '—'}</td>
                 <td>
@@ -107,13 +166,23 @@ export default function ReleasesPanel() {
                     {row.pcStatus}
                   </span>
                 </td>
-                <td>{row.plateDisplay ?? '—'}</td>
               </tr>
             ))}
+            {!filteredBuses.length && (
+              <tr><td colSpan={5} className="hint">No buses match "{busQuery}"</td></tr>
+            )}
           </tbody>
         </table>
 
         <h3>Driver apps</h3>
+        {orphanedDrivers.length > 0 && (
+          <p className="hint">
+            {orphanedDrivers.length} driver app(s) not linked to any current bus.{' '}
+            <button type="button" className="btn btn-outline btn-sm" onClick={removeAllOrphanedDrivers}>
+              Remove all orphaned
+            </button>
+          </p>
+        )}
         <table className="data-table">
           <thead>
             <tr>
@@ -121,23 +190,37 @@ export default function ReleasesPanel() {
               <th>Bus</th>
               <th>App version</th>
               <th>Status</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {(fleet?.drivers ?? []).map((row) => (
               <tr key={row.driverId}>
                 <td><code>{row.driverId.slice(0, 8)}…</code></td>
-                <td>{row.linkedBusId ?? '—'}</td>
+                <td>
+                  {row.linkedBusId ?? '—'}
+                  {row.orphaned && <span className="version-pill version-below"> orphaned</span>}
+                </td>
                 <td>{row.appVersion ?? '—'}</td>
                 <td>
                   <span className={`version-pill version-${row.status === 'current' ? 'current' : row.status === 'outdated' ? 'outdated' : row.status === 'below-minimum' ? 'below' : 'unknown'}`}>
                     {row.status}
                   </span>
                 </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    disabled={removingDriverId === row.driverId}
+                    onClick={() => removeDriver(row.driverId)}
+                  >
+                    {removingDriverId === row.driverId ? 'Removing…' : 'Remove'}
+                  </button>
+                </td>
               </tr>
             ))}
             {!fleet?.drivers?.length && (
-              <tr><td colSpan={4} className="hint">No driver version reports yet</td></tr>
+              <tr><td colSpan={5} className="hint">No driver version reports yet</td></tr>
             )}
           </tbody>
         </table>

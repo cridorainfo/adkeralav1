@@ -51,6 +51,7 @@ import {
   getDriverSession,
   verifyLinkedDriverForBus,
   deleteBus,
+  deleteDriverRecord,
   updateDriverLocation,
   getLocationHistory,
   addBusAssignedRoute,
@@ -952,6 +953,17 @@ app.delete('/api/buses/:busId', authFleet, async (req, res) => {
     return;
   }
   await writeAudit('fleet.bus.delete', req.user.id, { busId: req.params.busId });
+  res.json(result);
+});
+
+/** Admin cleanup of a stale driver record (e.g. one not linked to any current bus). */
+app.delete('/api/drivers/:driverId', authAdminOnly, async (req, res) => {
+  const result = await deleteDriverRecord(req.params.driverId);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  await writeAudit('fleet.driver.delete', req.user.id, { driverId: req.params.driverId });
   res.json(result);
 });
 

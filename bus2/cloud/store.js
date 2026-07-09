@@ -1734,6 +1734,18 @@ export async function deleteBus(busId) {
   return { ok: true, busId };
 }
 
+/** Remove a stale driver record (e.g. orphaned — not linked to any current bus). */
+export async function deleteDriverRecord(driverId) {
+  if (usePostgres()) return pg.pgDeleteDriver(driverId);
+  const store = await loadStore();
+  if (!store.drivers?.[driverId]) {
+    return { ok: false, error: 'Driver not found' };
+  }
+  delete store.drivers[driverId];
+  await saveStore();
+  return { ok: true, driverId };
+}
+
 /** Bus device confirms a cloud-paired phone may unlock LAN control (no OTP). */
 export async function verifyLinkedDriverForBus(busId, driverId) {
   const id = String(driverId ?? '').trim();
