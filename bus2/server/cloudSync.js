@@ -650,6 +650,7 @@ async function syncStopAudioFromCloud(root, creds) {
     };
     await writeInfoFileSerialized(root, merged, { source: 'cloud-stop-audio' });
     await deleteLocalMediaFiles(root, removedPaths);
+    if (newPaths.size) await syncCloudMedia(root, [...newPaths], creds);
     notifyStateChanged(root, {
       savedAt: merged.savedAt,
       lastCloudPushAt: merged.lastCloudPushAt,
