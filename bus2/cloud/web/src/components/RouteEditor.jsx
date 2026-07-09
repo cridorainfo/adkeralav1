@@ -9,8 +9,72 @@ import { attachCatalogGpsToRoute } from '../lib/stopCatalog.js';
 const AUDIO_ACCEPT = 'audio/*,.mp3,.mpeg,.mpga,audio/mpeg';
 const emptyStop = () => ({ en: '', ml: '', lat: '', lng: '', radiusM: 80 });
 
+/** Reusing an existing catalog stop should overwrite ml/lat/lng/radius with its
+ * canonical values (that's the point — one shared source of truth instead of every
+ * route re-entering the same stop slightly differently). Free typing never does this. */
+function applyCatalogStopSelection(stop, hit) {
+  return {
+    ...stop,
+    en: hit.en ?? stop.en,
+    ml: hit.ml ?? stop.ml,
+    lat: hit.lat ?? stop.lat,
+    lng: hit.lng ?? stop.lng,
+    radiusM: hit.radiusM ?? stop.radiusM,
+  };
+}
+
+/** Type-to-search over the shared stop catalog (same list StopsCatalog.jsx manages) so
+ * admins can reuse an already-complete stop (name, Malayalam, GPS) instead of retyping
+ * it — many routes share the same stops. Selecting a match calls onSelectCatalogStop;
+ * plain typing (no selection) only ever updates the English name via onChangeText. */
+function StopNameField({ value, catalog, onChangeText, onSelectCatalogStop }) {
+  const [open, setOpen] = useState(false);
+  const query = String(value ?? '').trim().toLowerCase();
+
+  const matches = query
+    ? catalog
+        .filter(
+          (s) => s.en?.toLowerCase().includes(query) || s.ml?.toLowerCase().includes(query)
+        )
+        .slice(0, 8)
+    : [];
+
+  return (
+    <div className="stop-name-field">
+      <input
+        placeholder="English (type to search existing stops)"
+        value={value ?? ''}
+        onChange={(e) => {
+          onChangeText(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && matches.length > 0 && (
+        <ul className="stop-name-suggestions">
+          {matches.map((hit) => (
+            <li
+              key={hit.en}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelectCatalogStop(hit);
+                setOpen(false);
+              }}
+            >
+              <strong>{hit.en}</strong>
+              {hit.ml ? <span className="hint"> · {hit.ml}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function StopRow({
   stop,
+  catalog,
   onChange,
   onRemove,
   showRemove,
@@ -19,19 +83,34 @@ function StopRow({
   onDeleteAudio,
   uploading,
 }) {
-  const fields = ['en', 'ml', 'lat', 'lng', 'radiusM'];
-  const labels = { en: 'English', ml: 'Malayalam', lat: 'Lat', lng: 'Lng', radiusM: 'Radius' };
-
   return (
     <div className="stop-row">
-      {fields.map((f) => (
-        <input
-          key={f}
-          placeholder={labels[f]}
-          value={stop[f] ?? ''}
-          onChange={(e) => onChange({ ...stop, [f]: e.target.value })}
-        />
-      ))}
+      <StopNameField
+        value={stop.en}
+        catalog={catalog}
+        onChangeText={(text) => onChange({ ...stop, en: text })}
+        onSelectCatalogStop={(hit) => onChange(applyCatalogStopSelection(stop, hit))}
+      />
+      <input
+        placeholder="Malayalam"
+        value={stop.ml ?? ''}
+        onChange={(e) => onChange({ ...stop, ml: e.target.value })}
+      />
+      <input
+        placeholder="Lat"
+        value={stop.lat ?? ''}
+        onChange={(e) => onChange({ ...stop, lat: e.target.value })}
+      />
+      <input
+        placeholder="Lng"
+        value={stop.lng ?? ''}
+        onChange={(e) => onChange({ ...stop, lng: e.target.value })}
+      />
+      <input
+        placeholder="Radius"
+        value={stop.radiusM ?? ''}
+        onChange={(e) => onChange({ ...stop, radiusM: e.target.value })}
+      />
       <div className="stop-audio-cell">
         <input
           type="file"
@@ -482,6 +561,7 @@ export default function RouteEditor() {
       <h3>Start stop</h3>
       <StopRow
         stop={route.startStop}
+        catalog={stopGpsCatalog}
         savedAudioFile={savedAudioForStop(route.startStop)}
         uploading={isStopUploading(route.startStop)}
         onUploadFile={(file) => handleStopAudioUpload(route.startStop, file, (s) => setRoute({ ...route, startStop: s }))}
@@ -495,6 +575,7 @@ export default function RouteEditor() {
         <StopRow
           key={i}
           stop={s}
+          catalog={stopGpsCatalog}
           savedAudioFile={savedAudioForStop(s)}
           uploading={isStopUploading(s)}
           showRemove
@@ -526,6 +607,7 @@ export default function RouteEditor() {
       <h3>End stop</h3>
       <StopRow
         stop={route.endStop}
+        catalog={stopGpsCatalog}
         savedAudioFile={savedAudioForStop(route.endStop)}
         uploading={isStopUploading(route.endStop)}
         onUploadFile={(file) => handleStopAudioUpload(route.endStop, file, (s) => setRoute({ ...route, endStop: s }))}

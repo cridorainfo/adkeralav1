@@ -1342,6 +1342,36 @@ tr.route-row-assigned {
 
 .stop-row input { font-size: 0.8rem; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 6px; }
 
+.stop-name-field { position: relative; }
+.stop-name-field input { width: 100%; box-sizing: border-box; }
+
+.stop-name-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.stop-name-suggestions li {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.stop-name-suggestions li:hover {
+  background: #f1f5f9;
+}
+
 .stop-audio-cell {
   display: flex;
   flex-direction: column;
