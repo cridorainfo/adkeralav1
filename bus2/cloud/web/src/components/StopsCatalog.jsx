@@ -157,12 +157,17 @@ export default function StopsCatalog() {
   async function handleStopAudioUpload(file) {
     if (!selectedEn || !file) return;
     const key = selectedEn.trim().toLowerCase();
-    const up = await uploadMedia(file, 'stops');
-    const relPath = up.path ?? up.audioFile;
-    if (!relPath) throw new Error('Upload did not return a file path.');
-    const patch = { [key]: { en: { audioFile: relPath } } };
-    await persistStopAudioPatch(selectedEn, patch, [relPath]);
-    setMessage(`Voice audio updated for "${selectedEn}"`);
+    setAudioBusy(true);
+    try {
+      const up = await uploadMedia(file, 'stops');
+      const relPath = up.path ?? up.audioFile;
+      if (!relPath) throw new Error('Upload did not return a file path.');
+      const patch = { [key]: { en: { audioFile: relPath } } };
+      await persistStopAudioPatch(selectedEn, patch, [relPath]);
+      setMessage(`Voice audio updated for "${selectedEn}"`);
+    } finally {
+      setAudioBusy(false);
+    }
   }
 
   async function handleStopAudioDelete() {
@@ -201,11 +206,16 @@ export default function StopsCatalog() {
   async function handleVoiceAdUpload(file) {
     if (!selectedEn || !file) return;
     const key = selectedEn.trim().toLowerCase();
-    const up = await uploadMedia(file, 'stops');
-    const relPath = up.path ?? up.audioFile;
-    if (!relPath) throw new Error('Upload did not return a file path.');
-    await saveVoiceAdEntry(key, { audioFile: relPath, enabled: stopVoiceAdsCatalog[key]?.enabled ?? true });
-    setMessage(`Ad voice updated for "${selectedEn}"`);
+    setVoiceAdBusy(true);
+    try {
+      const up = await uploadMedia(file, 'stops');
+      const relPath = up.path ?? up.audioFile;
+      if (!relPath) throw new Error('Upload did not return a file path.');
+      await saveVoiceAdEntry(key, { audioFile: relPath, enabled: stopVoiceAdsCatalog[key]?.enabled ?? true });
+      setMessage(`Ad voice updated for "${selectedEn}"`);
+    } finally {
+      setVoiceAdBusy(false);
+    }
   }
 
   async function handleVoiceAdDelete() {
@@ -526,7 +536,9 @@ export default function StopsCatalog() {
                   <h4>Stop voice (English)</h4>
                   <p className="hint">One audio file per stop. Uploading replaces the previous clip.</p>
                   <p className="hint">
-                    Current: {selectedAudioFile ? basename(selectedAudioFile) : 'No audio'}
+                    {audioBusy
+                      ? 'Uploading…'
+                      : `Current: ${selectedAudioFile ? basename(selectedAudioFile) : 'No audio'}`}
                   </p>
                   <div className="toolbar">
                     <input
@@ -567,7 +579,9 @@ export default function StopsCatalog() {
                     announcement — synced to every bus automatically, no PC-side recording needed.
                   </p>
                   <p className="hint">
-                    Current: {selectedVoiceAd?.audioFile ? basename(selectedVoiceAd.audioFile) : 'No ad voice'}
+                    {voiceAdBusy
+                      ? 'Uploading…'
+                      : `Current: ${selectedVoiceAd?.audioFile ? basename(selectedVoiceAd.audioFile) : 'No ad voice'}`}
                   </p>
                   <div className="toolbar">
                     <input

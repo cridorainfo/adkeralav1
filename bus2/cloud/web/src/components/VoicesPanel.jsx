@@ -45,10 +45,18 @@ export default function VoicesPanel() {
 
   async function uploadPhrase(phrase, file) {
     if (!file) return;
-    const up = await uploadMedia(file, 'announcements');
-    const patch = { [phrase]: { en: { audioFile: up.path } } };
-    await persistPhrasePatch(phrase, patch, [up.path]);
-    setMessage(`Replaced audio for ${phrase}`);
+    setBusyPhrase(phrase);
+    setMessage('Uploading…');
+    try {
+      const up = await uploadMedia(file, 'announcements');
+      const patch = { [phrase]: { en: { audioFile: up.path } } };
+      await persistPhrasePatch(phrase, patch, [up.path]);
+      setMessage(`Replaced audio for ${phrase}`);
+    } catch (err) {
+      setMessage(err.message ?? 'Upload failed');
+    } finally {
+      setBusyPhrase(null);
+    }
   }
 
   async function deletePhrase(phrase) {
@@ -83,7 +91,7 @@ export default function VoicesPanel() {
             return (
               <tr key={phrase}>
                 <td>{phrase}</td>
-                <td>{file ? basename(file) : '—'}</td>
+                <td>{busy ? 'Uploading…' : file ? basename(file) : '—'}</td>
                 <td>
                   <input
                     type="file"

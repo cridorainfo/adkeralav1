@@ -175,6 +175,7 @@ export default function AdsPanel() {
     }
     setBusy(true);
     setError('');
+    setMessage(`Uploading ${file.name}…`);
     try {
       const category = isBanner ? 'banners' : 'ads';
       const list = isBanner ? bannerAds : ads;

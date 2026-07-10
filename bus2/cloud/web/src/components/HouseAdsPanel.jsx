@@ -23,6 +23,7 @@ export default function HouseAdsPanel() {
   const [bannerAds, setBannerAds] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [uploadingSlot, setUploadingSlot] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -48,6 +49,9 @@ export default function HouseAdsPanel() {
       setMessage(validationError);
       return;
     }
+    const slot = isBanner ? 'banner' : 'fullscreen';
+    setUploadingSlot(slot);
+    setMessage(`Uploading ${file.name}…`);
     try {
       const up = await uploadMedia(file, isBanner ? 'banners' : 'ads');
       const item = {
@@ -59,8 +63,11 @@ export default function HouseAdsPanel() {
       };
       if (isBanner) setBannerAds([...bannerAds, item]);
       else setAds([...ads, item]);
+      setMessage(`Uploaded ${file.name}`);
     } catch (err) {
       setMessage(err.message ?? 'Upload failed');
+    } finally {
+      setUploadingSlot(null);
     }
   }
 
@@ -102,14 +109,34 @@ export default function HouseAdsPanel() {
       <AdList ads={ads} format="fullscreen" onRemove={removeAd} />
       <div className="form-group">
         <label>Add a fullscreen house ad (image or video)</label>
-        <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
+        <input
+          type="file"
+          accept={AD_MEDIA_ACCEPT}
+          disabled={uploadingSlot === 'fullscreen'}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) uploadAd(file, false);
+          }}
+        />
+        {uploadingSlot === 'fullscreen' && <small className="hint">Uploading…</small>}
       </div>
 
       <h3>Banner house ads</h3>
       <AdList ads={bannerAds} format="banner" onRemove={removeBannerAd} />
       <div className="form-group">
         <label>Add a banner house ad (image or video)</label>
-        <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />
+        <input
+          type="file"
+          accept={AD_MEDIA_ACCEPT}
+          disabled={uploadingSlot === 'banner'}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) uploadAd(file, true);
+          }}
+        />
+        {uploadingSlot === 'banner' && <small className="hint">Uploading…</small>}
       </div>
 
       <div className="editor-actions">

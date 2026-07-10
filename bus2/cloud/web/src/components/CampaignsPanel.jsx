@@ -20,6 +20,7 @@ export default function CampaignsPanel({ adminMode = false }) {
   const [expandedReport, setExpandedReport] = useState(null);
   const [rerunForm, setRerunForm] = useState({});
   const [rerunOpen, setRerunOpen] = useState(null);
+  const [uploadingSlot, setUploadingSlot] = useState(null);
 
   async function load() {
     const [cJson, bJson, vJson] = await Promise.all([
@@ -103,27 +104,37 @@ export default function CampaignsPanel({ adminMode = false }) {
       setMessage(validationError);
       return;
     }
-    const category = isBanner ? 'banners' : 'ads';
-    const up = await uploadMedia(file, category);
-    const key = isBanner ? 'bannerAds' : 'ads';
-    const item = {
-      id: `${isBanner ? 'banner' : 'ad'}-${Date.now()}`,
-      name: file.name,
-      type: adMediaTypeFromFile(file),
-      mediaFile: up.path,
-      durationSec: isBanner ? 8 : 12,
-      // Budget applies to both fullscreen and banner ads now (both are play-tracked and
-      // priced — see cloud/pricing.js). Stop-trigger stays fullscreen-only, banners just show
-      // in the fixed strip regardless of approaching stop.
-      ...(form.pendingAmount ? { amount: Number(form.pendingAmount) } : {}),
-      ...(!isBanner && form.pendingTriggerStopEn ? { triggerStopEn: form.pendingTriggerStopEn } : {}),
-    };
-    setForm({
-      ...form,
-      [key]: [...(form[key] ?? []), item],
-      pendingAmount: '',
-      ...(!isBanner ? { pendingTriggerStopEn: '' } : {}),
-    });
+    const slot = isBanner ? 'banner' : 'fullscreen';
+    setUploadingSlot(slot);
+    setMessage(`Uploading ${file.name}…`);
+    try {
+      const category = isBanner ? 'banners' : 'ads';
+      const up = await uploadMedia(file, category);
+      const key = isBanner ? 'bannerAds' : 'ads';
+      const item = {
+        id: `${isBanner ? 'banner' : 'ad'}-${Date.now()}`,
+        name: file.name,
+        type: adMediaTypeFromFile(file),
+        mediaFile: up.path,
+        durationSec: isBanner ? 8 : 12,
+        // Budget applies to both fullscreen and banner ads now (both are play-tracked and
+        // priced — see cloud/pricing.js). Stop-trigger stays fullscreen-only, banners just show
+        // in the fixed strip regardless of approaching stop.
+        ...(form.pendingAmount ? { amount: Number(form.pendingAmount) } : {}),
+        ...(!isBanner && form.pendingTriggerStopEn ? { triggerStopEn: form.pendingTriggerStopEn } : {}),
+      };
+      setForm({
+        ...form,
+        [key]: [...(form[key] ?? []), item],
+        pendingAmount: '',
+        ...(!isBanner ? { pendingTriggerStopEn: '' } : {}),
+      });
+      setMessage(`Uploaded ${file.name}`);
+    } catch (err) {
+      setMessage(err.message ?? 'Upload failed');
+    } finally {
+      setUploadingSlot(null);
+    }
   }
 
   // Fetched on-demand (not eagerly for every completed campaign) — the per-bus/per-route
@@ -259,11 +270,31 @@ export default function CampaignsPanel({ adminMode = false }) {
                 </div>
                 <div className="form-group">
                   <label>Fullscreen ad media</label>
-                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], false)} />
+                  <input
+                    type="file"
+                    accept={AD_MEDIA_ACCEPT}
+                    disabled={uploadingSlot === 'fullscreen'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) uploadAd(file, false);
+                    }}
+                  />
+                  {uploadingSlot === 'fullscreen' && <small className="hint">Uploading…</small>}
                 </div>
                 <div className="form-group">
                   <label>Banner ad media (image or video)</label>
-                  <input type="file" accept={AD_MEDIA_ACCEPT} onChange={(e) => uploadAd(e.target.files?.[0], true)} />
+                  <input
+                    type="file"
+                    accept={AD_MEDIA_ACCEPT}
+                    disabled={uploadingSlot === 'banner'}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (file) uploadAd(file, true);
+                    }}
+                  />
+                  {uploadingSlot === 'banner' && <small className="hint">Uploading…</small>}
                 </div>
                 <button type="submit" className="btn btn-primary btn-sm">
                   Create campaign
