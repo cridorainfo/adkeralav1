@@ -26,6 +26,15 @@ export async function startAndroidTrackingService() {
   const { ForegroundService } = await import(
     '@capawesome-team/capacitor-android-foreground-service'
   );
+
+  // Android 13+ requires the notification permission at runtime — without it the
+  // service's notification never shows and Android kills it almost immediately,
+  // which is why tracking was stopping as soon as the app left the foreground.
+  const perm = await ForegroundService.checkPermissions();
+  if (perm.display !== 'granted') {
+    await ForegroundService.requestPermissions();
+  }
+
   await ForegroundService.startForegroundService({
     id: 1001,
     title: 'AdKerala Driver',
