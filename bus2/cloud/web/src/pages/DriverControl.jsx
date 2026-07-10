@@ -17,6 +17,8 @@ import { useDriverGps } from '../hooks/useDriverGps.js';
 import { useAutoLinkDriverCloud } from '../hooks/useAutoLinkDriverCloud.js';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation.js';
 import { useGpsReliabilityStats } from '../hooks/useGpsReliabilityStats.js';
+import { useNativeGpsStatus } from '../hooks/useNativeGpsStatus.js';
+import { isAndroidNative } from '../lib/nativeGpsTracker.js';
 import GpsSyncStatus from '../components/GpsSyncStatus.jsx';
 
 function StopLabel({ stop, size = 'md' }) {
@@ -46,14 +48,20 @@ export default function DriverControl() {
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
 
-  const { location: gpsLocation, permission: gpsPermission, requestGps, trackingMode } = useDriverGps(true);
+  // On Android, the always-on native tracker (foreground service, survives the app being
+  // closed) owns GPS entirely — running the JS watcher too would just duplicate posts and
+  // battery drain. Elsewhere (web/iOS) the JS-driven path is the only option.
+  const nativeOwnsTracking = isAndroidNative();
+  const { location: gpsLocation, permission: gpsPermission, requestGps, trackingMode } =
+    useDriverGps(!nativeOwnsTracking);
   const { linked: cloudLinked, error: linkError } = useAutoLinkDriverCloud(plate);
   const { lastSyncedAt, lastError: syncError, pushCount } = useDriverCloudLocation({
-    enabled: true,
+    enabled: !nativeOwnsTracking,
     location: gpsLocation,
     linked: cloudLinked,
   });
   const reliability = useGpsReliabilityStats(gpsLocation);
+  const nativeStatus = useNativeGpsStatus(nativeOwnsTracking && cloudLinked);
 
   useEffect(() => {
     const saved = loadHubControlUrl();
@@ -157,16 +165,22 @@ export default function DriverControl() {
         )}
 
         <GpsSyncStatus
-          location={gpsLocation}
+          location={
+            nativeOwnsTracking
+              ? nativeStatus?.lat != null
+                ? { lat: nativeStatus.lat, lng: nativeStatus.lng, accuracy: nativeStatus.accuracy, at: nativeStatus.lastFixAt }
+                : null
+              : gpsLocation
+          }
           permission={gpsPermission}
           onEnableGps={requestGps}
           linked={cloudLinked}
           linkError={linkError}
-          syncError={syncError}
-          lastSyncedAt={lastSyncedAt}
-          pushCount={pushCount}
-          trackingMode={trackingMode}
-          reliability={reliability}
+          syncError={nativeOwnsTracking ? nativeStatus?.lastError : syncError}
+          lastSyncedAt={nativeOwnsTracking ? nativeStatus?.lastSyncAt : lastSyncedAt}
+          pushCount={nativeOwnsTracking ? (nativeStatus?.pushCount ?? 0) : pushCount}
+          trackingMode={nativeOwnsTracking ? (nativeStatus?.tracking ? 'active' : 'background') : trackingMode}
+          reliability={nativeOwnsTracking ? null : reliability}
         />
 
         <div className="panel driver-panel driver-minimal-panel">

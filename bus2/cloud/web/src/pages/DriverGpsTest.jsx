@@ -5,6 +5,12 @@ import GpsSyncStatus from '../components/GpsSyncStatus.jsx';
 import { useDriverGps } from '../hooks/useDriverGps.js';
 import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation.js';
 import { useGpsReliabilityStats } from '../hooks/useGpsReliabilityStats.js';
+import { useNativeGpsStatus } from '../hooks/useNativeGpsStatus.js';
+import {
+  isAndroidNative,
+  startNativeTracking,
+  stopNativeTracking,
+} from '../lib/nativeGpsTracker.js';
 import {
   ensureDriverId,
   fetchDriverSession,
@@ -13,10 +19,16 @@ import {
   unlinkDriver,
 } from '../lib/driverPhone.js';
 
+const RECHECK_MS = 20000;
+
 /**
  * Standalone GPS test harness — links this phone to a bus purely over the internet
  * (cloud pairDriver/api, no LAN hub, no bus-PC dependency beyond it being online once
  * to link). Lets you test GPS streaming with the phone anywhere, bus PC left in one room.
+ *
+ * On Android, GPS is owned entirely by the native always-on tracker (foreground
+ * service) so it survives the app being closed — this page just links/unlinks it and
+ * shows its status. Elsewhere the JS-driven watcher does both jobs.
  */
 export default function DriverGpsTest() {
   const [code, setCode] = useState('');
@@ -26,6 +38,7 @@ export default function DriverGpsTest() {
   const [error, setError] = useState('');
 
   const linked = Boolean(session?.linked);
+  const nativeOwnsTracking = isAndroidNative();
 
   const refreshSession = async () => {
     const driverId = ensureDriverId();
@@ -38,12 +51,25 @@ export default function DriverGpsTest() {
   useEffect(() => {
     (async () => {
       try {
-        await refreshSession();
+        const result = await refreshSession();
+        if (result?.linked) {
+          await startNativeTracking({ driverId: ensureDriverId(), cloudUrl: loadCloudUrl() });
+        }
       } finally {
         setChecking(false);
       }
     })();
   }, []);
+
+  // Detect an admin-side unlink (from the Fleet dashboard) and stop native tracking to match.
+  useEffect(() => {
+    if (!linked) return undefined;
+    const id = setInterval(async () => {
+      const result = await refreshSession();
+      if (!result?.linked) await stopNativeTracking();
+    }, RECHECK_MS);
+    return () => clearInterval(id);
+  }, [linked]);
 
   const handleLink = async (e) => {
     e.preventDefault();
@@ -57,6 +83,7 @@ export default function DriverGpsTest() {
         setError(result.error ?? 'Could not link');
         return;
       }
+      await startNativeTracking({ driverId, cloudUrl });
       await refreshSession();
       setCode('');
     } finally {
@@ -67,17 +94,19 @@ export default function DriverGpsTest() {
   const handleUnlink = async () => {
     const driverId = ensureDriverId();
     const cloudUrl = loadCloudUrl();
+    await stopNativeTracking();
     await unlinkDriver(driverId, cloudUrl);
     await refreshSession();
   };
 
-  const { location, permission, requestGps, trackingMode } = useDriverGps(linked);
+  const { location, permission, requestGps, trackingMode } = useDriverGps(linked && !nativeOwnsTracking);
   const { lastSyncedAt, lastError: syncError, pushCount } = useDriverCloudLocation({
-    enabled: linked,
+    enabled: linked && !nativeOwnsTracking,
     location,
     linked,
   });
   const reliability = useGpsReliabilityStats(location);
+  const nativeStatus = useNativeGpsStatus(nativeOwnsTracking && linked);
 
   return (
     <div className="driver-connect-page">
@@ -115,17 +144,24 @@ export default function DriverGpsTest() {
           <div className="driver-connect-section">
             <p className="hint">
               Linked to <strong>{session.plate || session.busId}</strong>.
+              {nativeOwnsTracking ? ' Tracking runs natively — safe to close this app.' : ''}
             </p>
             <GpsSyncStatus
-              location={location}
+              location={
+                nativeOwnsTracking
+                  ? nativeStatus?.lat != null
+                    ? { lat: nativeStatus.lat, lng: nativeStatus.lng, accuracy: nativeStatus.accuracy, at: nativeStatus.lastFixAt }
+                    : null
+                  : location
+              }
               permission={permission}
               onEnableGps={requestGps}
               linked={linked}
-              syncError={syncError}
-              lastSyncedAt={lastSyncedAt}
-              pushCount={pushCount}
-              trackingMode={trackingMode}
-              reliability={reliability}
+              syncError={nativeOwnsTracking ? nativeStatus?.lastError : syncError}
+              lastSyncedAt={nativeOwnsTracking ? nativeStatus?.lastSyncAt : lastSyncedAt}
+              pushCount={nativeOwnsTracking ? (nativeStatus?.pushCount ?? 0) : pushCount}
+              trackingMode={nativeOwnsTracking ? (nativeStatus?.tracking ? 'active' : 'background') : trackingMode}
+              reliability={nativeOwnsTracking ? null : reliability}
             />
             <button type="button" className="btn btn-ghost" onClick={handleUnlink}>
               Unlink this phone
