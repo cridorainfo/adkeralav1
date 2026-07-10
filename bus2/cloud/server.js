@@ -70,6 +70,8 @@ import {
   getStopVoiceAdsCatalog,
   setStopVoiceAdsCatalog,
   collectAllReferencedMediaPaths,
+  describeMediaReferences,
+  removeMediaReferenceEverywhere,
 } from './store.js';
 import { computeAdSpend, isAdExhausted } from './pricing.js';
 import {
@@ -1829,12 +1831,63 @@ app.delete('/api/media/:category/:filename', authSession, requireAuth, async (re
     return;
   }
   const relPath = `${req.params.category}/${req.params.filename}`;
+  // Deliberately still allowed even if referencedBy is non-empty (the media browser shows that
+  // warning to the admin before they confirm) — this is the deliberate manual-cleanup override
+  // for stale/broken references, not the automatic reference-checked purge path. Clearing the
+  // reference first (same setters a normal edit uses) means every bus's own periodic sync sees
+  // the file drop out of its next catalog/audio fetch and deletes its local copy itself — no
+  // dangling mediaFile left pointing at a file that no longer exists.
+  const referencedBy = (await describeMediaReferences()).get(relPath) ?? [];
+  if (referencedBy.length) {
+    await removeMediaReferenceEverywhere(relPath);
+  }
   const result = await deleteMediaFile(relPath, MEDIA_DIR);
   if (!result.ok) {
     res.status(400).json({ ok: false, error: result.error ?? 'Delete failed' });
     return;
   }
-  res.json({ ok: true, deleted: relPath, ...result });
+  res.json({ ok: true, deleted: relPath, wasReferencedBy: referencedBy, ...result });
+});
+
+const MEDIA_BROWSE_CATEGORIES = ['ads', 'banners', 'stops', 'announcements'];
+
+/** Admin-only listing of every file on the media volume, flagging which ones are still
+ * referenced (by a campaign, house ad, bus catalog, stop audio, or phrase) vs orphaned. Backs
+ * the Media Browser page — the manual counterpart to the automatic purge that already runs on
+ * campaign/house-ad/catalog edits (see purgeUnreferencedMedia above). */
+app.get('/api/media/browse', authSession, requireAuth, requireRole('admin'), async (req, res) => {
+  const refs = await describeMediaReferences();
+  const categories = {};
+  const summary = { totalFiles: 0, totalBytes: 0, orphanedFiles: 0, orphanedBytes: 0 };
+
+  for (const category of MEDIA_BROWSE_CATEGORIES) {
+    const dir = path.join(MEDIA_DIR, category);
+    let entries = [];
+    try {
+      entries = (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile());
+    } catch {
+      entries = [];
+    }
+    const files = [];
+    for (const entry of entries) {
+      const relPath = `${category}/${entry.name}`;
+      const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
+      const size = stat?.size ?? 0;
+      const mtime = stat?.mtimeMs ?? 0;
+      const referencedBy = refs.get(relPath) ?? [];
+      summary.totalFiles += 1;
+      summary.totalBytes += size;
+      if (!referencedBy.length) {
+        summary.orphanedFiles += 1;
+        summary.orphanedBytes += size;
+      }
+      files.push({ path: relPath, filename: entry.name, size, mtime, referencedBy });
+    }
+    files.sort((a, b) => b.mtime - a.mtime);
+    categories[category] = files;
+  }
+
+  res.json({ ok: true, categories, summary });
 });
 
 async function serveStoredMediaFile(res, relPath) {

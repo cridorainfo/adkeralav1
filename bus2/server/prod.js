@@ -7,6 +7,7 @@ import {
   startCloudSyncLoop,
   getCloudConfig,
 } from './cloudSync.js';
+import { startMediaGcLoop } from './cloudMediaSync.js';
 import { setupCloudProxy } from './cloudProxy.js';
 import { shouldStartLocalAdmin, startLocalAdmin } from './localAdmin.js';
 import { getAppRoot, getDataRoot, ensurePortableDb } from './getAppRoot.js';
@@ -100,6 +101,7 @@ export async function startBusServer(options = {}) {
   });
 
   const stopCloud = startCloudSyncLoop(dataRoot);
+  const stopMediaGc = startMediaGcLoop(dataRoot);
 
   let httpsMirror = { httpsServer: null, httpsPort: null, httpsEnabled: false };
   try {
@@ -177,6 +179,7 @@ export async function startBusServer(options = {}) {
   const shutdown = () => {
     clearInterval(probeTimer);
     stopCloud();
+    stopMediaGc();
     localAdmin?.stop();
     httpsMirror.httpsServer?.close();
     httpServer.close();

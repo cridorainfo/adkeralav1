@@ -944,6 +944,145 @@ export async function collectAllReferencedMediaPaths() {
   return paths;
 }
 
+/**
+ * Same sources as collectAllReferencedMediaPaths, but keeps *what* references each path instead
+ * of collapsing to a bare Set — used by the admin media browser to explain why a file can't be
+ * deleted without consequence, e.g. "still used by Campaign X" or "Bus KL-07-1234's catalog".
+ * Returns a Map<relPath, Array<{ type, ...details }>>.
+ */
+export async function describeMediaReferences() {
+  const refs = new Map();
+  const add = (relPath, ref) => {
+    if (!relPath) return;
+    if (!refs.has(relPath)) refs.set(relPath, []);
+    refs.get(relPath).push(ref);
+  };
+
+  const store = await loadStore();
+  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+    for (const p of collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds)) {
+      add(p, { type: 'campaign', id: campaign.id, label: campaign.name || campaign.id });
+    }
+  }
+
+  const houseAds = await getHouseAds();
+  for (const p of collectAdMediaPathsFromLists(houseAds.ads, houseAds.bannerAds)) {
+    add(p, { type: 'house-ad' });
+  }
+
+  const buses = await listBuses();
+  for (const { busId } of buses) {
+    const catalog = await getBusAdsCatalog(busId);
+    for (const p of collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds)) {
+      add(p, { type: 'bus-catalog', busId });
+    }
+  }
+
+  const { stopVoiceAds } = await getStopVoiceAdsCatalog();
+  for (const [stopKey, entry] of Object.entries(stopVoiceAds ?? {})) {
+    if (entry?.audioFile) add(entry.audioFile, { type: 'stop-voice-ad', stopKey });
+  }
+
+  const { stopAudio } = await getStopAudioCatalog();
+  for (const [stopKey, langs] of Object.entries(stopAudio ?? {})) {
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      if (val?.audioFile) add(val.audioFile, { type: 'stop-audio', stopKey, lang });
+    }
+  }
+
+  const { audioFragments } = await getGlobalPhraseAudio();
+  for (const [phraseKey, langs] of Object.entries(audioFragments ?? {})) {
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      if (val?.audioFile) add(val.audioFile, { type: 'phrase', phraseKey, lang });
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Strip a media path out of every place that currently references it — campaigns, house ads,
+ * every bus's own ad catalog, stop voice-ads, stop announcement audio, and global phrase audio —
+ * through the exact same setters a normal edit/replace goes through (updateCampaign-style direct
+ * mutation, setHouseAds, setBusAdsCatalog, setStopVoiceAdsCatalog, mergeStopAudioCatalog,
+ * setGlobalPhraseAudio). This is what the media browser's "delete anyway" override calls before
+ * removing a still-referenced file from disk: once nothing in state points at it anymore, every
+ * bus's own periodic cloud sync (server/cloudSync.js, ~5s) sees the file drop out of its next
+ * catalog/audio fetch and deletes its local copy itself (server/cloudMediaSync.js's
+ * deleteLocalMediaFiles) — the same diff-based cleanup an ordinary replace already triggers, so
+ * no separate "tell the bus to delete this" signal is needed.
+ */
+export async function removeMediaReferenceEverywhere(relPath) {
+  if (!relPath) return;
+  const matches = (ad) => ad?.mediaFile === relPath || ad?.audioFile === relPath;
+
+  const store = await loadStore();
+  let campaignsChanged = false;
+  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+    const nextAds = (campaign.ads ?? []).filter((ad) => !matches(ad));
+    const nextBanners = (campaign.bannerAds ?? []).filter((ad) => !matches(ad));
+    if (nextAds.length !== (campaign.ads ?? []).length || nextBanners.length !== (campaign.bannerAds ?? []).length) {
+      campaign.ads = nextAds;
+      campaign.bannerAds = nextBanners;
+      campaign.updatedAt = Date.now();
+      campaignsChanged = true;
+    }
+  }
+  if (campaignsChanged) await saveStore();
+
+  const houseAds = await getHouseAds();
+  const nextHouseAds = (houseAds.ads ?? []).filter((ad) => !matches(ad));
+  const nextHouseBanners = (houseAds.bannerAds ?? []).filter((ad) => !matches(ad));
+  if (nextHouseAds.length !== houseAds.ads.length || nextHouseBanners.length !== houseAds.bannerAds.length) {
+    await setHouseAds({ ads: nextHouseAds, bannerAds: nextHouseBanners });
+  }
+
+  const buses = await listBuses();
+  for (const { busId } of buses) {
+    const catalog = await getBusAdsCatalog(busId);
+    const nextAds = (catalog.ads ?? []).filter((ad) => !matches(ad));
+    const nextBanners = (catalog.bannerAds ?? []).filter((ad) => !matches(ad));
+    if (nextAds.length !== catalog.ads.length || nextBanners.length !== catalog.bannerAds.length) {
+      await setBusAdsCatalog(busId, {
+        ads: nextAds,
+        bannerAds: nextBanners,
+        adsSavedAt: catalog.adsSavedAt,
+        source: catalog.source ?? 'dashboard',
+      });
+    }
+  }
+
+  const { stopVoiceAds } = await getStopVoiceAdsCatalog();
+  const nextStopVoiceAds = Object.fromEntries(
+    Object.entries(stopVoiceAds ?? {}).filter(([, entry]) => entry?.audioFile !== relPath)
+  );
+  if (Object.keys(nextStopVoiceAds).length !== Object.keys(stopVoiceAds ?? {}).length) {
+    await setStopVoiceAdsCatalog(nextStopVoiceAds);
+  }
+
+  const { stopAudio } = await getStopAudioCatalog();
+  const stopAudioRemovals = {};
+  for (const [stopKey, langs] of Object.entries(stopAudio ?? {})) {
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      if (val?.audioFile === relPath) {
+        stopAudioRemovals[stopKey] = { ...(stopAudioRemovals[stopKey] ?? {}), [lang]: null };
+      }
+    }
+  }
+  if (Object.keys(stopAudioRemovals).length) await mergeStopAudioCatalog(stopAudioRemovals);
+
+  const { audioFragments } = await getGlobalPhraseAudio();
+  const phraseRemovals = {};
+  for (const [phraseKey, langs] of Object.entries(audioFragments ?? {})) {
+    for (const [lang, val] of Object.entries(langs ?? {})) {
+      if (val?.audioFile === relPath) {
+        phraseRemovals[phraseKey] = { ...(phraseRemovals[phraseKey] ?? {}), [lang]: null };
+      }
+    }
+  }
+  if (Object.keys(phraseRemovals).length) await setGlobalPhraseAudio(phraseRemovals);
+}
+
 export async function searchRoutes(query = '', { ownerId = null } = {}) {
   const routes = usePostgres() ? await pg.pgListAllRoutes(ownerId) : (await loadStore()).routeCatalog;
   const q = query.trim().toLowerCase();

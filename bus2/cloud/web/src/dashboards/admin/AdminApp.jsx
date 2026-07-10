@@ -13,6 +13,7 @@ import UsersPanel from '../../components/UsersPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import PricingPanel from '../../components/PricingPanel.jsx';
 import HouseAdsPanel from '../../components/HouseAdsPanel.jsx';
+import MediaBrowserPanel from '../../components/MediaBrowserPanel.jsx';
 import ReleasesPanel from '../../components/ReleasesPanel.jsx';
 import ClaimBus from '../../pages/ClaimBus.jsx';
 import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
@@ -31,6 +32,7 @@ const NAV = [
   { to: '/campaigns', label: 'Campaigns' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/house-ads', label: 'House ads' },
+  { to: '/media', label: 'Media browser' },
   { to: '/gaps', label: 'Content gaps' },
   { to: '/catalog', label: 'Route catalog' },
   { to: '/users', label: 'Users' },
@@ -68,6 +70,7 @@ function AdminRoutes() {
         <Route path="campaigns" element={<CampaignsPanel adminMode />} />
         <Route path="pricing" element={<PricingPanel />} />
         <Route path="house-ads" element={<HouseAdsPanel />} />
+        <Route path="media" element={<MediaBrowserPanel />} />
         <Route path="gaps" element={<ContentGaps />} />
         <Route path="catalog" element={<RouteCatalog />} />
         <Route path="users" element={<UsersPanel />} />

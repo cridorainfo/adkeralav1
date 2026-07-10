@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { uploadMedia } from '../lib/api.js';
+import { doubleConfirm } from '../lib/confirm.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
 import { busDisplayLabel } from './BusContext.jsx';
 import AdMediaPreview from './AdMediaPreview.jsx';
@@ -101,6 +102,26 @@ export default function CampaignsPanel({ adminMode = false }) {
   async function push(id) {
     await api(`/api/campaigns/${encodeURIComponent(id)}/push`, { method: 'POST' });
     setMessage('Campaign pushed to buses');
+  }
+
+  // Deleting a campaign also purges its ad/banner files from the media volume server-side (see
+  // DELETE /api/campaigns/:id in server.js) — but only the ones nothing else still references
+  // (e.g. a house ad or another campaign sharing the same upload), so this can't silently break
+  // unrelated ads. Double-confirmed since removed plays/report history goes with it.
+  async function removeCampaign(c) {
+    const ok = doubleConfirm(
+      `Delete campaign "${c.name}"? Its ${c.ads?.length ?? 0} fullscreen and ${c.bannerAds?.length ?? 0} banner ad(s) will be removed from the server too, unless still used elsewhere.`,
+      'This deletes the campaign and its play history permanently. Continue?'
+    );
+    if (!ok) return;
+    setMessage('');
+    try {
+      await api(`/api/campaigns/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+      setMessage('Campaign deleted');
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Delete failed');
+    }
   }
 
   async function uploadAd(file, isBanner) {
@@ -491,6 +512,7 @@ export default function CampaignsPanel({ adminMode = false }) {
               attachAudioAd={attachAudioAd}
               approve={approve}
               push={push}
+              removeCampaign={removeCampaign}
               reports={reports}
               expandedReport={expandedReport}
               toggleReport={toggleReport}
@@ -531,6 +553,7 @@ function CampaignCard({
   attachAudioAd,
   approve,
   push,
+  removeCampaign,
   reports = {},
   expandedReport,
   toggleReport,
@@ -715,6 +738,9 @@ function CampaignCard({
             </button>
           </>
         )}
+        <button type="button" className="btn btn-danger btn-sm" onClick={() => removeCampaign(c)}>
+          Delete
+        </button>
       </div>
 
       {adminMode && editOpen === c.id && edit && (
