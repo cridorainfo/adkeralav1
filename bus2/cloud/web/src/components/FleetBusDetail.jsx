@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { isBusOnline } from './FleetMap.jsx';
+import { isPlausibleMapCoord } from '../lib/mapCoords.js';
 
 function stopLine(stop) {
   if (!stop?.en) return '—';
   return stop.ml ? `${stop.en} / ${stop.ml}` : stop.en;
+}
+
+function agoText(at) {
+  if (!at) return null;
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  return `${mins}m ago`;
 }
 
 export default function FleetBusDetail({ busId, buses }) {
@@ -86,6 +95,10 @@ export default function FleetBusDetail({ busId, buses }) {
       : 'In progress'
     : 'Not started';
 
+  const driverLocation = telemetry.driverLocation ?? null;
+  const hasFix = driverLocation?.lat != null && driverLocation?.lng != null && !driverLocation?.error;
+  const onMap = hasFix && isPlausibleMapCoord(driverLocation.lat, driverLocation.lng);
+
   return (
     <div className="fleet-bus-detail">
       <h3>Live bus</h3>
@@ -96,6 +109,28 @@ export default function FleetBusDetail({ busId, buses }) {
           ? ` · updated ${new Date(telemetryData.updatedAt).toLocaleTimeString()}`
           : ''}
       </p>
+
+      <h4 className="fleet-section-title">Driver GPS</h4>
+      {!driverLocation ? (
+        <p className="hint">No GPS received from a driver phone yet.</p>
+      ) : driverLocation.error ? (
+        <p className="hint">Last report: {driverLocation.error}</p>
+      ) : (
+        <>
+          <p className="hint">
+            {driverLocation.lat.toFixed(5)}, {driverLocation.lng.toFixed(5)}
+            {driverLocation.accuracy != null ? ` · ±${Math.round(driverLocation.accuracy)}m` : ''}
+            {driverLocation.at ? ` · ${agoText(driverLocation.at)}` : ''}
+            {driverLocation.source === 'phone' ? ' · via driver phone' : ''}
+          </p>
+          {!onMap && (
+            <p className="hint">
+              Outside the mapped service area (Kerala) — coordinates are received and stored, just
+              not drawn on the Live map below.
+            </p>
+          )}
+        </>
+      )}
 
       <div className="display-mirror fleet-bus-mirror">
         <div className="fleet-bus-mirror-label">
