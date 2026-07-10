@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout.jsx';
 import { RequireAuth } from '../../lib/auth.jsx';
 import { api } from '../../lib/api.js';
+import { busDisplayLabel } from '../../components/BusContext.jsx';
 
 const NAV = [{ to: '', label: 'My bus', end: true }];
 
@@ -55,15 +56,15 @@ function DriverHome() {
 
       {session?.linked ? (
         <>
-          <h3 style={{ marginTop: '1.5rem' }}>Linked bus: {session.busId}</h3>
+          <h3 style={{ marginTop: '1.5rem' }}>
+            Linked bus: {busDisplayLabel({ busId: session.busId, profile: session.profile })}
+          </h3>
           <p>
             <span className={`status-dot ${session.online ? 'online' : 'offline'}`} />
             {session.online ? 'Online' : 'Offline'}
           </p>
-          {session.profile && (
-            <p className="hint">
-              Plate: {session.profile.plateDisplay || session.profile.plate || '—'} · Code: {session.profile.pairingCode}
-            </p>
+          {session.profile?.pairingCode && (
+            <p className="hint">Pairing code: {session.profile.pairingCode}</p>
           )}
           {session.telemetry && (
             <div className="display-mirror" style={{ marginTop: '1rem' }}>

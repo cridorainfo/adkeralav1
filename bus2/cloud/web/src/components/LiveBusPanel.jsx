@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
-import { useSelectedBus } from './BusContext.jsx';
+import { useSelectedBus, busDisplayLabel } from './BusContext.jsx';
 
 export default function LiveBusPanel() {
-  const { selectedBusId } = useSelectedBus();
+  const { selectedBusId, buses } = useSelectedBus();
+  const selectedBusLabel = busDisplayLabel(
+    buses.find((b) => b.busId === selectedBusId) ?? { busId: selectedBusId }
+  );
   const [data, setData] = useState(null);
   const [driveMessage, setDriveMessage] = useState('');
   const [lastQueuedAt, setLastQueuedAt] = useState(null);
@@ -59,7 +62,7 @@ export default function LiveBusPanel() {
   return (
     <div className="grid-2">
       <div className="card">
-        <h2>Status — {selectedBusId}</h2>
+        <h2>Status — {selectedBusLabel}</h2>
         <p>
           <span className={`status-dot ${online ? 'online' : 'offline'}`} />
           {online ? 'Online' : 'Offline'}

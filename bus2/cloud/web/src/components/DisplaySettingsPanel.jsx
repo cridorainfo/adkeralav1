@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, fleetBroadcast } from '../lib/api.js';
-import { useSelectedBus } from './BusContext.jsx';
+import { useSelectedBus, busDisplayLabel } from './BusContext.jsx';
 import { isBusOnline } from './FleetMap.jsx';
 
 const defaultForm = () => ({
@@ -142,7 +142,7 @@ export default function DisplaySettingsPanel() {
       </p>
       {selectedBusId && (
         <p className="hint">
-          Selected bus {selectedBusId}
+          Selected bus {busDisplayLabel(buses.find((b) => b.busId === selectedBusId) ?? { busId: selectedBusId })}
           {selectedOnline ? ' is online — push delivers immediately.' : ' is offline — push queues until it reconnects.'}
         </p>
       )}

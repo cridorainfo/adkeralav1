@@ -21,6 +21,8 @@ export default function CampaignsPanel({ adminMode = false }) {
   const [rerunForm, setRerunForm] = useState({});
   const [rerunOpen, setRerunOpen] = useState(null);
   const [uploadingSlot, setUploadingSlot] = useState(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
 
   async function load() {
     const [cJson, bJson, vJson] = await Promise.all([
@@ -84,6 +86,7 @@ export default function CampaignsPanel({ adminMode = false }) {
     });
     setForm({ name: '', targetBusIds: [] });
     setMessage('Campaign created');
+    setShowCreateForm(false);
     load();
   }
 
@@ -212,99 +215,136 @@ export default function CampaignsPanel({ adminMode = false }) {
     setForm({ ...form, targetBusIds: ids });
   }
 
-  const activeCampaigns = campaigns.filter((c) => !c.completed);
-  const completedCampaigns = campaigns.filter((c) => c.completed);
+  const canManage = user?.role === 'advertiser' || adminMode;
+
+  const groups = {
+    pending: campaigns.filter((c) => !c.completed && c.status === 'pending'),
+    active: campaigns.filter((c) => !c.completed && c.status === 'active'),
+    paused: campaigns.filter((c) => !c.completed && c.status === 'paused'),
+    completed: campaigns.filter((c) => c.completed),
+  };
+  const filterTabs = [
+    { key: 'all', label: 'All', count: campaigns.length },
+    { key: 'pending', label: 'Pending', count: groups.pending.length },
+    { key: 'active', label: 'Active', count: groups.active.length },
+    { key: 'paused', label: 'Paused', count: groups.paused.length },
+    { key: 'completed', label: 'Completed', count: groups.completed.length },
+  ];
+  const visibleCampaigns = statusFilter === 'all' ? campaigns : groups[statusFilter] ?? [];
 
   return (
     <>
-      {(user?.role === 'advertiser' || adminMode) && (
+      {canManage && (
         <div className="card">
-          <h2>{adminMode ? 'All campaigns' : 'My campaigns'}</h2>
-          {(user?.role === 'advertiser' || adminMode) && (
-            <>
-              <form onSubmit={createCampaign}>
-                <div className="form-group">
-                  <label>Campaign name</label>
-                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <div className="campaigns-header">
+            <h2>{adminMode ? 'All campaigns' : 'My campaigns'}</h2>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => setShowCreateForm((v) => !v)}
+            >
+              {showCreateForm ? 'Cancel' : '+ New campaign'}
+            </button>
+          </div>
+
+          {showCreateForm && (
+            <form onSubmit={createCampaign} className="campaign-create-form">
+              <div className="form-group">
+                <label>Campaign name</label>
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              </div>
+              <div className="form-group">
+                <label>Target buses</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {buses.map((b) => (
+                    <label key={b.busId} style={{ fontSize: '0.85rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.targetBusIds.includes(b.busId)}
+                        onChange={() => toggleBus(b.busId)}
+                      />{' '}
+                      {busDisplayLabel(b)}
+                    </label>
+                  ))}
                 </div>
+              </div>
+              <p className="hint">
+                Set a budget and/or stop-trigger below first, then choose the fullscreen ad
+                file — selecting the file creates the ad using whatever's filled in here.
+              </p>
+              <div className="inline-form">
                 <div className="form-group">
-                  <label>Target buses</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    {buses.map((b) => (
-                      <label key={b.busId} style={{ fontSize: '0.85rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.targetBusIds.includes(b.busId)}
-                          onChange={() => toggleBus(b.busId)}
-                        />{' '}
-                        {busDisplayLabel(b)}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <p className="hint">
-                  Set a budget and/or stop-trigger below first, then choose the fullscreen ad
-                  file — selecting the file creates the ad using whatever's filled in here.
-                </p>
-                <div className="inline-form">
-                  <div className="form-group">
-                    <label>Budget for this ad (₹, optional)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Leave blank for unlimited"
-                      value={form.pendingAmount}
-                      onChange={(e) => setForm({ ...form, pendingAmount: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Show approaching stop (optional)</label>
-                    <input
-                      type="text"
-                      placeholder="Exact stop name, e.g. Main Street"
-                      value={form.pendingTriggerStopEn}
-                      onChange={(e) => setForm({ ...form, pendingTriggerStopEn: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Fullscreen ad media</label>
+                  <label>Budget for this ad (₹, optional)</label>
                   <input
-                    type="file"
-                    accept={AD_MEDIA_ACCEPT}
-                    disabled={uploadingSlot === 'fullscreen'}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (file) uploadAd(file, false);
-                    }}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Leave blank for unlimited"
+                    value={form.pendingAmount}
+                    onChange={(e) => setForm({ ...form, pendingAmount: e.target.value })}
                   />
-                  {uploadingSlot === 'fullscreen' && <small className="hint">Uploading…</small>}
                 </div>
                 <div className="form-group">
-                  <label>Banner ad media (image or video)</label>
+                  <label>Show approaching stop (optional)</label>
                   <input
-                    type="file"
-                    accept={AD_MEDIA_ACCEPT}
-                    disabled={uploadingSlot === 'banner'}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (file) uploadAd(file, true);
-                    }}
+                    type="text"
+                    placeholder="Exact stop name, e.g. Main Street"
+                    value={form.pendingTriggerStopEn}
+                    onChange={(e) => setForm({ ...form, pendingTriggerStopEn: e.target.value })}
                   />
-                  {uploadingSlot === 'banner' && <small className="hint">Uploading…</small>}
                 </div>
-                <button type="submit" className="btn btn-primary btn-sm">
-                  Create campaign
-                </button>
-              </form>
-              {message && <p className="hint">{message}</p>}
-            </>
+              </div>
+              <div className="form-group">
+                <label>Fullscreen ad media</label>
+                <input
+                  type="file"
+                  accept={AD_MEDIA_ACCEPT}
+                  disabled={uploadingSlot === 'fullscreen'}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) uploadAd(file, false);
+                  }}
+                />
+                {uploadingSlot === 'fullscreen' && <small className="hint">Uploading…</small>}
+              </div>
+              <div className="form-group">
+                <label>Banner ad media (image or video)</label>
+                <input
+                  type="file"
+                  accept={AD_MEDIA_ACCEPT}
+                  disabled={uploadingSlot === 'banner'}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) uploadAd(file, true);
+                  }}
+                />
+                {uploadingSlot === 'banner' && <small className="hint">Uploading…</small>}
+              </div>
+              <button type="submit" className="btn btn-primary btn-sm">
+                Create campaign
+              </button>
+            </form>
           )}
-          <h3>Active / pending / paused</h3>
-          {activeCampaigns.map((c) => (
+          {message && <p className="hint">{message}</p>}
+
+          <div className="campaign-filter-tabs">
+            {filterTabs.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={`campaign-filter-tab${statusFilter === f.key ? ' active' : ''}`}
+                onClick={() => setStatusFilter(f.key)}
+              >
+                {f.label} <span className="campaign-filter-count">{f.count}</span>
+              </button>
+            ))}
+          </div>
+
+          {!visibleCampaigns.length && <p className="empty-state">No campaigns here.</p>}
+
+          {visibleCampaigns.map((c) => (
             <CampaignCard
               key={c.id}
               c={c}
@@ -319,46 +359,16 @@ export default function CampaignsPanel({ adminMode = false }) {
               attachAudioAd={attachAudioAd}
               approve={approve}
               push={push}
+              reports={reports}
+              expandedReport={expandedReport}
+              toggleReport={toggleReport}
+              rerunOpen={rerunOpen}
+              openRerun={openRerun}
+              rerunForm={rerunForm}
+              updateRerunAmount={updateRerunAmount}
+              submitRerun={submitRerun}
             />
           ))}
-          {!activeCampaigns.length && <p className="empty-state">No active campaigns.</p>}
-
-          {completedCampaigns.length > 0 && (
-            <>
-              <h3>Completed</h3>
-              <p className="hint">
-                Every budgeted ad in these campaigns has spent through its amount. Rerun with a
-                new budget to start a fresh campaign — the report and history here stay exactly
-                as they are.
-              </p>
-              {completedCampaigns.map((c) => (
-                <CampaignCard
-                  key={c.id}
-                  c={c}
-                  buses={buses}
-                  stopVoiceAds={stopVoiceAds}
-                  adSpend={adSpend}
-                  plays={plays}
-                  adminMode={adminMode}
-                  user={user}
-                  audioAttach={audioAttach}
-                  setAudioAttach={setAudioAttach}
-                  attachAudioAd={attachAudioAd}
-                  approve={approve}
-                  push={push}
-                  completed
-                  reports={reports}
-                  expandedReport={expandedReport}
-                  toggleReport={toggleReport}
-                  rerunOpen={rerunOpen}
-                  openRerun={openRerun}
-                  rerunForm={rerunForm}
-                  updateRerunAmount={updateRerunAmount}
-                  submitRerun={submitRerun}
-                />
-              ))}
-            </>
-          )}
         </div>
       )}
     </>
@@ -378,7 +388,6 @@ function CampaignCard({
   attachAudioAd,
   approve,
   push,
-  completed = false,
   reports = {},
   expandedReport,
   toggleReport,
@@ -388,6 +397,7 @@ function CampaignCard({
   updateRerunAmount,
   submitRerun,
 }) {
+  const completed = Boolean(c.completed);
   const linkedAudioAds = Object.entries(stopVoiceAds).filter(([, ad]) => ad.campaignId === c.id);
   const budgetedAds = [
     ...(c.ads ?? []).filter((ad) => ad.amount),
@@ -399,22 +409,34 @@ function CampaignCard({
   );
   const report = reports[c.id];
   const rerun = rerunForm[c.id];
+  const targetLabels = (c.targetBusIds ?? []).map((id) =>
+    busDisplayLabel(buses.find((b) => b.busId === id) ?? { busId: id })
+  );
+  const playStats = plays[c.id];
 
   return (
     <div className="campaign-card">
-      <strong>{c.name}</strong>{' '}
-      <span className={`campaign-status ${c.status}`}>{c.status}</span>{' '}
-      {completed && <span className="campaign-status completed">completed</span>}
-      <p className="hint">
-        {c.ads?.length ?? 0} fullscreen · {c.bannerAds?.length ?? 0} banner ·{' '}
-        {linkedAudioAds.length} audio stop-ad · targets:{' '}
-        {(c.targetBusIds ?? [])
-          .map((id) => busDisplayLabel(buses.find((b) => b.busId === id) ?? { busId: id }))
-          .join(', ') || 'none'}
-      </p>
+      <div className="campaign-card-header">
+        <div>
+          <h3 className="campaign-card-title">{c.name}</h3>
+          <div className="campaign-card-targets">
+            {targetLabels.length ? (
+              targetLabels.map((label, i) => (
+                <span key={i} className="bus-pill">{label}</span>
+              ))
+            ) : (
+              <span className="hint">No target buses</span>
+            )}
+          </div>
+        </div>
+        <div className="campaign-card-badges">
+          <span className={`campaign-status ${c.status}`}>{c.status}</span>
+          {completed && <span className="campaign-status completed">completed</span>}
+        </div>
+      </div>
 
       {(c.ads?.length > 0 || c.bannerAds?.length > 0) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.5rem 0' }}>
+        <div className="campaign-card-thumbs">
           {(c.ads ?? []).map((ad) => (
             <AdMediaPreview key={ad.id} ad={ad} format="fullscreen" />
           ))}
@@ -424,55 +446,88 @@ function CampaignCard({
         </div>
       )}
 
-      <p className="hint">
-        {plays[c.id]
-          ? `Plays: ${plays[c.id].plays} · Avg watch: ${plays[c.id].avgWatchSec}s · Completion: ${Math.round((plays[c.id].completionRate ?? 0) * 100)}%`
-          : 'Plays: —'}
-      </p>
-      {budgetedAds.map((ad) => (
-        <p key={ad.id} className="hint">
-          {ad.name || ad.audioFile || ad.id}: spent ₹{(adSpend[ad.id]?.spend ?? 0).toFixed(2)} of ₹{Number(ad.amount).toFixed(2)}
-          {(adSpend[ad.id]?.spend ?? 0) >= Number(ad.amount) ? ' — exhausted' : ''}
-        </p>
-      ))}
-      {adminMode && (
-        <div className="inline-form">
-          <div className="form-group">
-            <label>Attach audio stop-ad</label>
-            <select
-              value={audioAttach[c.id]?.stopKey ?? ''}
-              onChange={(e) =>
-                setAudioAttach({ ...audioAttach, [c.id]: { ...audioAttach[c.id], stopKey: e.target.value } })
-              }
-            >
-              <option value="">Select a stop voice ad…</option>
-              {availableStops.map(([key, ad]) => (
-                <option key={key} value={key}>
-                  {key}{ad.campaignId === c.id ? ' (attached)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label>Amount (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={audioAttach[c.id]?.amount ?? ''}
-              onChange={(e) =>
-                setAudioAttach({ ...audioAttach, [c.id]: { ...audioAttach[c.id], amount: e.target.value } })
-              }
-            />
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => attachAudioAd(c.id, audioAttach[c.id]?.stopKey, audioAttach[c.id]?.amount)}
-          >
-            Attach
-          </button>
+      <div className="campaign-card-stats">
+        <span>{c.ads?.length ?? 0} fullscreen</span>
+        <span>{c.bannerAds?.length ?? 0} banner</span>
+        <span>{linkedAudioAds.length} audio stop-ad</span>
+        {playStats && (
+          <>
+            <span>{playStats.plays} plays</span>
+            <span>{playStats.avgWatchSec}s avg watch</span>
+            <span>{Math.round((playStats.completionRate ?? 0) * 100)}% completion</span>
+          </>
+        )}
+      </div>
+
+      {budgetedAds.length > 0 && (
+        <div className="campaign-card-budgets">
+          {budgetedAds.map((ad) => {
+            const spend = adSpend[ad.id]?.spend ?? 0;
+            const amount = Number(ad.amount) || 0;
+            const pct = amount > 0 ? Math.min(100, (spend / amount) * 100) : 0;
+            const exhausted = spend >= amount;
+            return (
+              <div key={ad.id}>
+                <div className="budget-row-label">
+                  <span>{ad.name || ad.audioFile || ad.id}</span>
+                  <span>
+                    ₹{spend.toFixed(2)} / ₹{amount.toFixed(2)}
+                    {exhausted ? ' — exhausted' : ''}
+                  </span>
+                </div>
+                <div className="budget-bar">
+                  <div
+                    className={`budget-bar-fill${exhausted ? ' exhausted' : ''}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {adminMode && (
+        <details className="campaign-audio-attach">
+          <summary>Attach audio stop-ad</summary>
+          <div className="inline-form" style={{ marginTop: '0.5rem' }}>
+            <div className="form-group">
+              <label>Stop voice ad</label>
+              <select
+                value={audioAttach[c.id]?.stopKey ?? ''}
+                onChange={(e) =>
+                  setAudioAttach({ ...audioAttach, [c.id]: { ...audioAttach[c.id], stopKey: e.target.value } })
+                }
+              >
+                <option value="">Select a stop voice ad…</option>
+                {availableStops.map(([key, ad]) => (
+                  <option key={key} value={key}>
+                    {key}{ad.campaignId === c.id ? ' (attached)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Amount (₹)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={audioAttach[c.id]?.amount ?? ''}
+                onChange={(e) =>
+                  setAudioAttach({ ...audioAttach, [c.id]: { ...audioAttach[c.id], amount: e.target.value } })
+                }
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => attachAudioAd(c.id, audioAttach[c.id]?.stopKey, audioAttach[c.id]?.amount)}
+            >
+              Attach
+            </button>
+          </div>
+        </details>
       )}
       <div className="editor-actions">
         {adminMode && c.status === 'pending' && (
