@@ -10,7 +10,9 @@ const config: CapacitorConfig = {
   // the offline/fallback bundle Capacitor packages; server.url below is what actually loads.
   webDir: '../public',
   server: {
-    url: 'https://adkerala.com/driver',
+    // GPS-test build: opens straight into the code-entry link flow (no QR/camera,
+    // no bus Wi-Fi). Point back to '/driver' once this becomes the real driver app.
+    url: 'https://adkerala.com/driver/gps-test',
     androidScheme: 'https',
     cleartext: false,
   },
