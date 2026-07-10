@@ -881,6 +881,46 @@ export async function setStopVoiceAdsCatalog(entries = {}) {
   return { stopVoiceAds: normalized, savedAt, mediaFiles: collectStopVoiceAdMediaPaths(normalized) };
 }
 
+/**
+ * Every media path currently referenced anywhere in the system — campaigns, house ads, every
+ * bus's own pushed ad catalog, stop voice-ads, stop announcement audio, and global phrase audio.
+ * A path outside this set is safe to delete from disk.
+ *
+ * This exists because the same file is very often referenced from more than one place at once:
+ * pushing a campaign copies its ads' mediaFile onto every targeted bus's own catalog, so editing
+ * or clearing just ONE bus's ads (or deleting the campaign itself) must not delete a file that's
+ * still live on another bus or still the campaign's own record. Anything that wants to purge a
+ * media file must check this full set first, not just diff its own local before/after.
+ */
+export async function collectAllReferencedMediaPaths() {
+  const paths = new Set();
+
+  const store = await loadStore();
+  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+    for (const p of collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds)) paths.add(p);
+  }
+
+  const houseAds = await getHouseAds();
+  for (const p of collectAdMediaPathsFromLists(houseAds.ads, houseAds.bannerAds)) paths.add(p);
+
+  const buses = await listBuses();
+  for (const { busId } of buses) {
+    const catalog = await getBusAdsCatalog(busId);
+    for (const p of collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds)) paths.add(p);
+  }
+
+  const { mediaFiles: voiceAdFiles } = await getStopVoiceAdsCatalog();
+  voiceAdFiles.forEach((p) => paths.add(p));
+
+  const { mediaFiles: stopAudioFiles } = await getStopAudioCatalog();
+  stopAudioFiles.forEach((p) => paths.add(p));
+
+  const { mediaFiles: phraseFiles } = await getGlobalPhraseAudio();
+  phraseFiles.forEach((p) => paths.add(p));
+
+  return paths;
+}
+
 export async function searchRoutes(query = '', { ownerId = null } = {}) {
   const routes = usePostgres() ? await pg.pgListAllRoutes(ownerId) : (await loadStore()).routeCatalog;
   const q = query.trim().toLowerCase();

@@ -69,6 +69,7 @@ import {
   setHouseAds,
   getStopVoiceAdsCatalog,
   setStopVoiceAdsCatalog,
+  collectAllReferencedMediaPaths,
 } from './store.js';
 import { computeAdSpend, isAdExhausted } from './pricing.js';
 import {
@@ -140,12 +141,24 @@ const ADMIN_KEY = process.env.ADKERALA_ADMIN_KEY ?? 'change-me-in-production';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 
-async function purgeRemovedMediaFiles(removedFiles = []) {
-  for (const relPath of removedFiles) {
+/**
+ * Delete each of `candidatePaths` from disk/R2, but only the ones nothing in the system still
+ * references (see collectAllReferencedMediaPaths in store.js). Call this after any operation
+ * that *might* have dropped the last reference to a file — removing an ad from a campaign,
+ * house ads, one bus's catalog, or a stop voice-ad. The same file is very often shared (a
+ * campaign push copies its ads' mediaFile onto every targeted bus), so a candidate that's still
+ * referenced anywhere else is silently skipped rather than deleted.
+ */
+async function purgeUnreferencedMedia(candidatePaths = []) {
+  const unique = [...new Set(candidatePaths.filter(Boolean))];
+  if (!unique.length) return;
+  const inUse = await collectAllReferencedMediaPaths();
+  for (const relPath of unique) {
+    if (inUse.has(relPath)) continue;
     try {
       await deleteMediaFile(relPath, MEDIA_DIR);
     } catch (err) {
-      console.warn('Media delete failed:', relPath, err.message);
+      console.warn('Media purge failed:', relPath, err.message);
     }
   }
 }
@@ -468,19 +481,33 @@ app.post('/api/campaigns', authSession, requireAuth, requireRole('admin', 'adver
 });
 
 app.put('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const prev = await getCampaign(req.params.id);
   const result = await updateCampaign(req.params.id, req.user, req.body ?? {});
   if (!result.ok) {
     res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
     return;
   }
+  if (prev) {
+    const removed = collectRemovedAdMediaPaths(
+      prev.ads,
+      prev.bannerAds,
+      result.campaign.ads,
+      result.campaign.bannerAds
+    );
+    await purgeUnreferencedMedia(removed);
+  }
   res.json(result);
 });
 
 app.delete('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
+  const campaign = await getCampaign(req.params.id);
   const result = await deleteCampaign(req.params.id, req.user);
   if (!result.ok) {
     res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
     return;
+  }
+  if (campaign) {
+    await purgeUnreferencedMedia(collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds));
   }
   res.json(result);
 });
@@ -1254,10 +1281,13 @@ app.get('/api/house-ads', authAdminOnly, async (_req, res) => {
 });
 
 app.put('/api/house-ads', authAdminOnly, async (req, res) => {
+  const prev = await getHouseAds();
   const houseAds = await setHouseAds({
     ads: Array.isArray(req.body?.ads) ? req.body.ads : [],
     bannerAds: Array.isArray(req.body?.bannerAds) ? req.body.bannerAds : [],
   });
+  const removed = collectRemovedAdMediaPaths(prev.ads, prev.bannerAds, houseAds.ads, houseAds.bannerAds);
+  await purgeUnreferencedMedia(removed);
   res.json({ ok: true, ...houseAds });
 });
 
@@ -1319,13 +1349,7 @@ app.put('/api/buses/:busId/ads/catalog', authFleet, async (req, res) => {
     catalog.ads,
     catalog.bannerAds
   );
-  for (const relPath of removedMedia) {
-    try {
-      await deleteMediaFile(relPath, MEDIA_DIR);
-    } catch (err) {
-      console.warn('Ad media delete failed:', relPath, err.message);
-    }
-  }
+  await purgeUnreferencedMedia(removedMedia);
   let commandId = null;
   if (push) {
     const cmd = await enqueueCommand(
@@ -1512,7 +1536,7 @@ app.get('/api/announcements/phrases/catalog', authCatalog, async (_req, res) => 
 app.put('/api/announcements/phrases', authCatalog, async (req, res) => {
   const { audioFragments, mediaFiles } = req.body ?? {};
   const payload = await setGlobalPhraseAudio(audioFragments, mediaFiles);
-  await purgeRemovedMediaFiles(payload.removedFiles ?? []);
+  await purgeUnreferencedMedia(payload.removedFiles ?? []);
   res.json({ ok: true, ...payload });
 });
 
@@ -1530,7 +1554,7 @@ app.get('/api/stops/audio/catalog', authCatalog, async (_req, res) => {
 app.put('/api/stops/audio', authCatalog, async (req, res) => {
   const { stopAudio, mediaFiles } = req.body ?? {};
   const payload = await mergeStopAudioCatalog(stopAudio ?? {}, mediaFiles);
-  await purgeRemovedMediaFiles(payload.removedFiles ?? []);
+  await purgeUnreferencedMedia(payload.removedFiles ?? []);
   res.json({ ok: true, ...payload });
 });
 
@@ -1547,7 +1571,10 @@ app.get('/api/stops/voice-ads/catalog', authCatalog, async (_req, res) => {
 });
 
 app.put('/api/stops/voice-ads', authCatalog, async (req, res) => {
+  const prev = await getStopVoiceAdsCatalog();
   const payload = await setStopVoiceAdsCatalog(req.body?.stopVoiceAds ?? {});
+  const removed = prev.mediaFiles.filter((p) => !payload.mediaFiles.includes(p));
+  await purgeUnreferencedMedia(removed);
   res.json({ ok: true, ...payload });
 });
 

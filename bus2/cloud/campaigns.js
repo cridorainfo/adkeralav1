@@ -105,9 +105,17 @@ export async function listCampaigns(user) {
   );
 }
 
+/**
+ * Returns a shallow copy, not the live store object — updateCampaign() mutates
+ * campaign.ads/bannerAds in place on the cached store, so a caller snapshotting "before" state
+ * (e.g. to diff which media files got removed) would otherwise see its own snapshot change
+ * underneath it once the update runs.
+ */
 export async function getCampaign(id) {
   const store = await loadStore();
-  return store.adCampaigns?.[id] ?? null;
+  const campaign = store.adCampaigns?.[id];
+  if (!campaign) return null;
+  return { ...campaign, ads: [...(campaign.ads ?? [])], bannerAds: [...(campaign.bannerAds ?? [])] };
 }
 
 /** Finds the campaign that owns a given ad id — used to authorize per-ad spend lookups (an

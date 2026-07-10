@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "build:web": "cd web && npm install && npm run build"
+    "build:web": "cd web && npm install && npm run build",
+    "sweep-media": "node scripts/sweep-orphaned-media.mjs"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
