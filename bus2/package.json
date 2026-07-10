@@ -42,7 +42,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0",
-    "selfsigned": "^5.5.0"
+    "selfsigned": "^5.5.0",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",

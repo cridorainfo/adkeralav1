@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { optimizeImageBuffer } from './imageProcess.js';
 import { reconcileStopAudioFromDisk } from './stopAudioReconcile.js';
 import { reconcilePhraseAudioFromDisk } from './phraseAudioReconcile.js';
 import { requireHubAuthUnlessLocal } from './hubSessions.js';
@@ -311,7 +312,8 @@ export async function saveMediaFile(root, category, buffer, originalName) {
   const base = safeFilename(path.basename(originalName || 'upload', ext));
   const filename = `${Date.now()}-${base}${ext}`;
   const relPath = `${category}/${filename}`;
-  await fs.writeFile(path.join(mediaDir, relPath), buffer);
+  const optimized = await optimizeImageBuffer(buffer, originalName);
+  await fs.writeFile(path.join(mediaDir, relPath), optimized);
   return relPath;
 }
 

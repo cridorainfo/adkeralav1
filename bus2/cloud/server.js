@@ -5,6 +5,7 @@ import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
+import { optimizeImageBuffer } from './imageProcess.js';
 import {
   upsertBusTelemetry,
   getBus,
@@ -1812,9 +1813,10 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);
   const relPath = `${category}/${Date.now()}-${safeName}`;
   const fullPath = path.join(MEDIA_DIR, relPath);
+  const optimized = await optimizeImageBuffer(buffer, filename);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, buffer);
-  await uploadMediaBuffer(relPath, buffer, contentType);
+  await fs.writeFile(fullPath, optimized);
+  await uploadMediaBuffer(relPath, optimized, contentType);
 
   res.json({
     ok: true,

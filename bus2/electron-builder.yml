@@ -71,6 +71,9 @@ extraFiles:
     to: INSTALL.txt
 
 asar: true
+asarUnpack:
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
 
 publish:
   provider: generic
