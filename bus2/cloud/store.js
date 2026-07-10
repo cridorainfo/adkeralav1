@@ -389,26 +389,45 @@ export function pickDisplaySettingsPatch(payload = {}) {
 
 export async function getBusAdsCatalog(busId) {
   if (!busId) return { ads: [], bannerAds: [], savedAt: 0, adsSavedAt: 0, source: null };
+  let result;
   if (usePostgres()) {
     const row = await pg.pgGetPlatformSetting(`${PG_KEY_BUS_ADS_PREFIX}${busId}`, null);
-    return {
+    result = {
       ads: row?.ads ?? [],
       bannerAds: row?.bannerAds ?? [],
       savedAt: row?.savedAt ?? 0,
       adsSavedAt: row?.adsSavedAt ?? 0,
       source: row?.source ?? null,
     };
+  } else {
+    const store = await loadStore();
+    if (!store.busAdsCatalog) store.busAdsCatalog = {};
+    const row = store.busAdsCatalog[busId] ?? {};
+    result = {
+      ads: row.ads ?? [],
+      bannerAds: row.bannerAds ?? [],
+      savedAt: row.savedAt ?? 0,
+      adsSavedAt: row.adsSavedAt ?? 0,
+      source: row.source ?? null,
+    };
   }
-  const store = await loadStore();
-  if (!store.busAdsCatalog) store.busAdsCatalog = {};
-  const row = store.busAdsCatalog[busId] ?? {};
-  return {
-    ads: row.ads ?? [],
-    bannerAds: row.bannerAds ?? [],
-    savedAt: row.savedAt ?? 0,
-    adsSavedAt: row.adsSavedAt ?? 0,
-    source: row.source ?? null,
-  };
+  // Self-heal: house ads are always merged into the live/device ad lists fresh from
+  // getHouseAds() at read time (see /ads/live and /ads in server.js) and must never be
+  // persisted into a bus's own catalog. A past bug in syncBusAdsCatalogFromTelemetry could
+  // bake them in anyway (the device reports back the house-ad-merged list it was served, and
+  // that got mistaken for the bus's own authored catalog) — producing permanent duplicates.
+  // Strip any that leaked in and persist the correction so it only has to happen once per bus.
+  const hasStrayHouseAds = result.ads.some((ad) => ad?.isHouseAd) || result.bannerAds.some((ad) => ad?.isHouseAd);
+  if (hasStrayHouseAds) {
+    const cleaned = await setBusAdsCatalog(busId, {
+      ads: result.ads.filter((ad) => !ad?.isHouseAd),
+      bannerAds: result.bannerAds.filter((ad) => !ad?.isHouseAd),
+      adsSavedAt: result.adsSavedAt,
+      source: result.source ?? 'dashboard',
+    });
+    return cleaned;
+  }
+  return result;
 }
 
 export async function setBusAdsCatalog(busId, { ads = [], bannerAds = [], adsSavedAt, source = 'dashboard' } = {}) {
@@ -434,8 +453,12 @@ export async function setBusAdsCatalog(busId, { ads = [], bannerAds = [], adsSav
 
 export async function syncBusAdsCatalogFromTelemetry(busId, state = {}) {
   if (!busId || !state) return null;
-  const busAds = normalizeAdsList(state.ads);
-  const busBanners = normalizeAdsList(state.bannerAds);
+  // The bus reports back whatever it was served by GET /api/buses/:busId/ads, which has house
+  // ads merged in for display (see server.js). House ads must never be written into the bus's
+  // own catalog here — getBusAdsCatalog/`ads`/`ads/live` all merge them back in fresh from
+  // getHouseAds() at read time, so persisting them too would double them up.
+  const busAds = normalizeAdsList(state.ads).filter((ad) => !ad?.isHouseAd);
+  const busBanners = normalizeAdsList(state.bannerAds).filter((ad) => !ad?.isHouseAd);
   const busAdsAt = state.adsSavedAt ?? 0;
   const current = await getBusAdsCatalog(busId);
   const catalogAt = current.adsSavedAt ?? current.savedAt ?? 0;
