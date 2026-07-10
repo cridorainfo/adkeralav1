@@ -23,6 +23,9 @@ export default function CampaignsPanel({ adminMode = false }) {
   const [uploadingSlot, setUploadingSlot] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [editForm, setEditForm] = useState({});
+  const [editOpen, setEditOpen] = useState(null);
+  const [editUploadingSlot, setEditUploadingSlot] = useState({});
 
   async function load() {
     const [cJson, bJson, vJson] = await Promise.all([
@@ -137,6 +140,135 @@ export default function CampaignsPanel({ adminMode = false }) {
       setMessage(err.message ?? 'Upload failed');
     } finally {
       setUploadingSlot(null);
+    }
+  }
+
+  // Editing reuses the campaign's existing id and every kept ad's existing id — play history
+  // (adPlays is keyed by adId/campaignId, see cloud/store.js) is an independent append-only log,
+  // so nothing about it is touched by PUT /api/campaigns/:id. Only ads the admin removes here
+  // lose their future rotation slot; their historical plays/report stay exactly as they were.
+  function openEdit(c) {
+    setEditOpen(c.id);
+    setEditForm({
+      ...editForm,
+      [c.id]: {
+        name: c.name,
+        targetBusIds: [...(c.targetBusIds ?? [])],
+        ads: (c.ads ?? []).map((ad) => ({ ...ad })),
+        bannerAds: (c.bannerAds ?? []).map((ad) => ({ ...ad })),
+        pendingAmount: '',
+        pendingTriggerStopEn: '',
+      },
+    });
+  }
+
+  function closeEdit() {
+    setEditOpen(null);
+  }
+
+  function updateEditField(campaignId, field, value) {
+    setEditForm({
+      ...editForm,
+      [campaignId]: { ...editForm[campaignId], [field]: value },
+    });
+  }
+
+  function toggleEditBus(campaignId, busId) {
+    const current = editForm[campaignId];
+    const ids = current.targetBusIds.includes(busId)
+      ? current.targetBusIds.filter((id) => id !== busId)
+      : [...current.targetBusIds, busId];
+    updateEditField(campaignId, 'targetBusIds', ids);
+  }
+
+  function updateEditAdField(campaignId, key, adId, field, value) {
+    const current = editForm[campaignId];
+    setEditForm({
+      ...editForm,
+      [campaignId]: {
+        ...current,
+        [key]: current[key].map((ad) => (ad.id === adId ? { ...ad, [field]: value } : ad)),
+      },
+    });
+  }
+
+  function removeEditAd(campaignId, key, adId) {
+    const current = editForm[campaignId];
+    setEditForm({
+      ...editForm,
+      [campaignId]: { ...current, [key]: current[key].filter((ad) => ad.id !== adId) },
+    });
+  }
+
+  async function uploadEditAd(campaignId, file, isBanner) {
+    if (!file) return;
+    const validationError = validateAdMediaFile(file);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
+    const slot = isBanner ? 'banner' : 'fullscreen';
+    setEditUploadingSlot({ ...editUploadingSlot, [campaignId]: slot });
+    setMessage(`Uploading ${file.name}…`);
+    try {
+      const category = isBanner ? 'banners' : 'ads';
+      const up = await uploadMedia(file, category);
+      const key = isBanner ? 'bannerAds' : 'ads';
+      const current = editForm[campaignId];
+      const item = {
+        id: `${isBanner ? 'banner' : 'ad'}-${Date.now()}`,
+        name: file.name,
+        type: adMediaTypeFromFile(file),
+        mediaFile: up.path,
+        durationSec: isBanner ? 8 : 12,
+        ...(current.pendingAmount ? { amount: Number(current.pendingAmount) } : {}),
+        ...(!isBanner && current.pendingTriggerStopEn ? { triggerStopEn: current.pendingTriggerStopEn } : {}),
+      };
+      setEditForm({
+        ...editForm,
+        [campaignId]: {
+          ...current,
+          [key]: [...current[key], item],
+          pendingAmount: '',
+          ...(!isBanner ? { pendingTriggerStopEn: '' } : {}),
+        },
+      });
+      setMessage(`Uploaded ${file.name}`);
+    } catch (err) {
+      setMessage(err.message ?? 'Upload failed');
+    } finally {
+      setEditUploadingSlot({ ...editUploadingSlot, [campaignId]: null });
+    }
+  }
+
+  // Saves the edit, then — if the campaign is active — immediately re-pushes the updated ads to
+  // its target buses so the new content actually resumes playing rather than waiting for a
+  // separate manual "Push to buses" click. Paused/pending campaigns just save; they'll pick up
+  // the edited ads whenever they're next pushed or approved.
+  async function submitEdit(campaignId) {
+    const edit = editForm[campaignId];
+    if (!edit) return;
+    setMessage('');
+    try {
+      const result = await api(`/api/campaigns/${encodeURIComponent(campaignId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: edit.name,
+          targetBusIds: edit.targetBusIds,
+          ads: edit.ads,
+          bannerAds: edit.bannerAds,
+        }),
+      });
+      if (result.campaign?.status === 'active') {
+        await api(`/api/campaigns/${encodeURIComponent(campaignId)}/push`, { method: 'POST' });
+        setMessage('Campaign updated — resumed on buses');
+      } else {
+        setMessage('Campaign updated');
+      }
+      setEditOpen(null);
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Update failed');
     }
   }
 
@@ -367,6 +499,17 @@ export default function CampaignsPanel({ adminMode = false }) {
               rerunForm={rerunForm}
               updateRerunAmount={updateRerunAmount}
               submitRerun={submitRerun}
+              editOpen={editOpen}
+              editForm={editForm}
+              openEdit={openEdit}
+              closeEdit={closeEdit}
+              updateEditField={updateEditField}
+              toggleEditBus={toggleEditBus}
+              updateEditAdField={updateEditAdField}
+              removeEditAd={removeEditAd}
+              uploadEditAd={uploadEditAd}
+              editUploadingSlot={editUploadingSlot}
+              submitEdit={submitEdit}
             />
           ))}
         </div>
@@ -396,6 +539,17 @@ function CampaignCard({
   rerunForm = {},
   updateRerunAmount,
   submitRerun,
+  editOpen,
+  editForm = {},
+  openEdit,
+  closeEdit,
+  updateEditField,
+  toggleEditBus,
+  updateEditAdField,
+  removeEditAd,
+  uploadEditAd,
+  editUploadingSlot = {},
+  submitEdit,
 }) {
   const completed = Boolean(c.completed);
   const linkedAudioAds = Object.entries(stopVoiceAds).filter(([, ad]) => ad.campaignId === c.id);
@@ -409,6 +563,8 @@ function CampaignCard({
   );
   const report = reports[c.id];
   const rerun = rerunForm[c.id];
+  const edit = editForm[c.id];
+  const editSlot = editUploadingSlot[c.id];
   const targetLabels = (c.targetBusIds ?? []).map((id) =>
     busDisplayLabel(buses.find((b) => b.busId === id) ?? { busId: id })
   );
@@ -540,6 +696,15 @@ function CampaignCard({
             Push to buses
           </button>
         )}
+        {adminMode && !completed && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => (editOpen === c.id ? closeEdit() : openEdit(c))}
+          >
+            {editOpen === c.id ? 'Cancel edit' : 'Edit'}
+          </button>
+        )}
         {completed && adminMode && (
           <>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => toggleReport(c.id)}>
@@ -551,6 +716,123 @@ function CampaignCard({
           </>
         )}
       </div>
+
+      {adminMode && editOpen === c.id && edit && (
+        <div className="card campaign-edit-form" style={{ marginTop: '0.5rem' }}>
+          <h4>Edit campaign</h4>
+          <p className="hint">
+            Views and plays recorded so far stay attached to this campaign — saving only changes
+            what's shown from here on. If the campaign is active, saving immediately pushes the
+            updated ads back out to its buses.
+          </p>
+          <div className="form-group">
+            <label>Campaign name</label>
+            <input value={edit.name} onChange={(e) => updateEditField(c.id, 'name', e.target.value)} required />
+          </div>
+          <div className="form-group">
+            <label>Target buses</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {buses.map((b) => (
+                <label key={b.busId} style={{ fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={edit.targetBusIds.includes(b.busId)}
+                    onChange={() => toggleEditBus(c.id, b.busId)}
+                  />{' '}
+                  {busDisplayLabel(b)}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Fullscreen ads</label>
+            {edit.ads.map((ad) => (
+              <div key={ad.id} className="edit-ad-row">
+                <AdMediaPreview ad={ad} format="fullscreen" />
+                <input
+                  type="text"
+                  value={ad.name}
+                  onChange={(e) => updateEditAdField(c.id, 'ads', ad.id, 'name', e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Budget ₹"
+                  value={ad.amount ?? ''}
+                  onChange={(e) => updateEditAdField(c.id, 'ads', ad.id, 'amount', e.target.value ? Number(e.target.value) : undefined)}
+                  style={{ width: '6rem' }}
+                />
+                <input
+                  type="text"
+                  placeholder="Trigger stop"
+                  value={ad.triggerStopEn ?? ''}
+                  onChange={(e) => updateEditAdField(c.id, 'ads', ad.id, 'triggerStopEn', e.target.value)}
+                  style={{ width: '8rem' }}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeEditAd(c.id, 'ads', ad.id)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            <input
+              type="file"
+              accept={AD_MEDIA_ACCEPT}
+              disabled={editSlot === 'fullscreen'}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) uploadEditAd(c.id, file, false);
+              }}
+            />
+            {editSlot === 'fullscreen' && <small className="hint">Uploading…</small>}
+          </div>
+
+          <div className="form-group">
+            <label>Banner ads</label>
+            {edit.bannerAds.map((ad) => (
+              <div key={ad.id} className="edit-ad-row">
+                <AdMediaPreview ad={ad} format="banner" />
+                <input
+                  type="text"
+                  value={ad.name}
+                  onChange={(e) => updateEditAdField(c.id, 'bannerAds', ad.id, 'name', e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Budget ₹"
+                  value={ad.amount ?? ''}
+                  onChange={(e) => updateEditAdField(c.id, 'bannerAds', ad.id, 'amount', e.target.value ? Number(e.target.value) : undefined)}
+                  style={{ width: '6rem' }}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeEditAd(c.id, 'bannerAds', ad.id)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            <input
+              type="file"
+              accept={AD_MEDIA_ACCEPT}
+              disabled={editSlot === 'banner'}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) uploadEditAd(c.id, file, true);
+              }}
+            />
+            {editSlot === 'banner' && <small className="hint">Uploading…</small>}
+          </div>
+
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => submitEdit(c.id)}>
+            Save changes
+          </button>
+        </div>
+      )}
 
       {completed && expandedReport === c.id && (
         <div className="card" style={{ marginTop: '0.5rem' }}>
