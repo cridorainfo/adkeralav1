@@ -2076,6 +2076,62 @@ tr.route-row-assigned {
   padding-bottom: 2rem;
 }
 
+.gps-status-card {
+  background: rgba(11, 92, 74, 0.06);
+  border: 1px solid rgba(11, 92, 74, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.gps-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0;
+}
+
+.gps-permission-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  background: rgba(11, 92, 74, 0.12);
+  border: 1px solid rgba(11, 92, 74, 0.35);
+}
+
+.gps-permission-banner.denied {
+  background: rgba(180, 50, 40, 0.1);
+  border-color: rgba(180, 50, 40, 0.35);
+}
+
+.gps-permission-banner p {
+  margin: 0.35rem 0 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.gps-keep-open-nudge {
+  font-size: 0.82rem;
+  color: var(--kerala-muted);
+  background: rgba(11, 92, 74, 0.05);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+.gps-keep-open-nudge.warn {
+  color: #92400e;
+  background: rgba(217, 119, 6, 0.12);
+  font-weight: 600;
+}
+
+.gps-status-row .warn-text {
+  color: #b45309;
+}
+
 .driver-minimal-status {
   display: flex;
   align-items: center;

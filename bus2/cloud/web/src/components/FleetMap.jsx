@@ -439,6 +439,7 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
                     <br />
                     <small>
                       {gpsLive ? 'GPS' : 'Last GPS'} {new Date(loc.at).toLocaleString()}
+                      {loc?.source === 'phone' ? ' · via driver phone' : ''}
                     </small>
                   </>
                 ) : null}

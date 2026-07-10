@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import DriverQrScanner from '../components/DriverQrScanner.jsx';
 import { APP_NAME } from '../lib/brand.js';
@@ -215,6 +215,9 @@ export default function DriverConnect() {
 
         <p className="driver-connect-foot">
           Stays connected until you tap Disconnect or admin changes the pairing code.
+        </p>
+        <p className="driver-connect-foot">
+          <Link to="/driver/gps-test">GPS test mode (no bus Wi‑Fi needed)</Link>
         </p>
       </div>
 

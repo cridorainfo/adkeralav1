@@ -13,6 +13,11 @@ import {
   getUpcomingPassengerStop,
   sameStop,
 } from '../lib/busTripControl.js';
+import { useDriverGps } from '../hooks/useDriverGps.js';
+import { useAutoLinkDriverCloud } from '../hooks/useAutoLinkDriverCloud.js';
+import { useDriverCloudLocation } from '../hooks/useDriverCloudLocation.js';
+import { useGpsReliabilityStats } from '../hooks/useGpsReliabilityStats.js';
+import GpsSyncStatus from '../components/GpsSyncStatus.jsx';
 
 function StopLabel({ stop, size = 'md' }) {
   if (!stop) return '—';
@@ -40,6 +45,15 @@ export default function DriverControl() {
   });
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState('');
+
+  const { location: gpsLocation, permission: gpsPermission, requestGps, trackingMode } = useDriverGps(true);
+  const { linked: cloudLinked, error: linkError } = useAutoLinkDriverCloud(plate);
+  const { lastSyncedAt, lastError: syncError, pushCount } = useDriverCloudLocation({
+    enabled: true,
+    location: gpsLocation,
+    linked: cloudLinked,
+  });
+  const reliability = useGpsReliabilityStats(gpsLocation);
 
   useEffect(() => {
     const saved = loadHubControlUrl();
@@ -141,6 +155,19 @@ export default function DriverControl() {
             </button>
           </div>
         )}
+
+        <GpsSyncStatus
+          location={gpsLocation}
+          permission={gpsPermission}
+          onEnableGps={requestGps}
+          linked={cloudLinked}
+          linkError={linkError}
+          syncError={syncError}
+          lastSyncedAt={lastSyncedAt}
+          pushCount={pushCount}
+          trackingMode={trackingMode}
+          reliability={reliability}
+        />
 
         <div className="panel driver-panel driver-minimal-panel">
           {!stateLoaded ? (

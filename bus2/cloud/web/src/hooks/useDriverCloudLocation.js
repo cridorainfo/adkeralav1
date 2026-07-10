@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { distanceMetres } from '../lib/geoUtils.js';
 import {
   ensureDriverId,
@@ -16,6 +16,7 @@ export function useDriverCloudLocation({ enabled = true, location, linked = fals
   const lastPosRef = useRef(null);
   const lastLocRef = useRef(null);
   const driverIdRef = useRef(driverId ?? '');
+  const [syncStatus, setSyncStatus] = useState({ lastSyncedAt: null, lastError: null, pushCount: 0 });
 
   useEffect(() => {
     if (driverId) driverIdRef.current = driverId;
@@ -51,7 +52,16 @@ export function useDriverCloudLocation({ enabled = true, location, linked = fals
       lastPushRef.current = receivedAt;
       lastPosRef.current = { lat: loc.lat, lng: loc.lng };
       const keepalive = document.visibilityState === 'hidden';
-      await sendDriverLocation(id, { ...loc, at: receivedAt }, cloudUrl, { keepalive });
+      const result = await sendDriverLocation(id, { ...loc, at: receivedAt }, cloudUrl, { keepalive });
+      if (result?.ok) {
+        setSyncStatus((prev) => ({
+          lastSyncedAt: receivedAt,
+          lastError: null,
+          pushCount: prev.pushCount + 1,
+        }));
+      } else {
+        setSyncStatus((prev) => ({ ...prev, lastError: result?.error ?? 'Sync failed' }));
+      }
     },
     [enabled, linked]
   );
@@ -95,4 +105,6 @@ export function useDriverCloudLocation({ enabled = true, location, linked = fals
       clearInterval(heartbeat);
     };
   }, [enabled, linked, pushIfNeeded]);
+
+  return syncStatus;
 }
