@@ -16,6 +16,7 @@ export default function AdsPanel() {
   const [live, setLive] = useState(null);
   const [liveAds, setLiveAds] = useState(null);
   const [error, setError] = useState('');
+  const [removingAdId, setRemovingAdId] = useState(null);
 
   const selectedBusLabel = busDisplayLabel(
     buses.find((b) => b.busId === selectedBusId) ?? { busId: selectedBusId }
@@ -89,6 +90,36 @@ export default function AdsPanel() {
     return '—';
   }
 
+  // Ads added directly before this page became read-only — not sourced from a campaign or
+  // house ads, so they're safe to let admins clean up here without reopening general add access.
+  function isDirectAd(ad) {
+    return !ad.isHouseAd && !ad.campaignId;
+  }
+
+  async function removeDirectAd(ad, format) {
+    if (!isDirectAd(ad)) return;
+    if (!confirm(`Remove "${ad.name?.trim() || ad.id}"? It was added directly, not via House ads or Campaigns.`)) {
+      return;
+    }
+    setRemovingAdId(ad.id);
+    setError('');
+    try {
+      const catalog = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/ads/catalog`);
+      const nextAds = format === 'Banner' ? catalog.ads ?? [] : (catalog.ads ?? []).filter((a) => a.id !== ad.id);
+      const nextBanners =
+        format === 'Banner' ? (catalog.bannerAds ?? []).filter((a) => a.id !== ad.id) : catalog.bannerAds ?? [];
+      await api(`/api/buses/${encodeURIComponent(selectedBusId)}/ads/catalog`, {
+        method: 'PUT',
+        body: JSON.stringify({ ads: nextAds, bannerAds: nextBanners, push: true }),
+      });
+      await loadLiveAds();
+    } catch (err) {
+      setError(err.message ?? 'Could not remove ad');
+    } finally {
+      setRemovingAdId(null);
+    }
+  }
+
   function statusLabel(ad) {
     if (ad.isHouseAd) return <span className="hint">always on</span>;
     if (ad.exhausted) return <span className="version-pill version-below">budget exhausted</span>;
@@ -117,9 +148,9 @@ export default function AdsPanel() {
       <h2>Ads — {selectedBusLabel}</h2>
       <p className="hint">
         Read-only — ads only ever reach a bus via <strong>House ads</strong> (unconditional,
-        every bus) or <strong>Campaigns</strong> (targeted + budgeted, pushed to buses). To add,
-        change, or remove an ad, edit it on one of those pages — this page just shows what's
-        currently on this bus and where it came from.
+        every bus) or <strong>Campaigns</strong> (targeted + budgeted, pushed to buses). To add or
+        change an ad, edit it on one of those pages. Any ad with no source shown was added
+        directly before this page became read-only — those can be removed here.
       </p>
 
       <section className="ads-live-preview">
@@ -161,6 +192,7 @@ export default function AdsPanel() {
                 <th>Type</th>
                 <th>Source</th>
                 <th>Status</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -173,6 +205,18 @@ export default function AdsPanel() {
                   <td>{ad.format}</td>
                   <td>{sourceLabel(ad)}</td>
                   <td>{statusLabel(ad)}</td>
+                  <td>
+                    {isDirectAd(ad) && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        disabled={removingAdId === ad.id}
+                        onClick={() => removeDirectAd(ad, ad.format)}
+                      >
+                        {removingAdId === ad.id ? 'Removing…' : 'Remove'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
