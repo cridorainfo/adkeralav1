@@ -125,8 +125,8 @@ export default function FleetBusDetail({ busId, buses }) {
           </p>
           {!onMap && (
             <p className="hint">
-              Outside the mapped service area (Kerala) — coordinates are received and stored, just
-              not drawn on the Live map below.
+              This fix looks invalid (null-island or out-of-range) — received and stored, just not
+              drawn on the Live map below.
             </p>
           )}
         </>

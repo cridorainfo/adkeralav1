@@ -1,13 +1,5 @@
 import { distanceMetres } from './geoUtils.js';
 
-/** Kerala + margin — rejects null-island placeholders and far-off bad fixes. */
-export const SERVICE_BOUNDS = {
-  latMin: 7.5,
-  latMax: 13.5,
-  lngMin: 74.0,
-  lngMax: 78.5,
-};
-
 /** Max straight hop between consecutive stops (express routes ~120 km). */
 const MAX_HOP_M = 150_000;
 
@@ -23,18 +15,14 @@ function sameStop(a, b) {
   return Boolean(ka && kb && ka === kb);
 }
 
-/** Valid lat/lng for map drawing (markers + lines). */
+/** Valid lat/lng for map drawing (markers + lines) — any real-world coordinate,
+ *  just rejects null-island placeholders and out-of-range garbage. */
 export function isPlausibleMapCoord(lat, lng) {
   const la = Number(lat);
   const ln = Number(lng);
   if (!Number.isFinite(la) || !Number.isFinite(ln)) return false;
   if (Math.abs(la) < 0.01 && Math.abs(ln) < 0.01) return false;
-  return (
-    la >= SERVICE_BOUNDS.latMin &&
-    la <= SERVICE_BOUNDS.latMax &&
-    ln >= SERVICE_BOUNDS.lngMin &&
-    ln <= SERVICE_BOUNDS.lngMax
-  );
+  return la >= -90 && la <= 90 && ln >= -180 && ln <= 180;
 }
 
 /** Normalized [lat, lng] or null if not drawable. */
