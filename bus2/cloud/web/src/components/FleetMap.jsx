@@ -161,33 +161,99 @@ function mergeTrailPoints(...lists) {
   return [...byKey.values()].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
 }
 
-function FitBounds({ buses, trails, assignedRoutes }) {
+/**
+ * Keeps the view fitted automatically — the whole fleet when nothing is selected,
+ * or the selected bus (following it + its trail) once one is picked. Any manual
+ * drag/zoom by the admin disengages auto-fit until they select a bus again or hit
+ * "Recenter".
+ */
+function MapViewController({ buses, trails, assignedRoutes, selectedBusId, mapMarkers }) {
   const map = useMap();
-  const done = useRef(false);
+  const [userInteracted, setUserInteracted] = useState(false);
+  const programmaticZoomRef = useRef(false);
+  const lastSelectedRef = useRef(selectedBusId);
+  const overviewFitDoneRef = useRef(false);
+  const lastOverviewKeyRef = useRef('');
 
   useEffect(() => {
+    const onDragStart = () => setUserInteracted(true);
+    const onZoomStart = () => {
+      if (programmaticZoomRef.current) {
+        programmaticZoomRef.current = false;
+        return;
+      }
+      setUserInteracted(true);
+    };
+    map.on('dragstart', onDragStart);
+    map.on('zoomstart', onZoomStart);
+    return () => {
+      map.off('dragstart', onDragStart);
+      map.off('zoomstart', onZoomStart);
+    };
+  }, [map]);
+
+  const fitTo = useCallback(
+    (points) => {
+      if (!points.length) return;
+      programmaticZoomRef.current = true;
+      if (points.length === 1) {
+        map.setView(points[0], Math.max(map.getZoom(), 15), { animate: true });
+      } else {
+        map.fitBounds(points, { padding: [56, 56], maxZoom: 16, animate: true });
+      }
+    },
+    [map]
+  );
+
+  // Selecting a (different) bus re-engages auto-follow for it.
+  useEffect(() => {
+    if (selectedBusId !== lastSelectedRef.current) {
+      lastSelectedRef.current = selectedBusId;
+      setUserInteracted(false);
+    }
+  }, [selectedBusId]);
+
+  useEffect(() => {
+    if (userInteracted) return;
+
+    if (selectedBusId) {
+      const points = [];
+      const marker = (mapMarkers ?? []).find((m) => m.bus.busId === selectedBusId);
+      if (marker) points.push([marker.lat, marker.lng]);
+      for (const p of trails[selectedBusId] ?? []) {
+        if (p?.lat != null) points.push([p.lat, p.lng]);
+      }
+      for (const route of assignedRoutes ?? []) {
+        for (const stop of routeMapStopMarkers(route)) points.push([stop.lat, stop.lng]);
+      }
+      if (points.length) fitTo(points);
+      return;
+    }
+
     const points = [];
     for (const bus of buses ?? []) {
       const pos = resolveBusMapPosition(bus, trails);
       if (pos) points.push([pos.lat, pos.lng]);
     }
-    for (const trail of Object.values(trails ?? {})) {
-      for (const p of trail ?? []) {
-        if (p?.lat != null) points.push([p.lat, p.lng]);
-      }
+    const key = (mapMarkers ?? []).map((m) => m.bus.busId).sort().join(',');
+    if (points.length && (!overviewFitDoneRef.current || key !== lastOverviewKeyRef.current)) {
+      fitTo(points);
+      overviewFitDoneRef.current = true;
+      lastOverviewKeyRef.current = key;
     }
-    for (const route of assignedRoutes ?? []) {
-      for (const stop of routeMapStopMarkers(route)) {
-        points.push([stop.lat, stop.lng]);
-      }
-    }
-    if (points.length && !done.current) {
-      map.fitBounds(points, { padding: [48, 48] });
-      done.current = true;
-    }
-  }, [buses, trails, assignedRoutes, map]);
+  }, [buses, trails, assignedRoutes, selectedBusId, mapMarkers, userInteracted, fitTo]);
 
-  return null;
+  if (!userInteracted) return null;
+
+  return (
+    <button
+      type="button"
+      className="fleet-map-recenter-btn"
+      onClick={() => setUserInteracted(false)}
+    >
+      Recenter
+    </button>
+  );
 }
 
 function MapStyleControl({ styleKey, onChange }) {
@@ -343,7 +409,13 @@ export default function FleetMap({ buses, selectedBusId, onSelectBus }) {
             zIndex={i}
           />
         ))}
-        <FitBounds buses={buses} trails={trails} assignedRoutes={assignedRoutes} />
+        <MapViewController
+          buses={buses}
+          trails={trails}
+          assignedRoutes={assignedRoutes}
+          selectedBusId={selectedBusId}
+          mapMarkers={mapMarkers}
+        />
         {selectedBusId &&
           assignedRoutes.flatMap((route, routeIndex) => {
             const segments = routeMapSegments(route);

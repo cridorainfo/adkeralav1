@@ -1108,6 +1108,22 @@ body.dashboard-nav-open {
   border-color: var(--kerala-green);
 }
 
+.fleet-map-recenter-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 10px;
+  z-index: 1000;
+  border: 1px solid rgba(11, 92, 74, 0.25);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--kerala-green);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
 .fleet-bus-marker-wrap {
   background: transparent;
   border: none;
@@ -1657,6 +1673,14 @@ tr.route-row-assigned {
 }
 
 .budget-bar-fill.exhausted { background: #dc2626; }
+
+.edit-ad-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+}
 
 .campaign-audio-attach {
   margin: 0.75rem 0;
