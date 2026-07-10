@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AdKerala Driver</string>
+    <string name="title_activity_main">AdKerala Driver</string>
+    <string name="package_name">com.adkerala.driver</string>
+    <string name="custom_url_scheme">com.adkerala.driver</string>
+</resources>
