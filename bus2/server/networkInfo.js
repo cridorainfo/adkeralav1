@@ -1,7 +1,11 @@
 import http from 'http';
 import os from 'os';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 import { isVpnOnlyAddress } from '../cloud/shared/hub/lan.js';
+
+/** How long a cached PowerShell/netsh probe result stays fresh before a background refresh
+ * is kicked off. These probes never block the caller — see refreshIfStale() below. */
+const PROBE_CACHE_TTL_MS = 10000;
 
 const VIRTUAL_NIC_PREFIX =
   /^(vmware|virtualbox|vbox|hyper-v|vethernet|loopback|bluetooth|npcap|wintun|tailscale|zerotier|radmin|hamachi|docker|wsl|neko|wireguard|nordlynx|openvpn|tap\d*|tun\d*)/i;
@@ -31,35 +35,56 @@ function envLanOverride() {
   return [{ name: 'ADKERALA_LAN_IP', address: ip }];
 }
 
-/** Windows fallback — os.networkInterfaces() sometimes omits the Wi‑Fi IP when VPN is active. */
+/** Cached result of the last successful/failed Windows LAN fallback probe. Read synchronously
+ * by getWindowsLanAddressesFallback(); refreshed in the background so callers on the hot
+ * path (media serving, cloud sync ticks) never block on a PowerShell process spawn. */
+const lanFallbackCache = { addrs: [], ts: 0, inFlight: false };
+
+function parseWindowsLanAddresses(out) {
+  const addrs = [];
+  for (const line of out.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const sep = trimmed.lastIndexOf('|');
+    if (sep < 0) continue;
+    const name = trimmed.slice(0, sep).trim();
+    const address = trimmed.slice(sep + 1).trim();
+    if (!isPhoneAdvertisableAddress(address) || isVirtualNicName(name)) continue;
+    addrs.push({ name, address });
+  }
+  return addrs;
+}
+
+function refreshWindowsLanAddressesFallback() {
+  if (lanFallbackCache.inFlight) return;
+  lanFallbackCache.inFlight = true;
+  const script = [
+    'Get-NetIPAddress -AddressFamily IPv4',
+    "| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }",
+    "| ForEach-Object { $_.InterfaceAlias + '|' + $_.IPAddress }",
+  ].join(' ');
+  execFile(
+    'powershell',
+    ['-NoProfile', '-Command', script],
+    { encoding: 'utf8', timeout: 8000, windowsHide: true },
+    (err, stdout) => {
+      lanFallbackCache.inFlight = false;
+      lanFallbackCache.ts = Date.now();
+      lanFallbackCache.addrs = err ? [] : parseWindowsLanAddresses(stdout);
+    }
+  );
+}
+
+/** Windows fallback — os.networkInterfaces() sometimes omits the Wi‑Fi IP when VPN is active.
+ * Returns the last cached result instantly and kicks off a non-blocking background refresh
+ * when the cache goes stale, so this never freezes the event loop (and any in-flight media
+ * stream) the way a synchronous PowerShell spawn would. */
 function getWindowsLanAddressesFallback() {
   if (process.platform !== 'win32') return [];
-  try {
-    const script = [
-      "Get-NetIPAddress -AddressFamily IPv4",
-      "| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' }",
-      "| ForEach-Object { $_.InterfaceAlias + '|' + $_.IPAddress }",
-    ].join(' ');
-    const out = execFileSync('powershell', ['-NoProfile', '-Command', script], {
-      encoding: 'utf8',
-      timeout: 8000,
-      windowsHide: true,
-    });
-    const addrs = [];
-    for (const line of out.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const sep = trimmed.lastIndexOf('|');
-      if (sep < 0) continue;
-      const name = trimmed.slice(0, sep).trim();
-      const address = trimmed.slice(sep + 1).trim();
-      if (!isPhoneAdvertisableAddress(address) || isVirtualNicName(name)) continue;
-      addrs.push({ name, address });
-    }
-    return addrs;
-  } catch {
-    return [];
+  if (Date.now() - lanFallbackCache.ts > PROBE_CACHE_TTL_MS) {
+    refreshWindowsLanAddressesFallback();
   }
+  return lanFallbackCache.addrs;
 }
 
 /** Extracts the SSID line from `netsh wlan show interfaces` output — anchored on leading
@@ -72,21 +97,36 @@ export function parseSsidFromNetshOutput(output) {
   return null;
 }
 
+/** Cached result of the last netsh SSID probe — same non-blocking pattern as
+ * lanFallbackCache above. */
+const ssidCache = { ssid: null, ts: 0, inFlight: false };
+
+function refreshWifiSsid() {
+  if (ssidCache.inFlight) return;
+  ssidCache.inFlight = true;
+  execFile(
+    'netsh',
+    ['wlan', 'show', 'interfaces'],
+    { encoding: 'utf8', timeout: 4000, windowsHide: true },
+    (err, stdout) => {
+      ssidCache.inFlight = false;
+      ssidCache.ts = Date.now();
+      ssidCache.ssid = err ? null : parseSsidFromNetshOutput(stdout);
+    }
+  );
+}
+
 /** Wi‑Fi network name this PC is currently joined to — lets admin tell a conductor which
  * network to join before opening the control link. Windows-only; returns null everywhere
- * else or if the adapter is disconnected, and never throws. */
+ * else or if the adapter is disconnected, and never throws. Returns the last cached value
+ * instantly and refreshes in the background (see refreshWifiSsid) rather than blocking the
+ * event loop on a netsh spawn. */
 export function getWifiSsid() {
   if (process.platform !== 'win32') return null;
-  try {
-    const out = execFileSync('netsh', ['wlan', 'show', 'interfaces'], {
-      encoding: 'utf8',
-      timeout: 4000,
-      windowsHide: true,
-    });
-    return parseSsidFromNetshOutput(out);
-  } catch {
-    return null;
+  if (Date.now() - ssidCache.ts > PROBE_CACHE_TTL_MS) {
+    refreshWifiSsid();
   }
+  return ssidCache.ssid;
 }
 
 function scoreNic(name) {

@@ -336,11 +336,11 @@ export function setupDbApi(app, root) {
       res.status(403).end();
       return;
     }
-    if (!existsSync(filePath)) {
-      res.status(404).end();
-      return;
-    }
-    res.sendFile(filePath);
+    // No existsSync() pre-check here: it's a blocking syscall on every request, including
+    // every Range chunk a <video> issues while playing. sendFile() already 404s cleanly.
+    res.sendFile(filePath, (err) => {
+      if (err && !res.headersSent) res.status(err.status || 404).end();
+    });
   });
 
   app.get('/api/state', async (_req, res) => {
