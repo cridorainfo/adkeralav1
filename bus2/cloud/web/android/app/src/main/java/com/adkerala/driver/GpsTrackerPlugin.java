@@ -1,8 +1,10 @@
 package com.adkerala.driver;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 
 import androidx.core.content.ContextCompat;
 
@@ -26,6 +28,18 @@ public class GpsTrackerPlugin extends Plugin {
         }
 
         Context context = getContext();
+        boolean fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED;
+        if (!fine && !coarse) {
+            // Starting a location-type foreground service without this permission already
+            // granted crashes the whole app on Android 14+. Fail the call instead so the
+            // JS side can request permission first.
+            call.reject("Location permission not granted");
+            return;
+        }
+
         Intent intent = new Intent(context, GpsTrackingService.class);
         intent.putExtra(GpsTrackingService.KEY_DRIVER_ID, driverId);
         intent.putExtra(GpsTrackingService.KEY_CLOUD_URL, cloudUrl);

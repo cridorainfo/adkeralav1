@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { checkLocationPermission, requestLocationAccess } from './locationPermissions.js';
 
 const GpsTracker = registerPlugin('GpsTracker');
 
@@ -9,10 +10,17 @@ export function isAndroidNative() {
 }
 
 /** Starts the native foreground-service tracker. Survives the app being
- *  backgrounded, switched away from, closed, or the phone rebooting. */
+ *  backgrounded, switched away from, closed, or the phone rebooting.
+ *
+ *  Starting a location-type foreground service without the permission already
+ *  granted crashes the whole app on Android 14+, so permission must be confirmed
+ *  (and requested if needed) before ever calling into the native plugin. */
 export async function startNativeTracking({ driverId, cloudUrl }) {
   if (!isAndroidNative()) return;
   try {
+    let state = await checkLocationPermission();
+    if (state !== 'granted') state = await requestLocationAccess();
+    if (state !== 'granted') return;
     await GpsTracker.start({ driverId, cloudUrl });
   } catch {
     /* plugin unavailable (stale installed build) — silently no-op */

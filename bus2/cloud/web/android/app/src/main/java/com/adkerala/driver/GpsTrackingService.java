@@ -1,11 +1,13 @@
 package com.adkerala.driver;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.os.Build;
@@ -15,6 +17,7 @@ import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -103,9 +106,28 @@ public class GpsTrackingService extends Service {
             return START_NOT_STICKY;
         }
 
+        if (!hasLocationPermission()) {
+            // Starting a location-type foreground service without the permission already
+            // granted throws an uncaught SecurityException on Android 14+ and kills the
+            // whole app process. Bail out quietly instead — this can happen on a
+            // START_STICKY restart or boot resume if permission was revoked meanwhile.
+            Log.w(TAG, "Location permission missing, not starting foreground tracking");
+            prefs.edit().putString(KEY_LAST_ERROR, "Location permission not granted").apply();
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         startForegroundCompat();
         startLocationUpdates(driverId, cloudUrl);
         return START_STICKY;
+    }
+
+    private boolean hasLocationPermission() {
+        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED;
+        return fine || coarse;
     }
 
     private void createChannel() {
