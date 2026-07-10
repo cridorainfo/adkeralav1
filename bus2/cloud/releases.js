@@ -56,8 +56,15 @@ export async function getReleaseConfig() {
 
 export async function setPcRelease(release) {
   const releases = await loadReleaseStore();
+  const incomingVersion = String(release.version ?? '').trim();
+  // Release workflows for different tags can finish out of order (retries,
+  // re-runs, or two versions shipped close together) — never let a build that
+  // completes later regress the fleet's "latest" pointer to an older version.
+  if (releases.pc?.version && compareSemver(incomingVersion, releases.pc.version) < 0) {
+    return releases.pc;
+  }
   releases.pc = {
-    version: String(release.version ?? '').trim(),
+    version: incomingVersion,
     downloadUrl: String(release.downloadUrl ?? '').trim(),
     sha512: String(release.sha512 ?? '').trim(),
     size: Number(release.size ?? 0) || null,
@@ -70,8 +77,12 @@ export async function setPcRelease(release) {
 
 export async function setDriverRelease(release) {
   const releases = await loadReleaseStore();
+  const incomingVersion = String(release.version ?? '').trim();
+  if (releases.driver?.version && compareSemver(incomingVersion, releases.driver.version) < 0) {
+    return releases.driver;
+  }
   releases.driver = {
-    version: String(release.version ?? '').trim(),
+    version: incomingVersion,
     downloadUrl: String(release.downloadUrl ?? '').trim(),
     releaseNotes: String(release.releaseNotes ?? '').trim(),
     publishedAt: Date.now(),
