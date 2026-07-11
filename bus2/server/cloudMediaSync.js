@@ -16,6 +16,21 @@ function authHeaders(creds = {}) {
   };
 }
 
+// Every other outbound cloud call in this app (see cloudSync.js's cloudTimeoutSignal) learned
+// the hard way that a fetch() with no timeout can hang forever on a flaky bus hotspot — this
+// download loop had the same gap. A single stuck media download used to be able to wedge here
+// indefinitely, and since a fresh sync tick fires every 5s regardless, each stuck tick left one
+// more hung fetch running in the background.
+const MEDIA_FETCH_TIMEOUT_MS = 20000;
+function mediaTimeoutSignal(ms = MEDIA_FETCH_TIMEOUT_MS) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 /** Download missing media files from cloud admin into db/media/ (offline-first bus storage). */
 export async function syncCloudMedia(root, relativePaths, creds = {}) {
   const cloudUrl = (creds.cloudUrl ?? process.env.ADKERALA_CLOUD_URL ?? '').replace(/\/+$/, '');
@@ -32,9 +47,16 @@ export async function syncCloudMedia(root, relativePaths, creds = {}) {
     const localFile = path.join(mediaDir, relPath);
     if (existsSync(localFile)) continue;
 
+    // Download to a per-attempt temp file and rename into place only once the full body has
+    // landed. Plain writeFile(localFile) would let a crash/kill mid-write (or a partial body
+    // under a flaky connection) leave a truncated file behind — existsSync() above would then
+    // treat that truncated file as "already downloaded" forever, permanently and silently
+    // breaking playback for exactly that clip (same failure shape as audio that never syncs).
+    const tmpFile = `${localFile}.download-${process.pid}-${Date.now()}.tmp`;
     try {
       const res = await fetch(`${cloudUrl}/api/media/${relPath}`, {
         headers: authHeaders(creds),
+        signal: mediaTimeoutSignal(),
       });
       if (!res.ok) {
         console.warn('AdKerala media sync: download failed', relPath, res.status);
@@ -42,11 +64,13 @@ export async function syncCloudMedia(root, relativePaths, creds = {}) {
       }
       const buffer = Buffer.from(await res.arrayBuffer());
       await fs.mkdir(path.dirname(localFile), { recursive: true });
-      await fs.writeFile(localFile, buffer);
+      await fs.writeFile(tmpFile, buffer);
+      await fs.rename(tmpFile, localFile);
       downloaded += 1;
       console.log('AdKerala media sync: saved', relPath);
     } catch (err) {
       console.warn('AdKerala media sync:', relPath, err.message);
+      await fs.unlink(tmpFile).catch(() => {});
     }
   }
 

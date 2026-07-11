@@ -34,7 +34,7 @@ test('computeAdSpend splits peak/off-peak seconds and applies the right rate to 
     { playedAt: peakTs, durationPlayedSec: 10 },
     { playedAt: offPeakTs, durationPlayedSec: 20 },
   ];
-  const result = computeAdSpend(plays, pricingSettings);
+  const result = computeAdSpend(plays, 'fullscreen', pricingSettings);
   assert.equal(result.peakSec, 10);
   assert.equal(result.offPeakSec, 20);
   assert.equal(result.spend, 10 * 3 + 20 * 1);
