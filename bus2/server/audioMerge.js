@@ -1,14 +1,26 @@
-/** Align bus stopAudio with cloud catalog — drops clips the cloud removed. */
+/**
+ * Align bus stopAudio with cloud catalog: pulls down stops/languages the cloud has that this
+ * bus hasn't seen yet, updates ones both sides know about, and drops clips the cloud removed.
+ *
+ * Previously this only walked Object.keys(busStopAudio) — i.e. keys the bus already had — so a
+ * stop recorded for the first time on the cloud dashboard (never before present locally) was
+ * silently skipped forever instead of being downloaded, even though routes/ads sync fine. Same
+ * bug for a *new* language added to a stop the bus already partially had. Confirmed live: audio
+ * added for stops on the Kilimanoor-Kadakkal-Madathara route (e.g. Mottakuzhy) never reached the
+ * bus, so pressing forward/announcement played nothing for those stops.
+ */
 export function syncStopAudioWithCatalog(busStopAudio = {}, cloudCatalog = {}) {
   const out = { ...(busStopAudio ?? {}) };
-  for (const key of Object.keys(busStopAudio ?? {})) {
+  const allKeys = new Set([...Object.keys(busStopAudio ?? {}), ...Object.keys(cloudCatalog ?? {})]);
+  for (const key of allKeys) {
     const cloudEntry = cloudCatalog[key];
     if (!cloudEntry) {
       delete out[key];
       continue;
     }
     const langs = { ...(out[key] ?? {}) };
-    for (const lang of Object.keys(langs)) {
+    const allLangs = new Set([...Object.keys(langs), ...Object.keys(cloudEntry)]);
+    for (const lang of allLangs) {
       const cloudFile = cloudEntry[lang]?.audioFile;
       if (!cloudFile) delete langs[lang];
       else langs[lang] = { ...langs[lang], audioFile: cloudFile };
