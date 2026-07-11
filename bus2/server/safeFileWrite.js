@@ -80,7 +80,11 @@ export async function readBestRecoverableFile(filePath, { validate, score = () =
       const raw = await fs.readFile(candidate, 'utf8');
       if (!validate(raw)) continue;
       const candidateScore = score(raw);
-      if (!best || candidateScore >= best.score) {
+      // Strictly-greater tie-break: candidates are checked in [live file, .tmp, .bak] order,
+      // and the .bak is written with the same content/score as the live file on every save —
+      // a >= comparison let that tie let the backup win every time, so a perfectly valid live
+      // file was reported as "recovered from backup" (and rewritten) on every single read.
+      if (!best || candidateScore > best.score) {
         best = { raw, sourcePath: candidate, score: candidateScore };
       }
     } catch {

@@ -66,7 +66,11 @@ async function loadInfoRawOnce(root) {
   });
 
   let best = localBest;
-  if (archiveBest && (!best || archiveBest.score >= best.score)) {
+  // Strictly-greater tie-break: on an equal score (the common case — nothing changed since
+  // the last read), keep the local file instead of always deferring to the archive. A >=
+  // comparison here meant a perfectly valid db/info.txt was reported as "recovered ... after
+  // unexpected shutdown" and rewritten from the archive on every single poll, forever.
+  if (archiveBest && (!best || archiveBest.score > best.score)) {
     best = archiveBest;
   }
   if (!best) return null;

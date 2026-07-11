@@ -105,7 +105,9 @@ export async function readBestInfoArchive(dataRoot, { validate, score = () => 0 
       const raw = await fs.readFile(candidate, 'utf8');
       if (!validate(raw)) continue;
       const candidateScore = score(raw);
-      if (!best || candidateScore >= best.score) {
+      // Strictly-greater tie-break — see safeFileWrite.js's readBestRecoverableFile for why
+      // >= here would let a rotating snapshot arbitrarily out-rank latest.txt on a tie.
+      if (!best || candidateScore > best.score) {
         best = { raw, sourcePath: candidate, score: candidateScore };
       }
     } catch {
