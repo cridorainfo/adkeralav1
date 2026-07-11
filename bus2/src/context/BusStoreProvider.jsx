@@ -254,6 +254,14 @@ function useBusStoreLogic() {
             merged.nextAdIndex = prev.nextAdIndex;
             merged.lastAdEndedAt = prev.lastAdEndedAt;
             merged.adStartedAt = prev.adStartedAt;
+            // Keep the ad list itself pinned too — currentAdIndex is positional, so swapping
+            // in a freshly admin-pushed `ads` array mid-playback (even though we just kept the
+            // same index above) can point it at an unrelated/missing ad and make the display
+            // fall out of the ad branch before the running ad finishes. Let the new list apply
+            // once endAd() naturally transitions displayView away from 'ad'.
+            merged.ads = prev.ads;
+            merged.bannerAds = prev.bannerAds;
+            merged.adsSavedAt = prev.adsSavedAt;
           }
         } else if (localEndedAd && !remoteStartedAd) {
           merged.displayView = prev.displayView;
