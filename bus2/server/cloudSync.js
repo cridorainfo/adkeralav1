@@ -1,8 +1,10 @@
 import dns from 'dns';
+import fs from 'fs/promises';
+import path from 'path';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
-import { syncCloudMedia, deleteLocalMediaFiles } from './cloudMediaSync.js';
+import { syncCloudMedia, deleteLocalMediaFiles, downloadToFile } from './cloudMediaSync.js';
 import { getStopInfo } from '../src/store/busStore.js';
 import { getLanAddresses, getWifiSsid } from './networkInfo.js';
 import {
@@ -16,7 +18,6 @@ import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked } from './fleetRevoke.js';
 import { clearAllHubSessions, disconnectAllDrivers, readDevicesDisconnectAt } from './hubSessions.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
-import { createRequire } from 'module';
 import { APP_VERSION } from './version.js';
 import { DEFAULT_CLOUD_URLS, DEFAULT_PUBLIC_CLOUD_URL, resolveCloudUrl } from '../shared/cloudUrls.js';
 
@@ -27,8 +28,23 @@ import { DEFAULT_CLOUD_URLS, DEFAULT_PUBLIC_CLOUD_URL, resolveCloudUrl } from '.
 // of the timeout safety net, since a fast reliable connection is better than a fast failure.
 dns.setDefaultResultOrder('ipv4first');
 
-const require = createRequire(import.meta.url);
-const { dispatchKioskCommand } = require('../kiosk/kioskBridge.cjs');
+// Was `require('../kiosk/kioskBridge.cjs')` — a same-process function call that only worked
+// because kiosk/main.cjs used to import this whole server in-process. Now that the server runs
+// as its own child_process (see kiosk/main.cjs's supervisor, needed for hot-patching server code
+// independently of the Electron shell — server/** is part of what a hot patch can replace, while
+// kiosk/** never is), reaching across into kiosk/ would both break that process boundary and drag
+// shell-tier code into what's supposed to be a self-contained, hot-patchable bundle. `process.send`
+// is Node's built-in IPC to the parent that created this process via fork() — undefined (and thus
+// a safe no-op) in any context that isn't a forked child, e.g. `node server/dev.js` or a hot-patch
+// self-test, where there's no kiosk shell listening on the other end anyway.
+function dispatchKioskCommand(type, payload = {}) {
+  if (typeof process.send !== 'function') {
+    console.warn('AdKerala kiosk: no IPC channel to apply command', type, '(not running under the kiosk shell)');
+    return false;
+  }
+  process.send({ __adkeralaKioskCommand: true, type, payload });
+  return true;
+}
 
 /**
  * Cloud sync is optional and non-blocking. The bus PC is the hub — display, driver control,
@@ -712,6 +728,90 @@ async function syncStopVoiceAdsFromCloud(root, creds) {
   }
 }
 
+// Hot-patch paths mirror kiosk/hotpatchSupervisor.cjs's own layout under <dataRoot>/hotpatch/
+// (current.json = active pointer, failures.json = per-version retry counter, versions/ = applied
+// bundles) — duplicated here rather than imported because that module lives in kiosk/ (Electron
+// shell tier, never part of a hot-patch bundle), while this file IS part of the bundle, so it
+// can't depend on kiosk/ code without recreating the exact cross-tier coupling this feature
+// removed from cloudSync.js in the first place. Keep these two path conventions in sync by hand.
+function hotpatchRoot(root) {
+  return path.join(root, 'hotpatch');
+}
+async function readLocalHotpatchState(root) {
+  const readJson = async (file) => {
+    try {
+      return JSON.parse(await fs.readFile(path.join(hotpatchRoot(root), file), 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+  const pointer = await readJson('current.json');
+  const failures = (await readJson('failures.json')) ?? {};
+  return { activeVersion: pointer?.version ?? null, failures };
+}
+
+const HOTPATCH_MAX_FAILED_ATTEMPTS = 2; // must match kiosk/hotpatchSupervisor.cjs's MAX_FAILED_ATTEMPTS
+const HOTPATCH_REDISPATCH_COOLDOWN_MS = 30000;
+let lastHotpatchDispatch = { version: null, at: 0 };
+
+/**
+ * Poll for a newer server-only hot patch and, if found and not already applied or given up
+ * on, download + checksum-verify it, then hand off to the Electron main process (over IPC —
+ * only it can extract/self-test/swap the live server child) via the same kiosk-command
+ * dispatch APPLY_UPDATE already uses. This is a poll-and-detect loop like every other sync
+ * function here (self-healing every 5s tick) rather than a queued/acked command, matching
+ * syncAssignedRoutesFromCloud/syncAdsFromCloud's shape.
+ */
+async function syncServerHotpatchFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(`${creds.cloudUrl}/api/releases/pc/hotpatch/latest`, {
+      headers: {
+        ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+        ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+      },
+      signal: cloudTimeoutSignal(),
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    const release = json?.release;
+    if (!json?.ok || !release?.version || !release?.downloadUrl) return;
+
+    const { activeVersion, failures } = await readLocalHotpatchState(root);
+    if (release.version === activeVersion) return; // already running this version
+    if ((failures[release.version] ?? 0) >= HOTPATCH_MAX_FAILED_ATTEMPTS) return; // gave up already
+
+    const now = Date.now();
+    if (
+      lastHotpatchDispatch.version === release.version &&
+      now - lastHotpatchDispatch.at < HOTPATCH_REDISPATCH_COOLDOWN_MS
+    ) {
+      return; // an apply attempt for this exact version is likely still in flight
+    }
+
+    const zipPath = path.join(
+      hotpatchRoot(root),
+      'incoming',
+      `${release.version.replace(/[^a-zA-Z0-9._+-]+/g, '-')}.zip`
+    );
+    await downloadToFile(release.downloadUrl, zipPath, {
+      sha256: release.sha256,
+      timeoutMs: 30000,
+    });
+
+    lastHotpatchDispatch = { version: release.version, at: now };
+    dispatchKioskCommand('APPLY_SERVER_HOTPATCH', {
+      zipPath,
+      version: release.version,
+      sha256: release.sha256,
+    });
+    console.log(`AdKerala cloud sync: hot patch v${release.version} downloaded — handed off to apply`);
+  } catch (err) {
+    console.warn('AdKerala cloud sync: hotpatch check failed —', err.message);
+  }
+}
+
 // Ad plays are recorded locally (BusStoreProvider.jsx appends to state.pendingAdPlays) so
 // playback is never blocked on the network. Upload is purely best-effort, same pattern as the
 // rest of this file: skip silently offline, and only drop uploaded entries from local state
@@ -846,6 +946,7 @@ async function runCloudSyncInner(root) {
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
   await syncStopVoiceAdsFromCloud(root, creds);
+  await syncServerHotpatchFromCloud(root, creds);
   await syncAdPlaysToCloud(root, creds, busId);
 
   // Catch up any ad/banner media referenced in state but not yet on disk.
@@ -962,4 +1063,4 @@ export async function verifyDriverLinkedOnCloud(dataRoot, driverId) {
   return json.json ?? { ok: false, error: 'Cloud unreachable' };
 }
 
-export { ENROLL_POLL_MS };
+export { ENROLL_POLL_MS, syncServerHotpatchFromCloud };

@@ -27,6 +27,12 @@ export async function startBusServer(options = {}) {
   const PORT = Number(options.port ?? process.env.PORT ?? 5174);
   const HOST = options.host ?? process.env.HOST ?? '0.0.0.0';
   const distDir = path.join(appRoot, 'dist');
+  // Set by the hot-patch self-test runner (kiosk/hotpatchSelfTestRunner.mjs) when booting a
+  // candidate patch on a scratch port purely to confirm it starts and answers requests. Skips
+  // firewall-rule creation (would otherwise leave a junk "AdKerala Bus Port <scratch>" rule
+  // behind on every self-test) and LAN/HTTPS setup (meaningless for a throwaway port nothing
+  // ever connects to) — none of that is part of what a self-test needs to verify.
+  const isSelfTest = Boolean(options.selfTest);
 
   if (process.env.ADKERALA_PACKAGED === '1') {
     ensurePortableDb(dataRoot);
@@ -104,14 +110,16 @@ export async function startBusServer(options = {}) {
   const stopMediaGc = startMediaGcLoop(dataRoot);
 
   let httpsMirror = { httpsServer: null, httpsPort: null, httpsEnabled: false };
-  try {
-    httpsMirror = await startHttpsMirror(app, {
-      dataRoot,
-      httpPort: PORT,
-      host: HOST,
-    });
-  } catch (err) {
-    console.warn('AdKerala HTTPS disabled:', err.message);
+  if (!isSelfTest) {
+    try {
+      httpsMirror = await startHttpsMirror(app, {
+        dataRoot,
+        httpPort: PORT,
+        host: HOST,
+      });
+    } catch (err) {
+      console.warn('AdKerala HTTPS disabled:', err.message);
+    }
   }
   httpsInfo = {
     httpsEnabled: httpsMirror.httpsEnabled,
@@ -134,19 +142,22 @@ export async function startBusServer(options = {}) {
   if (httpsInfo.httpsEnabled && httpsInfo.httpsPort) {
     firewallPorts.push(httpsInfo.httpsPort);
   }
-  ensureWindowsFirewallPorts(firewallPorts, process.env.ADKERALA_PACKAGED === '1' ? process.execPath : null);
-  firewallStatus = checkFirewallPorts(firewallPorts);
-  await refreshLanProbe();
-  const startupProbeDelays = [2000, 5000, 10000, 20000];
-  for (const ms of startupProbeDelays) {
-    setTimeout(() => {
+  let probeTimer = null;
+  if (!isSelfTest) {
+    ensureWindowsFirewallPorts(firewallPorts, process.env.ADKERALA_PACKAGED === '1' ? process.execPath : null);
+    firewallStatus = checkFirewallPorts(firewallPorts);
+    await refreshLanProbe();
+    const startupProbeDelays = [2000, 5000, 10000, 20000];
+    for (const ms of startupProbeDelays) {
+      setTimeout(() => {
+        refreshLanProbe().catch(() => {});
+      }, ms);
+    }
+    probeTimer = setInterval(() => {
       refreshLanProbe().catch(() => {});
-    }, ms);
+    }, 15000);
   }
-  const probeTimer = setInterval(() => {
-    refreshLanProbe().catch(() => {});
-  }, 15000);
-  if (!lanProbe.ok) {
+  if (!isSelfTest && !lanProbe.ok) {
     if (lanProbe.error === 'no_lan_ip') {
       console.warn(
         '  No LAN IP yet - connect Wi-Fi or enable Mobile Hotspot on this PC.\n' +
@@ -208,8 +219,18 @@ export async function startBusServer(options = {}) {
 const isDirectRun = process.argv[1]?.endsWith('prod.js');
 if (isDirectRun) {
   const server = await startBusServer();
-  process.on('SIGINT', () => {
+  const shutdownAndExit = () => {
     server.shutdown();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', shutdownAndExit);
+  // Windows doesn't deliver POSIX signals reliably to a fork()'d child, so kiosk/main.cjs's
+  // supervisor asks for a graceful shutdown over IPC instead (see stopServerChild there) when
+  // restarting this process for a hot patch or on app quit. process.send only exists when
+  // actually forked (undefined for `node server/prod.js` directly), so this is a no-op there.
+  if (typeof process.send === 'function') {
+    process.on('message', (msg) => {
+      if (msg?.__adkeralaShutdown) shutdownAndExit();
+    });
+  }
 }

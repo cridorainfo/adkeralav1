@@ -280,6 +280,7 @@ export async function listBuses({ ownerId = null } = {}) {
       busId,
       updatedAt: row?.updatedAt ?? 0,
       telemetry: row?.telemetry ?? null,
+      state: row?.state ?? null,
       profile: profile ?? null,
     });
   }
@@ -537,6 +538,20 @@ export async function getAdPlaysRaw(adId) {
   return (store.adPlays ?? [])
     .filter((p) => p.adId === adId)
     .map((p) => ({ playedAt: p.playedAt, durationPlayedSec: p.durationPlayedSec }));
+}
+
+/** Raw play events for one bus — feeds per-bus spend/play analytics. */
+export async function getAdPlaysForBus(busId) {
+  if (usePostgres()) return pg.pgGetAdPlaysForBus(busId);
+  const store = await loadStore();
+  return (store.adPlays ?? [])
+    .filter((p) => p.busId === busId)
+    .map((p) => ({
+      adId: p.adId,
+      format: p.format === 'banner' || p.format === 'audio' ? p.format : 'fullscreen',
+      playedAt: p.playedAt,
+      durationPlayedSec: p.durationPlayedSec,
+    }));
 }
 
 /** Play counts for a set of ad ids, grouped by bus and by route — the data half of a campaign

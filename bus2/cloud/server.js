@@ -81,6 +81,7 @@ import {
   getFleetVersions,
   getReleaseConfig,
   setDriverRelease,
+  setHotpatchRelease,
   setMinVersions,
   setPcRelease,
 } from './releases.js';
@@ -118,6 +119,7 @@ import {
   rerunCampaign,
   getCampaignReport,
 } from './campaigns.js';
+import { getBusAdAnalytics, getFleetAdAnalytics } from './adAnalytics.js';
 import {
   enrollDevice,
   getEnrollmentStatus,
@@ -876,6 +878,72 @@ app.get('/api/buses', authSession, requireAuth, async (req, res) => {
   const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
   const buses = await listBuses({ ownerId });
   res.json({ ok: true, buses });
+});
+
+/** Compact now-playing preview for every bus in the fleet (Live Wall grid). */
+function buildLiveWallPreview(row) {
+  const telemetry = row?.telemetry ?? {};
+  const state = row?.state ?? {};
+  const displayView = state.displayView ?? telemetry.displayView ?? 'route';
+  const routeName = telemetry.routeName ?? state.routeName ?? null;
+  const currentStopEn = telemetry.currentStopEn ?? null;
+  const nextStopEn = telemetry.nextStopEn ?? null;
+
+  let ad = null;
+  if (displayView === 'ad') {
+    const idx = Number.isFinite(Number(state.currentAdIndex)) ? Number(state.currentAdIndex) : 0;
+    const raw = state.ads?.[idx] ?? null;
+    if (raw) {
+      ad = {
+        id: raw.id ?? null,
+        name: raw.name ?? null,
+        type: raw.type ?? null,
+        mediaFile: raw.mediaFile ?? null,
+        durationSec: raw.durationSec ?? null,
+        isHouseAd: Boolean(raw.isHouseAd),
+        campaignId: raw.campaignId ?? null,
+      };
+    }
+  }
+
+  return {
+    displayView,
+    routeName,
+    currentStopEn,
+    nextStopEn,
+    tripStarted: Boolean(state.tripStarted ?? telemetry.tripStarted ?? telemetry.tripDeparted),
+    tripEnded: Boolean(state.tripEnded ?? telemetry.tripEnded),
+    ad,
+  };
+}
+
+app.get('/api/buses/live-wall', authSession, requireAuth, requireRole('admin'), async (_req, res) => {
+  const buses = await listBuses({});
+  res.json({
+    ok: true,
+    buses: buses.map((row) => {
+      const online = Boolean(row.updatedAt) && Date.now() - row.updatedAt < ONLINE_MS;
+      return {
+        busId: row.busId,
+        profile: row.profile ?? null,
+        online,
+        updatedAt: row.updatedAt ?? 0,
+        preview: buildLiveWallPreview(row),
+      };
+    }),
+  });
+});
+
+app.get('/api/analytics/ads-fleet', authSession, requireAuth, requireRole('admin'), async (req, res) => {
+  const summaryOnly = req.query.summaryOnly === '1' || req.query.summaryOnly === 'true';
+  const report = await getFleetAdAnalytics({ summaryOnly });
+  res.json({ ok: true, ...report });
+});
+
+app.get('/api/buses/:busId/ad-analytics', authFleet, async (req, res) => {
+  if (!(await assertBusAccess(req, res, req.params.busId))) return;
+  const analytics = await getBusAdAnalytics(req.params.busId);
+  res.json({ ok: true, ...analytics });
 });
 
 // NOTE: this single route serves BOTH callers — the admin/owner dashboard (fleet session or
@@ -1960,6 +2028,16 @@ app.put('/api/releases/pc', authAdminOnly, async (req, res) => {
   res.json({ ok: true, pc });
 });
 
+app.put('/api/releases/pc/hotpatch', authAdminOnly, async (req, res) => {
+  const { version, downloadUrl, sha256, releaseNotes } = req.body ?? {};
+  if (!version || !downloadUrl) {
+    res.status(400).json({ ok: false, error: 'version and downloadUrl required' });
+    return;
+  }
+  const hotpatch = await setHotpatchRelease({ version, downloadUrl, sha256, releaseNotes });
+  res.json({ ok: true, hotpatch });
+});
+
 app.put('/api/releases/driver', authAdminOnly, async (req, res) => {
   const { version, downloadUrl, releaseNotes } = req.body ?? {};
   if (!version || !downloadUrl) {
@@ -2013,6 +2091,15 @@ app.get('/api/releases/pc/latest', async (_req, res) => {
     release: config.pc,
     minVersion: config.minPcVersion,
   });
+});
+
+// Bus-token authenticated (unlike the plain PC installer feed above, which electron-updater's
+// generic provider polls with no bus identity at all) — a hot-patch bundle is executable code
+// that will run with full privileges on the bus PC, so it gets the same auth as other
+// bus-specific catalog pulls (see /api/stops/audio) rather than being open to anyone.
+app.get('/api/releases/pc/hotpatch/latest', authBus, async (_req, res) => {
+  const config = await getReleaseConfig();
+  res.json({ ok: true, release: config.hotpatch });
 });
 
 /** Driver APK update check — public read */

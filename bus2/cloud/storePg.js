@@ -143,7 +143,7 @@ export async function pgGetBus(busId) {
 
 export async function pgListBuses({ ownerId = null } = {}) {
   let sql = `
-    SELECT bp.bus_id, bt.updated_at, bt.telemetry, bp.plate, bp.plate_display, bp.display_name, bp.pairing_code,
+    SELECT bp.bus_id, bt.updated_at, bt.telemetry, bt.state, bp.plate, bp.plate_display, bp.display_name, bp.pairing_code,
            bp.linked_driver_id, bp.linked_at, bp.owner_id
     FROM bus_profiles bp
     LEFT JOIN bus_telemetry bt ON bt.bus_id = bp.bus_id`;
@@ -153,10 +153,15 @@ export async function pgListBuses({ ownerId = null } = {}) {
     params.push(ownerId);
   }
   const { rows } = await query(sql, params);
+  const parseJson = (v) => {
+    if (v == null) return null;
+    return typeof v === 'string' ? JSON.parse(v) : v;
+  };
   return rows.map((row) => ({
     busId: row.bus_id,
     updatedAt: Number(row.updated_at ?? 0),
-    telemetry: row.telemetry,
+    telemetry: parseJson(row.telemetry),
+    state: parseJson(row.state),
     profile: {
       plate: row.plate,
       plateDisplay: row.plate_display,
@@ -456,6 +461,20 @@ export async function pgGetAdPlaysRaw(adId) {
     [adId]
   );
   return rows.map((row) => ({
+    playedAt: Number(row.played_at),
+    durationPlayedSec: row.duration_played_sec,
+  }));
+}
+
+/** All play events for one bus — used by per-bus ad analytics (spend/plays on that bus only). */
+export async function pgGetAdPlaysForBus(busId) {
+  const { rows } = await query(
+    `SELECT ad_id, format, played_at, duration_played_sec FROM ad_plays WHERE bus_id = $1`,
+    [busId]
+  );
+  return rows.map((row) => ({
+    adId: row.ad_id,
+    format: row.format === 'banner' || row.format === 'audio' ? row.format : 'fullscreen',
     playedAt: Number(row.played_at),
     durationPlayedSec: row.duration_played_sec,
   }));

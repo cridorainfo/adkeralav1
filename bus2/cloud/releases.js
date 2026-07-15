@@ -27,6 +27,7 @@ function defaultReleaseConfig() {
   return {
     pc: null,
     driver: null,
+    hotpatch: null,
     minPcVersion: '0.1.0',
     minDriverVersion: '0.1.0',
   };
@@ -89,6 +90,29 @@ export async function setDriverRelease(release) {
   };
   await saveReleaseStore(releases);
   return releases.driver;
+}
+
+// Hot patches (server/** only — see kiosk/hotpatchSupervisor.cjs) don't need
+// baseAppVersionMin-style compatibility gating: a bus only ever polls
+// /api/releases/pc/hotpatch/latest at all once its currently-running code already includes
+// syncServerHotpatchFromCloud, i.e. once it's already on an app version that shipped this
+// feature — so there's no way for an incompatible, unaware-of-hot-patches bus to reach this
+// endpoint in the first place.
+export async function setHotpatchRelease(release) {
+  const releases = await loadReleaseStore();
+  const incomingVersion = String(release.version ?? '').trim();
+  if (releases.hotpatch?.version && compareSemver(incomingVersion, releases.hotpatch.version) < 0) {
+    return releases.hotpatch;
+  }
+  releases.hotpatch = {
+    version: incomingVersion,
+    downloadUrl: String(release.downloadUrl ?? '').trim(),
+    sha256: String(release.sha256 ?? '').trim(),
+    releaseNotes: String(release.releaseNotes ?? '').trim(),
+    publishedAt: Date.now(),
+  };
+  await saveReleaseStore(releases);
+  return releases.hotpatch;
 }
 
 export async function setMinVersions({ minPcVersion, minDriverVersion }) {

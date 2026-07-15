@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import { existsSync } from 'fs';
 import { getDbPaths, readInfoFile } from './dbApi.js';
 import { collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
@@ -75,6 +76,34 @@ export async function syncCloudMedia(root, relativePaths, creds = {}) {
   }
 
   return downloaded;
+}
+
+/**
+ * Download an arbitrary absolute URL (not the bus's own /api/media/ scoped path — used for
+ * hot-patch bundles, which are hosted as GitHub Release assets rather than cloud-admin media)
+ * straight to a destination file, verifying a sha256 checksum before it's trusted. Same
+ * timeout + atomic temp-file-then-rename pattern as syncCloudMedia above, for the same
+ * reason: a crash/kill mid-write must never leave a truncated file mistaken for complete.
+ */
+export async function downloadToFile(url, destPath, { sha256, timeoutMs, headers = {} } = {}) {
+  const res = await fetch(url, { headers, signal: mediaTimeoutSignal(timeoutMs) });
+  if (!res.ok) {
+    throw new Error(`download failed: HTTP ${res.status} for ${url}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  if (sha256) {
+    const actual = crypto.createHash('sha256').update(buffer).digest('hex');
+    if (actual.toLowerCase() !== String(sha256).toLowerCase()) {
+      throw new Error(`checksum mismatch for ${url} (expected ${sha256}, got ${actual})`);
+    }
+  }
+
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+  const tmpFile = `${destPath}.download-${process.pid}-${Date.now()}.tmp`;
+  await fs.writeFile(tmpFile, buffer);
+  await fs.rename(tmpFile, destPath);
+  return destPath;
 }
 
 // Grace period before an unreferenced file is considered "orphaned" rather than just

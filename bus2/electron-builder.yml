@@ -70,10 +70,16 @@ extraFiles:
   - from: portable-template/INSTALL.txt
     to: INSTALL.txt
 
-asar: true
-asarUnpack:
-  - node_modules/sharp/**/*
-  - node_modules/@img/**/*
+# Was `asar: true` with asarUnpack limited to node_modules/sharp + @img (native binaries that
+# can't run from inside an asar archive). Hot patches (see kiosk/hotpatchSupervisor.cjs) need
+# one more thing an asar can't provide: a real on-disk node_modules directory to create a
+# Windows directory junction to from each patch version's own folder (junctions require a real
+# filesystem target — app.getAppPath() resolving to a path *inside* app.asar isn't one). Rather
+# than selectively unpack node_modules too, disabling asar outright is simpler and removes an
+# entire category of asar-vs-child-process-vs-ESM interaction risk this app has no real need to
+# take on — it's an internal fleet kiosk, not a product that benefits from asar's minor
+# packaging/obscurity gains.
+asar: false
 
 publish:
   provider: generic
