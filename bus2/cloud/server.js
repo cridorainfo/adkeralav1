@@ -64,6 +64,7 @@ import {
   recordAdPlays,
   getCampaignPlaysSummary,
   getAdPlaysRaw,
+  getAdPlayCountForBus,
   getPricingSettings,
   setPricingSettings,
   getHouseAds,
@@ -74,7 +75,7 @@ import {
   describeMediaReferences,
   removeMediaReferenceEverywhere,
 } from './store.js';
-import { computeAdSpend, isAdExhausted } from './pricing.js';
+import { computeAdSpend, isAdExhausted, estimateCostPerPlay, computeBusPlayQuota } from './pricing.js';
 import {
   CLOUD_VERSION,
   buildPcLatestYml,
@@ -1285,25 +1286,59 @@ app.get('/api/buses/:busId/ads/live', authFleet, async (req, res) => {
   await syncBusAdsCatalogFromTelemetry(req.params.busId, row?.state ?? {});
   const catalog = await getBusAdsCatalog(req.params.busId);
   const houseAds = await getHouseAds();
-  const ads = [...(await stampExhaustion(catalog.ads)), ...houseAds.ads];
+  const ads = [...(await stampExhaustion(catalog.ads, req.params.busId)), ...houseAds.ads];
   const bannerAds = [...catalog.bannerAds, ...houseAds.bannerAds];
   res.json({ ok: true, ads, bannerAds, adsSavedAt: catalog.adsSavedAt });
 });
 
-// Stamps `exhausted` onto each budgeted ad (spend computed fresh from reported plays against
-// current pricing settings — see cloud/pricing.js), so the bus's own rotation
-// (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid ads and fall back to
-// house ads without needing any cloud round-trip of its own. Budget/exhaustion is a fullscreen-
-// only concept (banner ads aren't instrumented by endAd()'s play tracking), so this only
-// applies to the fullscreen list — banner house ads are appended separately, unconditionally.
-async function stampExhaustion(list = [], format = 'fullscreen') {
+// Stamps `exhausted`/`playsRemaining` onto each budgeted ad for one specific bus, so the bus's
+// own rotation (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid ads and fall
+// back to house ads without needing any cloud round-trip of its own. Budget/exhaustion is a
+// fullscreen-only concept (banner ads aren't instrumented by endAd()'s play tracking), so this
+// only applies to the fullscreen list — banner house ads are appended separately, unconditionally.
+//
+// Two enforcement mechanisms are combined:
+//  - `playsRemaining` (a fixed per-bus play-count quota, this ad's budget divided across every
+//    bus its owning campaign targets) is what the bus itself enforces locally as plays happen —
+//    including fully offline — so it never "over-shows" past its share while waiting on a sync.
+//    The bus decrements its own copy as it plays (BusStoreProvider.jsx endAd()); this stamping
+//    just gives it a fresh authoritative number (quota minus this bus's actual reported plays)
+//    each time it syncs, so a pricing/budget/targeting change made by admin, or any drift from
+//    the bus's own optimistic local count, converges next time that bus is back online.
+//  - `exhausted` (unchanged from before) is still additionally true once the ad's real fleet-
+//    wide spend reaches its budget — a belt-and-suspenders backstop for the rare case where the
+//    quota estimate (based on an assumed per-play cost) doesn't match actual watch-time.
+async function stampExhaustion(list = [], busId, format = 'fullscreen') {
   const pricingSettings = await getPricingSettings();
   return Promise.all(
     list.map(async (ad) => {
       if (!Number.isFinite(Number(ad.amount)) || Number(ad.amount) <= 0) return ad;
       const plays = await getAdPlaysRaw(ad.id);
       const { spend } = computeAdSpend(plays, format, pricingSettings);
-      return { ...ad, exhausted: isAdExhausted(ad.amount, spend) };
+      const exhaustedBySpend = isAdExhausted(ad.amount, spend);
+
+      let playQuota = null;
+      let playsUsed = null;
+      let playsRemaining = null;
+      const campaign = ad.campaignId ? await getCampaign(ad.campaignId) : null;
+      if (campaign) {
+        const costPerPlay = estimateCostPerPlay(ad, format, pricingSettings);
+        playQuota = computeBusPlayQuota({
+          amount: ad.amount,
+          costPerPlay,
+          busCount: campaign.targetBusIds?.length ?? 0,
+        });
+        if (playQuota != null && busId) {
+          playsUsed = await getAdPlayCountForBus(busId, ad.id);
+          playsRemaining = Math.max(0, playQuota - playsUsed);
+        }
+      }
+
+      return {
+        ...ad,
+        exhausted: exhaustedBySpend || (playsRemaining != null && playsRemaining <= 0),
+        ...(playQuota != null ? { playQuota, playsUsed, playsRemaining } : {}),
+      };
     })
   );
 }
@@ -1319,7 +1354,7 @@ app.get('/api/buses/:busId/ads', authBus, async (req, res) => {
   await syncBusAdsCatalogFromTelemetry(busId, row?.state ?? {});
   const catalog = await getBusAdsCatalog(busId);
   const houseAds = await getHouseAds();
-  const ads = [...(await stampExhaustion(catalog.ads)), ...houseAds.ads];
+  const ads = [...(await stampExhaustion(catalog.ads, busId)), ...houseAds.ads];
   const bannerAds = [...catalog.bannerAds, ...houseAds.bannerAds];
   res.json({
     ok: true,

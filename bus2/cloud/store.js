@@ -540,6 +540,14 @@ export async function getAdPlaysRaw(adId) {
     .map((p) => ({ playedAt: p.playedAt, durationPlayedSec: p.durationPlayedSec }));
 }
 
+/** How many times this bus has played this ad — used to compute its remaining share of a
+ * per-bus play quota (see cloud/pricing.js computeBusPlayQuota). */
+export async function getAdPlayCountForBus(busId, adId) {
+  if (usePostgres()) return pg.pgGetAdPlayCountForBus(busId, adId);
+  const store = await loadStore();
+  return (store.adPlays ?? []).filter((p) => p.busId === busId && p.adId === adId).length;
+}
+
 /** Raw play events for one bus — feeds per-bus spend/play analytics. */
 export async function getAdPlaysForBus(busId) {
   if (usePostgres()) return pg.pgGetAdPlaysForBus(busId);

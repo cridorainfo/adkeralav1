@@ -466,6 +466,16 @@ export async function pgGetAdPlaysRaw(adId) {
   }));
 }
 
+/** How many times a specific bus has played a specific ad — feeds that bus's remaining share of
+ * a per-bus play quota (see cloud/pricing.js computeBusPlayQuota / server.js stampExhaustion). */
+export async function pgGetAdPlayCountForBus(busId, adId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS count FROM ad_plays WHERE bus_id = $1 AND ad_id = $2`,
+    [busId, adId]
+  );
+  return rows[0]?.count ?? 0;
+}
+
 /** All play events for one bus — used by per-bus ad analytics (spend/plays on that bus only). */
 export async function pgGetAdPlaysForBus(busId) {
   const { rows } = await query(

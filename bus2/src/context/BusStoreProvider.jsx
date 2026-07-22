@@ -69,6 +69,23 @@ function pushPendingAdPlay(prev, { adId, campaignId, playedAt, durationPlayedSec
   return [...(prev.pendingAdPlays ?? []), playEvent].slice(-500);
 }
 
+/** Decrements a bus's own local copy of an ad's remaining play-count quota (`playsRemaining`,
+ * stamped by the cloud — see cloud/server.js stampExhaustion) the instant a play finishes, so
+ * the hard stop applies immediately even fully offline, without waiting for the next sync to
+ * tell this bus it's exhausted. Self-corrects next sync once the cloud has an authoritative
+ * count of this bus's actual reported plays (fullscreen ads only — same scope as the budget/
+ * quota system itself; banner/audio ads aren't budget-instrumented). */
+function decrementAdQuota(ads, adId) {
+  let changed = false;
+  const next = (ads ?? []).map((ad) => {
+    if (ad.id !== adId || !Number.isFinite(ad.playsRemaining)) return ad;
+    changed = true;
+    const playsRemaining = Math.max(0, ad.playsRemaining - 1);
+    return { ...ad, playsRemaining, exhausted: ad.exhausted || playsRemaining <= 0 };
+  });
+  return changed ? next : ads;
+}
+
 function useBusStoreLogic() {
   const [state, setState] = useState(defaultState);
   const [storageError, setStorageError] = useState(null);
@@ -889,6 +906,7 @@ function useBusStoreLogic() {
       // against the "force out of ad view" cleanup call below firing a bogus event.
       const currentAd = prev.ads?.[prev.currentAdIndex ?? -1] ?? null;
       let pendingAdPlays = prev.pendingAdPlays;
+      let ads = prev.ads;
       if (prev.displayView === 'ad' && currentAd?.id && prev.adStartedAt) {
         const endedAt = Date.now();
         const durationPlayedSec = Math.max(0, Math.round((endedAt - prev.adStartedAt) / 1000));
@@ -901,17 +919,19 @@ function useBusStoreLogic() {
           completed: durationPlayedSec >= adDurationSec - 1,
           format: 'fullscreen',
         });
+        ads = decrementAdQuota(prev.ads, currentAd.id);
       }
 
-      const next = !prev.ads.length
-        ? { ...prev, displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null, pendingAdPlays }
+      const next = !ads.length
+        ? { ...prev, displayView: 'route', lastAdEndedAt: Date.now(), adStartedAt: null, pendingAdPlays, ads }
         : {
             ...prev,
             displayView: 'route',
             lastAdEndedAt: Date.now(),
-            nextAdIndex: ((prev.currentAdIndex ?? 0) + 1) % prev.ads.length,
+            nextAdIndex: ((prev.currentAdIndex ?? 0) + 1) % ads.length,
             adStartedAt: null,
             pendingAdPlays,
+            ads,
           };
       const stamped = { ...next, savedAt: Date.now() };
       lastWriteAtRef.current = stamped.savedAt;
