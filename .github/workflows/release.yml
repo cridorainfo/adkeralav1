@@ -168,7 +168,10 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             export ADKERALA_ANDROID_VERSION="${GITHUB_REF_NAME#v}"
           else
-            export ADKERALA_ANDROID_VERSION="0.0.0"
+            # Not 0.0.0 — build.gradle's versionCode formula (major*1e6 + minor*1e3 + patch)
+            # computes to 0 for that, and AGP requires versionCode >= 1 ("must be a positive
+            # integer"), a real error caught on this exact smoke-test infrastructure's first run.
+            export ADKERALA_ANDROID_VERSION="0.0.1"
           fi
           chmod +x gradlew
           ./gradlew assembleRelease
