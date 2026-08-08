@@ -1,5 +1,5 @@
 import {
-  loadStore,
+  getCampaignsCatalog,
   getAdPlaysRaw,
   getAdPlaysForBus,
   getPricingSettings,
@@ -14,9 +14,9 @@ import { computeAdSpend, isAdExhausted } from './pricing.js';
  */
 export async function findAdMetaById(adId) {
   if (!adId) return null;
-  const store = await loadStore();
+  const campaignsById = await getCampaignsCatalog();
 
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  for (const campaign of Object.values(campaignsById)) {
     const fullscreen = (campaign.ads ?? []).find((ad) => ad.id === adId);
     if (fullscreen) {
       return {
@@ -42,7 +42,7 @@ export async function findAdMetaById(adId) {
   const { stopVoiceAds } = await getStopVoiceAdsCatalog();
   const audio = Object.values(stopVoiceAds ?? {}).find((entry) => entry.id === adId);
   if (audio) {
-    const campaign = audio.campaignId ? store.adCampaigns?.[audio.campaignId] : null;
+    const campaign = audio.campaignId ? campaignsById[audio.campaignId] : null;
     return {
       ad: audio,
       format: 'audio',
@@ -79,10 +79,10 @@ export async function findAdMetaById(adId) {
 
 /** Every known ad across campaigns + house + audio stop-ads, deduped by id. */
 async function listAllKnownAds() {
-  const store = await loadStore();
+  const campaignsById = await getCampaignsCatalog();
   const byId = new Map();
 
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  for (const campaign of Object.values(campaignsById)) {
     for (const ad of campaign.ads ?? []) {
       if (!ad?.id || byId.has(ad.id)) continue;
       byId.set(ad.id, {
@@ -108,7 +108,7 @@ async function listAllKnownAds() {
   const { stopVoiceAds } = await getStopVoiceAdsCatalog();
   for (const audio of Object.values(stopVoiceAds ?? {})) {
     if (!audio?.id || byId.has(audio.id)) continue;
-    const campaign = audio.campaignId ? store.adCampaigns?.[audio.campaignId] : null;
+    const campaign = audio.campaignId ? campaignsById[audio.campaignId] : null;
     byId.set(audio.id, {
       ad: audio,
       format: 'audio',

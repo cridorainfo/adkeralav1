@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
 import { withMediaFiles } from './fleet.js';
 import {
-  loadStore,
-  saveStore,
+  getCampaignsCatalog,
+  saveCampaignsCatalog,
   enqueueCommand,
   setBusAdsCatalog,
   getAdPlaysRaw,
@@ -92,10 +92,9 @@ export async function getCampaignReport(campaignId) {
 }
 
 export async function listCampaigns(user) {
-  const store = await loadStore();
-  if (!store.adCampaigns) store.adCampaigns = {};
+  const campaignsById = await getCampaignsCatalog();
 
-  let campaigns = Object.values(store.adCampaigns);
+  let campaigns = Object.values(campaignsById);
   if (user.role === 'advertiser') {
     campaigns = campaigns.filter((c) => c.advertiserId === user.id);
   }
@@ -106,14 +105,14 @@ export async function listCampaigns(user) {
 }
 
 /**
- * Returns a shallow copy, not the live store object — updateCampaign() mutates
- * campaign.ads/bannerAds in place on the cached store, so a caller snapshotting "before" state
- * (e.g. to diff which media files got removed) would otherwise see its own snapshot change
- * underneath it once the update runs.
+ * Returns a shallow copy, not the live catalog entry — updateCampaign() replaces the catalog
+ * entry wholesale rather than mutating in place, so a caller snapshotting "before" state (e.g.
+ * to diff which media files got removed) never sees its own snapshot change underneath it once
+ * the update runs.
  */
 export async function getCampaign(id) {
-  const store = await loadStore();
-  const campaign = store.adCampaigns?.[id];
+  const campaignsById = await getCampaignsCatalog();
+  const campaign = campaignsById[id];
   if (!campaign) return null;
   return { ...campaign, ads: [...(campaign.ads ?? [])], bannerAds: [...(campaign.bannerAds ?? [])] };
 }
@@ -121,8 +120,8 @@ export async function getCampaign(id) {
 /** Finds the campaign that owns a given ad id — used to authorize per-ad spend lookups (an
  * advertiser must not be able to see another advertiser's ad spend just by guessing an id). */
 export async function findCampaignByAdId(adId) {
-  const store = await loadStore();
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  const campaignsById = await getCampaignsCatalog();
+  for (const campaign of Object.values(campaignsById)) {
     if ((campaign.ads ?? []).some((ad) => ad.id === adId)) return campaign;
     if ((campaign.bannerAds ?? []).some((ad) => ad.id === adId)) return campaign;
   }
@@ -130,7 +129,7 @@ export async function findCampaignByAdId(adId) {
   // StopsCatalog.jsx) — they're referenced by campaignId instead, so resolve the other way.
   const { stopVoiceAds } = await getStopVoiceAdsCatalog();
   const linked = Object.values(stopVoiceAds ?? {}).find((entry) => entry.id === adId);
-  if (linked?.campaignId) return store.adCampaigns?.[linked.campaignId] ?? null;
+  if (linked?.campaignId) return campaignsById[linked.campaignId] ?? null;
   return null;
 }
 
@@ -146,8 +145,7 @@ export async function adFormatInCampaign(campaign, adId) {
 }
 
 export async function createCampaign(user, body) {
-  const store = await loadStore();
-  if (!store.adCampaigns) store.adCampaigns = {};
+  const campaignsById = await getCampaignsCatalog();
 
   const id = randomUUID();
   const campaign = {
@@ -161,47 +159,47 @@ export async function createCampaign(user, body) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  store.adCampaigns[id] = campaign;
-  await saveStore();
+  await saveCampaignsCatalog({ ...campaignsById, [id]: campaign });
   return { ok: true, campaign };
 }
 
 export async function updateCampaign(id, user, patch) {
-  const store = await loadStore();
-  const campaign = store.adCampaigns?.[id];
+  const campaignsById = await getCampaignsCatalog();
+  const campaign = campaignsById[id];
   if (!campaign) return { ok: false, error: 'Campaign not found' };
 
   if (user.role === 'advertiser' && campaign.advertiserId !== user.id) {
     return { ok: false, error: 'Forbidden' };
   }
 
-  if (patch.name != null) campaign.name = String(patch.name).trim();
-  if (patch.ads != null) campaign.ads = patch.ads;
-  if (patch.bannerAds != null) campaign.bannerAds = patch.bannerAds;
-  if (patch.targetBusIds != null) campaign.targetBusIds = patch.targetBusIds;
+  const next = { ...campaign };
+  if (patch.name != null) next.name = String(patch.name).trim();
+  if (patch.ads != null) next.ads = patch.ads;
+  if (patch.bannerAds != null) next.bannerAds = patch.bannerAds;
+  if (patch.targetBusIds != null) next.targetBusIds = patch.targetBusIds;
 
   if (patch.status != null) {
     if (user.role === 'admin') {
-      campaign.status = patch.status;
+      next.status = patch.status;
     } else if (user.role === 'advertiser' && patch.status === 'paused') {
-      campaign.status = 'paused';
+      next.status = 'paused';
     }
   }
 
-  campaign.updatedAt = Date.now();
-  await saveStore();
-  return { ok: true, campaign };
+  next.updatedAt = Date.now();
+  await saveCampaignsCatalog({ ...campaignsById, [id]: next });
+  return { ok: true, campaign: next };
 }
 
 export async function deleteCampaign(id, user) {
-  const store = await loadStore();
-  const campaign = store.adCampaigns?.[id];
+  const campaignsById = await getCampaignsCatalog();
+  const campaign = campaignsById[id];
   if (!campaign) return { ok: false, error: 'Campaign not found' };
   if (user.role === 'advertiser' && campaign.advertiserId !== user.id) {
     return { ok: false, error: 'Forbidden' };
   }
-  delete store.adCampaigns[id];
-  await saveStore();
+  const { [id]: _removed, ...rest } = campaignsById;
+  await saveCampaignsCatalog(rest);
   return { ok: true, deleted: id };
 }
 
@@ -233,8 +231,7 @@ export async function rerunCampaign(id, user, body = {}) {
     return { ...rest, id: randomUUID(), ...(amount != null ? { amount } : {}) };
   };
 
-  const store = await loadStore();
-  if (!store.adCampaigns) store.adCampaigns = {};
+  const campaignsById = await getCampaignsCatalog();
   const newId = randomUUID();
   const campaign = {
     id: newId,
@@ -248,8 +245,7 @@ export async function rerunCampaign(id, user, body = {}) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  store.adCampaigns[newId] = campaign;
-  await saveStore();
+  await saveCampaignsCatalog({ ...campaignsById, [newId]: campaign });
 
   const stopVoiceAmounts = body.stopVoiceAds;
   if (Array.isArray(stopVoiceAmounts) && stopVoiceAmounts.length) {
