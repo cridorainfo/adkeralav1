@@ -63,11 +63,15 @@ jobs:
           cache: npm
           cache-dependency-path: bus2/package-lock.json
 
-      - name: Set up JDK 17
+      # 21, not 17 — Capacitor's own capacitor-android library module targets Java 21
+      # (compileReleaseJavaWithJavac failed with "invalid source release: 21" against JDK 17).
+      # Matches what Android Studio actually builds with locally: its bundled JBR is JDK
+      # 21-based, which is why this worked there and not against an explicit JDK 17 here.
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
