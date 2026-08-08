@@ -147,11 +147,29 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease
 
-      - name: Rename APK
+      # build.gradle's splits.abi produces one APK per ABI (app-<abi>-release.apk — see
+      # build.gradle's splits comment for why: the fleet spans multiple chipsets, and one
+      # universal APK bundling every ABI's native libraries was ~3x the necessary download size
+      # for any single device) instead of a single app-release.apk. Rename each into
+      # AdKeralaDisplay-<version>-<abi>.apk — register-android-release.mjs's --apk-dir mode
+      # depends on that exact naming to discover and register every ABI variant.
+      - name: Rename APKs (one per ABI)
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release-upload
-          cp display/android/app/build/outputs/apk/release/app-release.apk "release-upload/AdKeralaDisplay-${VERSION}.apk"
+          shopt -s nullglob
+          apks=(display/android/app/build/outputs/apk/release/app-*-release.apk)
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "No split APKs found under app/build/outputs/apk/release/ — build failed silently?" >&2
+            exit 1
+          fi
+          for f in "${apks[@]}"; do
+            base=$(basename "$f")
+            abi="${base#app-}"
+            abi="${abi%-release.apk}"
+            cp "$f" "release-upload/AdKeralaDisplay-${VERSION}-${abi}.apk"
+          done
+          ls -la release-upload/
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
@@ -240,18 +258,20 @@ jobs:
             --sha512 "$SHA512" \
             --size "$SIZE"
 
-          ANDROID_FILE=$(ls ../release-upload/*.apk 2>/dev/null | head -1)
-          if [ -n "$ANDROID_FILE" ]; then
-            ANDROID_NAME=$(basename "$ANDROID_FILE")
-            ANDROID_SHA256=$(sha256sum "$ANDROID_FILE" | awk '{print $1}')
+          # One APK per ABI now (see build.gradle's splits.abi / release.yml's "Rename APKs (one
+          # per ABI)" step) — --apk-dir mode discovers every AdKeralaDisplay-<version>-<abi>.apk
+          # in the directory, computes each one's sha256 itself, and registers all of them as
+          # variants in one call so a device downloads only the build matching its own chipset.
+          if ls ../release-upload/AdKeralaDisplay-*.apk >/dev/null 2>&1; then
             node scripts/register-android-release.mjs \
               --cloud-url "$ADKERALA_CLOUD_URL" \
               --admin-key "$ADKERALA_ADMIN_KEY" \
               --version "$VERSION" \
-              --apk-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ANDROID_NAME}" \
-              --sha256 "$ANDROID_SHA256"
+              --apk-dir ../release-upload \
+              --repo "$GITHUB_REPOSITORY" \
+              --tag "$GITHUB_REF_NAME"
           else
-            echo "No Android APK in this release — skipping Android registration"
+            echo "No Android APKs in this release — skipping Android registration"
           fi
 
   deploy-cloud:

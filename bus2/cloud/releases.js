@@ -121,18 +121,54 @@ export async function setHotpatchRelease(release) {
 // but are a genuinely separate release channel — a different installable artifact (APK vs
 // NSIS installer) with its own update mechanism (Device-Owner silent PackageInstaller vs
 // electron-updater), so it gets its own version/downloadUrl slot rather than overloading `pc`.
+//
+// `variants` — per-ABI download info, e.g. { "arm64-v8a": { downloadUrl, sha256, size },
+// "armeabi-v7a": {...}, "x86_64": {...} } — exists because the fleet spans multiple chipsets,
+// not just one, and a single universal APK bundling every ABI's native libraries is ~3x the
+// download size for no reason (any one device only ever uses one ABI). AdKeralaUpdateChecker.java
+// picks the entry matching the device's own Build.SUPPORTED_ABIS. The top-level downloadUrl/
+// sha256/size fields are kept as a fallback default (populated from whichever variant the
+// registering script designates primary, normally arm64-v8a) — for an update checker build old
+// enough to predate variant-matching, or if no variant matches an exotic device's ABI list.
 export async function setAndroidRelease(release) {
   const releases = await loadReleaseStore();
   const incomingVersion = String(release.version ?? '').trim();
   if (releases.android?.version && compareSemver(incomingVersion, releases.android.version) < 0) {
     return releases.android;
   }
+  // Same version re-registered (e.g. CI re-running, or a one-off manual variant registration
+  // for a single device) merges into whatever's already there — variants from an earlier call
+  // aren't wiped out, and downloadUrl/sha256/size/releaseNotes fall back to what's already
+  // stored when this call doesn't supply them. A genuinely newer version starts fresh.
+  const isSameVersion = releases.android?.version === incomingVersion;
+  const prior = isSameVersion ? releases.android : null;
+
+  const incomingVariants = {};
+  for (const [abi, v] of Object.entries(release.variants ?? {})) {
+    if (!v?.downloadUrl) continue;
+    incomingVariants[abi] = {
+      downloadUrl: String(v.downloadUrl).trim(),
+      sha256: String(v.sha256 ?? '').trim(),
+      size: Number(v.size ?? 0) || null,
+    };
+  }
+  const variants = { ...(prior?.variants ?? {}), ...incomingVariants };
+
+  // Fallback default for update-checker builds old enough to only read the flat top-level
+  // fields: prefer whatever this call explicitly set, then whatever was already stored, then —
+  // for a fresh version registered purely via `variants` with no explicit downloadUrl — the
+  // arm64-v8a entry (the single most common real-device ABI) or, failing that, whichever
+  // variant happens to be first, rather than leaving it blank and having old checkers see no
+  // update at all.
+  const defaultVariant = variants['arm64-v8a'] ?? Object.values(variants)[0] ?? null;
+
   releases.android = {
     version: incomingVersion,
-    downloadUrl: String(release.downloadUrl ?? '').trim(),
-    sha256: String(release.sha256 ?? '').trim(),
-    size: Number(release.size ?? 0) || null,
-    releaseNotes: String(release.releaseNotes ?? '').trim(),
+    downloadUrl: String(release.downloadUrl ?? prior?.downloadUrl ?? defaultVariant?.downloadUrl ?? '').trim(),
+    sha256: String(release.sha256 ?? prior?.sha256 ?? defaultVariant?.sha256 ?? '').trim(),
+    size: Number(release.size ?? prior?.size ?? defaultVariant?.size ?? 0) || null,
+    variants,
+    releaseNotes: String(release.releaseNotes ?? prior?.releaseNotes ?? '').trim(),
     publishedAt: Date.now(),
   };
   await saveReleaseStore(releases);

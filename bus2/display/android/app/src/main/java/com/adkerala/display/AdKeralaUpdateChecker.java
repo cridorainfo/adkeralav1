@@ -165,8 +165,8 @@ public class AdKeralaUpdateChecker {
             }
 
             String latestVersion = release.optString("version", null);
-            String downloadUrl = release.optString("downloadUrl", null);
-            if (latestVersion == null || downloadUrl == null || downloadUrl.isEmpty()) {
+            ApkVariant variant = resolveApkVariant(release);
+            if (latestVersion == null || variant.downloadUrl == null || variant.downloadUrl.isEmpty()) {
                 handler.post(this::scheduleNext);
                 return;
             }
@@ -188,11 +188,55 @@ public class AdKeralaUpdateChecker {
             Log.i(TAG, "installing update " + latestVersion
                 + (belowMinimum ? " (forced — below minimum version)" : ""));
             notifyStatus("Installing AdKerala update", "Downloading v" + latestVersion + "…");
-            downloadAndInstall(downloadUrl, latestVersion, release.optString("sha256", null));
+            downloadAndInstall(variant.downloadUrl, latestVersion, variant.sha256);
         } catch (Exception e) {
             Log.w(TAG, "update check failed", e);
             handler.post(this::scheduleNext);
         }
+    }
+
+    /** downloadUrl + sha256 for one ABI-matched build — see resolveApkVariant(). */
+    private static class ApkVariant {
+        final String downloadUrl;
+        final String sha256;
+        ApkVariant(String downloadUrl, String sha256) {
+            this.downloadUrl = downloadUrl;
+            this.sha256 = sha256;
+        }
+    }
+
+    /** Picks the download URL + sha256 matching this device's own chipset from
+     * `release.variants` (see cloud/releases.js's setAndroidRelease doc comment for the exact
+     * shape — keyed by ABI, e.g. "arm64-v8a"/"armeabi-v7a"/"x86_64") — the fleet spans multiple
+     * chipsets, not just one, so a single flat downloadUrl can't be right for every device (see
+     * build.gradle's abiFilters comment for the history here: a single-ABI or bundle-everything
+     * build were both tried and rejected). Build.SUPPORTED_ABIS is already ordered by the
+     * device's own preference (its real ABI first, then compatible fallbacks, e.g. an arm64
+     * device also lists armeabi-v7a) — walking it in order and taking the first match in
+     * `variants` picks the best available build for THIS specific device. Falls back to the
+     * flat top-level downloadUrl/sha256 (register-android-release.mjs always populates one, as
+     * a default) when there's no `variants` field at all, or when none of this device's ABIs
+     * has a registered variant. */
+    private ApkVariant resolveApkVariant(JSONObject release) {
+        JSONObject variants = release.optJSONObject("variants");
+        if (variants != null) {
+            for (String abi : Build.SUPPORTED_ABIS) {
+                JSONObject match = variants.optJSONObject(abi);
+                if (match == null) continue;
+                String url = match.optString("downloadUrl", null);
+                if (url == null || url.isEmpty()) continue;
+                Log.i(TAG, "matched update variant for device ABI " + abi);
+                return new ApkVariant(url, match.optString("sha256", null));
+            }
+            StringBuilder abis = new StringBuilder();
+            for (String abi : Build.SUPPORTED_ABIS) {
+                if (abis.length() > 0) abis.append(",");
+                abis.append(abi);
+            }
+            Log.w(TAG, "no update variant matches this device's ABIs (" + abis
+                + ") — falling back to the default build, which may fail to install");
+        }
+        return new ApkVariant(release.optString("downloadUrl", null), release.optString("sha256", null));
     }
 
     private boolean isTripInProgress() {
@@ -208,17 +252,29 @@ public class AdKeralaUpdateChecker {
         }
     }
 
+    /** Cache filename is version-scoped (adkerala-update-<version>.apk, not a fixed name) so a
+     * partial download for one version can never be mistaken for — and appended onto — a
+     * leftover partial file from a different version if the registered release changes mid-
+     * download. Any other adkerala-update-*.apk lingering in the cache dir (a different
+     * version's abandoned partial, or a fully-downloaded file the app never got to install
+     * before being killed) is cleaned up before starting, so cache usage doesn't grow unbounded
+     * across retries/versions. */
     private void downloadAndInstall(String downloadUrl, String version, String expectedSha256) {
-        File apkFile = new File(context.getCacheDir(), "adkerala-update.apk");
+        File apkFile = new File(context.getCacheDir(), "adkerala-update-" + version + ".apk");
+        cleanupStaleUpdateFiles(apkFile);
         try {
             downloadToFile(downloadUrl, apkFile);
             if (expectedSha256 != null && !expectedSha256.isEmpty()) {
                 String actual = sha256Hex(apkFile);
                 if (!actual.equalsIgnoreCase(expectedSha256)) {
+                    // Don't leave a corrupted file around to be "resumed" from next attempt —
+                    // that would just compound the corruption instead of self-healing.
+                    apkFile.delete();
                     throw new IOException("checksum mismatch: expected " + expectedSha256 + " got " + actual);
                 }
             }
             installSilently(apkFile, version);
+            apkFile.delete(); // bytes are already inside the PackageInstaller session by now
         } catch (Exception e) {
             Log.w(TAG, "download/install failed", e);
             installInFlight = false;
@@ -226,13 +282,54 @@ public class AdKeralaUpdateChecker {
         }
     }
 
+    private void cleanupStaleUpdateFiles(File keep) {
+        File[] files = context.getCacheDir().listFiles(
+            (dir, name) -> name.startsWith("adkerala-update-") && name.endsWith(".apk"));
+        if (files == null) return;
+        for (File f : files) {
+            if (!f.equals(keep)) f.delete();
+        }
+    }
+
+    /** Resumes a partial download via HTTP Range instead of restarting from byte 0 every time —
+     * on a moving bus, a flaky connection stalling past the 60s read timeout used to mean every
+     * retry re-downloaded the full ~50-60MB APK from scratch (new FileOutputStream(dest) with no
+     * append flag truncated whatever was already there), so a sufficiently unstable connection
+     * could make an update take hours without ever actually finishing — this is exactly that
+     * fix. GitHub Releases (where these APKs are hosted) serves static assets and supports Range
+     * requests. Falls back to a clean full restart if the server doesn't honor the Range header
+     * (plain 200 instead of 206) rather than risk appending onto data that isn't actually a
+     * continuation. */
     private void downloadToFile(String url, File dest) throws IOException {
+        long existingBytes = dest.exists() ? dest.length() : 0;
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(60000);
-        try (InputStream in = conn.getInputStream();
-             OutputStream out = new FileOutputStream(dest)) {
-            copyStream(in, out);
+        if (existingBytes > 0) {
+            conn.setRequestProperty("Range", "bytes=" + existingBytes + "-");
+        }
+        try {
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 416) {
+                // "Range Not Satisfiable" — existingBytes already covers the whole file, most
+                // likely because a previous attempt finished the download but the app was
+                // killed/restarted before installSilently ran. Nothing left to fetch; the
+                // caller's sha256 check confirms whether what's on disk is actually good (and
+                // deletes it to force a clean restart next time if not).
+                Log.i(TAG, "resume: server reports nothing left to download, reusing cached file ("
+                    + existingBytes + " bytes)");
+                return;
+            }
+            boolean resuming = existingBytes > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL;
+            if (existingBytes > 0 && !resuming) {
+                Log.i(TAG, "server doesn't support resume for this URL — restarting download from 0");
+            } else if (resuming) {
+                Log.i(TAG, "resuming download from byte " + existingBytes);
+            }
+            try (InputStream in = conn.getInputStream();
+                 OutputStream out = new FileOutputStream(dest, resuming)) {
+                copyStream(in, out);
+            }
         } finally {
             conn.disconnect();
         }

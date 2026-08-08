@@ -47,6 +47,22 @@ android {
         // Embedded local Node server (server/androidMain.js, packaged into
         // src/main/assets/nodejs-project by scripts/build-android-node-bundle.mjs) — see
         // display/LIBNODE-SETUP.md for the one-time libnode/ download this depends on.
+        //
+        // Three ABIs — the fleet isn't arm-only (2026-08-09: confirmed devices span multiple
+        // chipsets, not just the arm64-v8a Galaxy S23 test phone), so a single-ABI build isn't
+        // safe here. x86 (32-bit) stays excluded — no device this app ships on is 32-bit x86;
+        // add it back if that ever changes, the per-ABI libnode/bin/<abi>/ layout (see
+        // CMakeLists.txt) already supports it.
+        //
+        // This does NOT mean going back to one 152MB universal APK bundling all three (that
+        // was the actual problem — three full copies of libnode.so, the embedded Node runtime,
+        // in a single download). `splits.abi` below builds one APK PER ABI instead, each
+        // containing only its own native libraries — every device still only ever downloads
+        // ~50-60MB, it just downloads the right ~50-60MB for its own chipset instead of the
+        // one arm64-only build assuming every device is arm64. See
+        // AdKeralaUpdateChecker.java's variant-matching logic and
+        // cloud/releases.js's per-ABI `variants` map for the device-side/server-side half of
+        // this — all three have to agree on ABI naming.
         ndk {
             abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
         }
@@ -83,6 +99,20 @@ android {
     sourceSets {
         main {
             jniLibs.srcDirs = ['libnode/bin']
+        }
+    }
+
+    // One APK per ABI instead of one universal APK bundling all three — see the abiFilters
+    // comment above for why. AGP's default output naming for this is stable across 3.x-8.x:
+    // app-<abi>-release.apk (e.g. app-arm64-v8a-release.apk) — release.yml's "Rename APKs" step
+    // and register-android-release.mjs's --apk-dir scan both depend on that exact pattern, so
+    // don't add a custom outputFileName override here without updating both.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a", "x86_64"
+            universalApk false
         }
     }
 }
