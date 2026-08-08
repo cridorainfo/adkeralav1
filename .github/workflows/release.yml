@@ -103,9 +103,18 @@ jobs:
           VITE_CLOUD_URL: ${{ secrets.ADKERALA_CLOUD_URL }}
 
       - name: Decode release keystore
-        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 != '' }}
+        # `secrets` isn't allowed inside a step's `if:` condition (only env: and a few other
+        # places) — real GitHub Actions schema error caught by actionlint, not a guess. So the
+        # secret is routed through env: here instead, and the script itself decides whether
+        # there's anything to decode.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}" | base64 -d > display/android/app/release.keystore
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > display/android/app/release.keystore
+          else
+            echo "No ANDROID_RELEASE_KEYSTORE_BASE64 secret set — building an unsigned APK"
+          fi
 
       - name: Build signed release APK
         working-directory: bus2/display/android
