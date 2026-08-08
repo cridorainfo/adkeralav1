@@ -13,6 +13,7 @@ import AdsPanel from '../../components/AdsPanel.jsx';
 import ContentGaps from '../../components/ContentGaps.jsx';
 import UsersPanel from '../../components/UsersPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
+import SchedulesPanel from '../../components/SchedulesPanel.jsx';
 import PricingPanel from '../../components/PricingPanel.jsx';
 import HouseAdsPanel from '../../components/HouseAdsPanel.jsx';
 import MediaBrowserPanel from '../../components/MediaBrowserPanel.jsx';
@@ -34,6 +35,7 @@ const NAV = [
   { to: '/ads-report', label: 'Ads Report' },
   { to: '/display', label: 'Display' },
   { to: '/campaigns', label: 'Campaigns' },
+  { to: '/schedules', label: 'Schedules' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/house-ads', label: 'House ads' },
   { to: '/media', label: 'Media browser' },
@@ -74,6 +76,7 @@ function AdminRoutes() {
         <Route path="ads-report" element={<AdsFleetReport />} />
         <Route path="display" element={<DisplaySettingsPanel />} />
         <Route path="campaigns" element={<CampaignsPanel adminMode />} />
+        <Route path="schedules" element={<SchedulesPanel />} />
         <Route path="pricing" element={<PricingPanel />} />
         <Route path="house-ads" element={<HouseAdsPanel />} />
         <Route path="media" element={<MediaBrowserPanel />} />

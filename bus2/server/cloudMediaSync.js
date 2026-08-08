@@ -3,9 +3,13 @@ import path from 'path';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
 import { getDbPaths, readInfoFile } from './dbApi.js';
-import { collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
+import {
+  collectAdMediaFromState,
+  collectAudioMediaFromState,
+  collectScheduleMediaFromState,
+} from './cloudCommands.js';
 
-const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
+const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops', 'schedule']);
 const MEDIA_CATEGORY_LIST = [...MEDIA_CATEGORIES];
 
 const BUS_KEY = process.env.ADKERALA_BUS_KEY ?? '';
@@ -126,6 +130,7 @@ export async function sweepOrphanedMedia(root) {
   const referenced = new Set([
     ...collectAdMediaFromState(state),
     ...collectAudioMediaFromState(state),
+    ...collectScheduleMediaFromState(state),
   ]);
 
   let removed = 0;

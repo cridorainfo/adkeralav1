@@ -21,7 +21,7 @@ import {
 } from './stateArchive.js';
 import { ensureActiveRouteId } from '../src/store/busStore.js';
 
-const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops']);
+const MEDIA_CATEGORIES = new Set(['ads', 'banners', 'announcements', 'stops', 'schedule']);
 
 export function getDbPaths(root) {
   const dbDir = path.join(root, 'db');
@@ -115,6 +115,7 @@ export async function ensureDbLayout(root) {
   await fs.mkdir(path.join(mediaDir, 'banners'), { recursive: true });
   await fs.mkdir(path.join(mediaDir, 'announcements'), { recursive: true });
   await fs.mkdir(path.join(mediaDir, 'stops'), { recursive: true });
+  await fs.mkdir(path.join(mediaDir, 'schedule'), { recursive: true });
 
   if (!existsSync(infoFile)) {
     const template = path.join(dbDir, 'info.template.txt');

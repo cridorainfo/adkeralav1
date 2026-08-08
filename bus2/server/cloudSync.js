@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { readInfoFile, writeInfoFileSerialized } from './dbApi.js';
 import { notifyStateChanged } from './stateEvents.js';
-import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState } from './cloudCommands.js';
+import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState, collectScheduleMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia, deleteLocalMediaFiles, downloadToFile } from './cloudMediaSync.js';
 import { getStopInfo } from '../src/store/busStore.js';
 import { getLanAddresses, getWifiSsid } from './networkInfo.js';
@@ -178,6 +178,12 @@ function buildTelemetry(state, busId) {
     pairingCode: state.busProfile?.pairingCode ?? null,
     plateDisplay: state.busProfile?.plateDisplay || state.busProfile?.plate || null,
     linkedDriverId: state.driverLink?.driverId ?? null,
+    // Entertainment-mode "is it looping" signal for cloud admin's Schedules panel — reuses this
+    // already-existing ~5s telemetry push rather than a dedicated play-ledger endpoint (schedules
+    // have no budget/spend concept, unlike ads, so there's nothing to bill/report per-play).
+    scheduleLoopCount: state.schedule?.loopCount ?? 0,
+    scheduleCurrentIndex: state.schedule?.currentIndex ?? 0,
+    scheduleItemCount: state.schedule?.items?.length ?? 0,
     appVersion: APP_VERSION,
     // Set by server/androidMain.js on Android display units (unset/undefined -> 'pc' — every
     // installed base before this field existed). Lets cloud/releases.js's getFleetVersions()
@@ -473,6 +479,83 @@ async function syncAdsFromCloud(root, creds) {
       savedAt: merged.savedAt,
       lastCloudPushAt: merged.lastCloudPushAt,
       source: 'cloud-ads',
+    });
+  } catch {
+    /* cloud offline */
+  }
+}
+
+/** Full-reconciliation pull for entertainment/tourist-bus playlists — exact mirror of
+ * syncAdsFromCloud above, one field-name swap at a time (ads/bannerAds -> schedule.items,
+ * adsSavedAt -> schedule.scheduleSavedAt). The UPDATE_SCHEDULE command (cloudCommands.js) gives
+ * near-instant updates while online; this periodic pull guarantees eventual convergence even if
+ * a command was ever missed — including a schedule item getting *removed*, which is exactly
+ * the "server as source of records, device storage stays lean" behavior requested: whatever
+ * this pull no longer references gets deleted locally via deleteLocalMediaFiles below. */
+async function syncScheduleFromCloud(root, creds) {
+  if (!creds.cloudUrl || !creds.busId) return;
+
+  try {
+    const res = await fetch(
+      `${creds.cloudUrl}/api/buses/${encodeURIComponent(creds.busId)}/schedule`,
+      {
+        headers: {
+          ...(BUS_KEY ? { 'X-Bus-Key': BUS_KEY } : {}),
+          ...(creds.deviceToken ? { 'X-Bus-Token': creds.deviceToken } : {}),
+        },
+        signal: cloudTimeoutSignal(),
+      }
+    );
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json?.ok) return;
+
+    const current = (await readInfoFile(root)) ?? {};
+    const nextItems = Array.isArray(json.items) ? json.items : [];
+    const cloudScheduleSavedAt = json.scheduleSavedAt ?? 0;
+    const localScheduleSavedAt = current.schedule?.scheduleSavedAt ?? 0;
+
+    const catalogChanged =
+      cloudScheduleSavedAt > localScheduleSavedAt ||
+      JSON.stringify(current.schedule?.items ?? []) !== JSON.stringify(nextItems) ||
+      current.schedule?.showFullscreenAds !== json.showFullscreenAds ||
+      current.schedule?.showBannerAds !== json.showBannerAds;
+    if (!catalogChanged) return;
+
+    const oldSchedulePaths = new Set(collectScheduleMediaFromState(current));
+    const pushAt = Date.now();
+    // Same out-of-bounds guard as cloudCommands.js's UPDATE_SCHEDULE handler — a shorter new
+    // list must not leave currentIndex pointing past the end of it.
+    const prevIndex = current.schedule?.currentIndex ?? 0;
+    const currentIndex = Number.isInteger(prevIndex) && prevIndex < nextItems.length ? prevIndex : 0;
+    const merged = {
+      ...current,
+      schedule: {
+        ...(current.schedule ?? {}),
+        items: nextItems,
+        showFullscreenAds: json.showFullscreenAds ?? true,
+        showBannerAds: json.showBannerAds ?? true,
+        currentIndex,
+        scheduleSavedAt: cloudScheduleSavedAt || pushAt,
+      },
+      savedAt: Math.max(current.savedAt ?? 0, cloudScheduleSavedAt, pushAt),
+      lastCloudPushAt: Math.max(current.lastCloudPushAt ?? 0, pushAt),
+    };
+    const newSchedulePaths = new Set(collectScheduleMediaFromState(merged));
+    const removedPaths = [...oldSchedulePaths].filter((p) => !newSchedulePaths.has(p));
+    const mediaPaths = Array.isArray(json.mediaFiles) && json.mediaFiles.length
+      ? json.mediaFiles
+      : [...newSchedulePaths];
+
+    await writeInfoFileSerialized(root, merged, { source: 'cloud-schedule' });
+    if (mediaPaths.length) {
+      await syncCloudMedia(root, mediaPaths, creds);
+    }
+    await deleteLocalMediaFiles(root, removedPaths);
+    notifyStateChanged(root, {
+      savedAt: merged.savedAt,
+      lastCloudPushAt: merged.lastCloudPushAt,
+      source: 'cloud-schedule',
     });
   } catch {
     /* cloud offline */
@@ -948,16 +1031,20 @@ async function runCloudSyncInner(root) {
   await syncAssignedRoutesFromCloud(root, creds);
   await syncDisplaySettingsFromCloud(root, creds);
   await syncAdsFromCloud(root, creds);
+  await syncScheduleFromCloud(root, creds);
   await syncGlobalPhraseAudio(root, creds);
   await syncStopAudioFromCloud(root, creds);
   await syncStopVoiceAdsFromCloud(root, creds);
   await syncServerHotpatchFromCloud(root, creds);
   await syncAdPlaysToCloud(root, creds, busId);
 
-  // Catch up any ad/banner media referenced in state but not yet on disk.
+  // Catch up any ad/banner/schedule media referenced in state but not yet on disk.
   try {
     const latest = await readInfoFile(root);
-    const adPaths = collectAdMediaFromState(latest ?? {});
+    const adPaths = [
+      ...collectAdMediaFromState(latest ?? {}),
+      ...collectScheduleMediaFromState(latest ?? {}),
+    ];
     if (adPaths.length) {
       const downloaded = await syncCloudMedia(root, adPaths, creds);
       if (downloaded > 0) {

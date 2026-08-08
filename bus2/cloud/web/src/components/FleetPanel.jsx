@@ -77,6 +77,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [plate, setPlate] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [pairingCode, setPairingCode] = useState('');
+  const [mode, setMode] = useState('route');
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
@@ -99,6 +100,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setPlate('');
       setDisplayName('');
       setPairingCode('');
+      setMode('route');
       return undefined;
     }
     let cancelled = false;
@@ -109,6 +111,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
       setDisplayName(json.profile?.displayName ?? '');
       setPairingCode(json.profile?.pairingCode ?? '');
+      setMode(json.profile?.mode === 'entertainment' ? 'entertainment' : 'route');
     })();
     return () => {
       cancelled = true;
@@ -137,12 +140,13 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     setMessage('');
     const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
       method: 'PUT',
-      body: JSON.stringify({ plate, displayName, pairingCode: code || undefined }),
+      body: JSON.stringify({ plate, displayName, pairingCode: code || undefined, mode }),
     });
     setProfile(json.profile);
     setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
     setDisplayName(json.profile?.displayName ?? displayName);
     setPairingCode(json.profile?.pairingCode ?? code);
+    setMode(json.profile?.mode === 'entertainment' ? 'entertainment' : 'route');
     setMessage('Bus profile saved');
     refreshBuses();
   }
@@ -242,6 +246,11 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               <span>
                 <span className={`status-dot ${isBusOnline(bus.updatedAt) ? 'online' : 'offline'}`} />
                 {busDisplayLabel(bus)}
+                {bus.profile?.mode === 'entertainment' && (
+                  <span className="version-pill version-outdated" style={{ marginLeft: '0.5rem' }}>
+                    entertainment
+                  </span>
+                )}
               </span>
               <small>{bus.busId}</small>
             </div>
@@ -285,6 +294,34 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               <div className="form-group">
                 <label>Number plate</label>
                 <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="KL 07 AB 1234" />
+              </div>
+
+              <h3>Content mode</h3>
+              <p className="hint">
+                Route buses show stops/announcements as normal. Entertainment buses (tourist
+                charters etc.) show a looping media playlist instead — no stops/announcements —
+                with ads/banners still playing on top. Manage playlists in the{' '}
+                <strong>Schedules</strong> tab.
+              </p>
+              <div className="form-group">
+                <label>
+                  <input
+                    type="radio"
+                    name="bus-mode"
+                    checked={mode === 'route'}
+                    onChange={() => setMode('route')}
+                  />{' '}
+                  Route (default)
+                </label>
+                <label style={{ marginLeft: '1rem' }}>
+                  <input
+                    type="radio"
+                    name="bus-mode"
+                    checked={mode === 'entertainment'}
+                    onChange={() => setMode('entertainment')}
+                  />{' '}
+                  Entertainment
+                </label>
               </div>
 
               <h3>Driver access</h3>

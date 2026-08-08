@@ -263,6 +263,33 @@ export function applyCloudCommands(current, commands) {
         break;
       }
 
+      case 'UPDATE_SCHEDULE': {
+        const { items, showFullscreenAds, showBannerAds, savedAt, scheduleSavedAt } = payload;
+        const prevSchedule = next.schedule ?? {};
+        // Playback position (currentIndex/loopCount/etc.) deliberately survives a re-push of the
+        // same-shaped playlist (e.g. a show/hide-ads-only edit) rather than resetting to the
+        // start every time admin saves — but if the new list is shorter than where playback
+        // currently is, clamp back to 0 rather than pointing past the end of the array.
+        const nextItems = Array.isArray(items) ? items : prevSchedule.items;
+        const currentIndex =
+          Number.isInteger(prevSchedule.currentIndex) && prevSchedule.currentIndex < (nextItems?.length ?? 0)
+            ? prevSchedule.currentIndex
+            : 0;
+        next = {
+          ...next,
+          schedule: {
+            ...prevSchedule,
+            ...(Array.isArray(items) ? { items } : {}),
+            ...(showFullscreenAds != null ? { showFullscreenAds } : {}),
+            ...(showBannerAds != null ? { showBannerAds } : {}),
+            currentIndex,
+            scheduleSavedAt: scheduleSavedAt ?? savedAt ?? Date.now(),
+          },
+          savedAt: savedAt ?? Date.now(),
+        };
+        break;
+      }
+
       case 'DRIVE_ACTION': {
         const { action, savedAt: _savedAt, ...actionPayload } = payload;
         if (!action) break;
@@ -309,6 +336,18 @@ export function collectAdMediaFromState(state = {}) {
     ...collectAdMediaFromList(state.ads),
     ...collectAdMediaFromList(state.bannerAds),
   ];
+}
+
+/** Collect schedule (entertainment playlist) media paths from bus state — mirrors
+ * collectAdMediaFromState. Consumed by server/cloudMediaSync.js's sweepOrphanedMedia (protects
+ * in-use schedule media from GC) and server/cloudSync.js's syncScheduleFromCloud (diffs old vs
+ * new referenced media on every pull to know what to delete). */
+export function collectScheduleMediaFromState(state = {}) {
+  const paths = [];
+  for (const item of state.schedule?.items ?? []) {
+    if (item?.mediaFile && typeof item.mediaFile === 'string') paths.push(item.mediaFile);
+  }
+  return paths;
 }
 
 /** Collect stop + phrase audio paths from bus state. */

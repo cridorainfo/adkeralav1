@@ -60,8 +60,12 @@ export function verifyR2Config() {
   return { enabled: isR2Enabled(), bucket: R2_BUCKET || null, publicUrl: R2_PUBLIC_URL || null };
 }
 
-const AD_MEDIA_CATEGORIES = new Set(['ads', 'banners']);
-const CATALOG_MEDIA_CATEGORIES = new Set(['ads', 'banners', 'stops', 'announcements']);
+// 'schedule' included here — without it, deleteMediaFile() below (gated on
+// isDeletableAdMediaPath) would refuse to ever actually delete schedule media, silently
+// defeating the "server as source of records, device storage stays lean" purge path
+// (cloud/schedules.js's update/delete routes both call purgeUnreferencedMedia -> deleteMediaFile).
+const AD_MEDIA_CATEGORIES = new Set(['ads', 'banners', 'schedule']);
+const CATALOG_MEDIA_CATEGORIES = new Set(['ads', 'banners', 'stops', 'announcements', 'schedule']);
 
 export function isDeletableAdMediaPath(relativePath) {
   if (!relativePath || typeof relativePath !== 'string') return false;

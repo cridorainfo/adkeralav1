@@ -144,7 +144,7 @@ export async function pgGetBus(busId) {
 export async function pgListBuses({ ownerId = null } = {}) {
   let sql = `
     SELECT bp.bus_id, bt.updated_at, bt.telemetry, bt.state, bp.plate, bp.plate_display, bp.display_name, bp.pairing_code,
-           bp.linked_driver_id, bp.linked_at, bp.owner_id
+           bp.linked_driver_id, bp.linked_at, bp.owner_id, bp.mode
     FROM bus_profiles bp
     LEFT JOIN bus_telemetry bt ON bt.bus_id = bp.bus_id`;
   const params = [];
@@ -170,6 +170,9 @@ export async function pgListBuses({ ownerId = null } = {}) {
       linkedDriverId: row.linked_driver_id,
       linkedAt: row.linked_at ? Number(row.linked_at) : null,
       ownerId: row.owner_id,
+      // Was missing entirely from this SELECT/mapping until the Schedules feature needed it —
+      // GET /api/buses would never have reported a bus's mode on the Postgres backend.
+      mode: row.mode ?? 'route',
     },
   }));
 }
@@ -259,6 +262,8 @@ export async function pgGetBusProfile(busId) {
     ownerId: row.owner_id,
     assignedRouteIds,
     devicesDisconnectAt: row.devices_disconnect_at ?? null,
+    // 'route' (default) or 'entertainment' — see cloud/db/008_bus_mode.sql / cloud/schedules.js.
+    mode: row.mode ?? 'route',
   };
 }
 
@@ -273,6 +278,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
     linkedAt: null,
     ownerId: null,
     assignedRouteIds: [],
+    mode: 'route',
     ...existing,
     ...patch,
   };
@@ -282,10 +288,13 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   if (patch.devicesDisconnectAt !== undefined) {
     profile.devicesDisconnectAt = patch.devicesDisconnectAt;
   }
+  if (patch.mode != null && patch.mode !== 'entertainment') {
+    profile.mode = 'route';
+  }
 
   await query(
-    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids, devices_disconnect_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids, devices_disconnect_at, mode)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
      ON CONFLICT (bus_id) DO UPDATE SET
        plate = EXCLUDED.plate,
        plate_display = EXCLUDED.plate_display,
@@ -295,7 +304,8 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
        linked_at = EXCLUDED.linked_at,
        owner_id = COALESCE(EXCLUDED.owner_id, bus_profiles.owner_id),
        assigned_route_ids = EXCLUDED.assigned_route_ids,
-       devices_disconnect_at = COALESCE(EXCLUDED.devices_disconnect_at, bus_profiles.devices_disconnect_at)`,
+       devices_disconnect_at = COALESCE(EXCLUDED.devices_disconnect_at, bus_profiles.devices_disconnect_at),
+       mode = EXCLUDED.mode`,
     [
       busId,
       profile.plate ?? '',
@@ -307,6 +317,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
       profile.ownerId,
       JSON.stringify(profile.assignedRouteIds ?? []),
       profile.devicesDisconnectAt ?? null,
+      profile.mode ?? 'route',
     ]
   );
   return profile;

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { usePostgres, runMigrations, query } from './db/pool.js';
 import * as pg from './storePg.js';
 import { normalizeAdsList, collectAdMediaPathsFromLists } from './adsCatalog.js';
+import { normalizeScheduleItems, collectScheduleMediaPaths } from './scheduleCatalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -37,6 +38,8 @@ const defaultStore = () => ({
   stopVoiceAdsSavedAt: 0,
   busAdsCatalog: {},
   busDisplaySettingsCatalog: {},
+  schedules: {},
+  busScheduleCatalog: {},
   globalAudioFragments: {},
   globalAudioSavedAt: 0,
   routeCatalog: [
@@ -357,6 +360,9 @@ const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
 const PG_KEY_STOP_AUDIO = 'stop_audio_catalog';
 const PG_KEY_BUS_ADS_PREFIX = 'bus_ads:';
 const PG_KEY_BUS_DISPLAY_SETTINGS_PREFIX = 'bus_display_settings:';
+const PG_KEY_BUS_SCHEDULE_PREFIX = 'bus_schedule:';
+const PG_KEY_SCHEDULES_CATALOG = 'schedules_catalog';
+const PG_KEY_CAMPAIGNS_CATALOG = 'campaigns_catalog';
 const PG_KEY_PRICING_SETTINGS = 'pricing_settings';
 const PG_KEY_HOUSE_ADS = 'house_ads_catalog';
 const PG_KEY_STOP_VOICE_ADS = 'stop_voice_ads_catalog';
@@ -450,6 +456,112 @@ export async function setBusAdsCatalog(busId, { ads = [], bannerAds = [], adsSav
   store.busAdsCatalog[busId] = payload;
   await saveStore();
   return { ...payload, mediaFiles: collectAdMediaPathsFromLists(payload.ads, payload.bannerAds) };
+}
+
+/** Per-bus PUSHED schedule content — mirrors getBusAdsCatalog/setBusAdsCatalog exactly. The
+ * bus's own GET /api/buses/:busId/schedule pull reads this; pushScheduleToBuses() (schedules.js)
+ * writes it once per targeted bus each time an admin pushes a schedule. */
+export async function getBusScheduleCatalog(busId) {
+  if (!busId) return { items: [], showFullscreenAds: true, showBannerAds: true, savedAt: 0, scheduleSavedAt: 0, source: null };
+  if (usePostgres()) {
+    const row = await pg.pgGetPlatformSetting(`${PG_KEY_BUS_SCHEDULE_PREFIX}${busId}`, null);
+    return {
+      items: row?.items ?? [],
+      showFullscreenAds: row?.showFullscreenAds ?? true,
+      showBannerAds: row?.showBannerAds ?? true,
+      savedAt: row?.savedAt ?? 0,
+      scheduleSavedAt: row?.scheduleSavedAt ?? 0,
+      source: row?.source ?? null,
+    };
+  }
+  const store = await loadStore();
+  if (!store.busScheduleCatalog) store.busScheduleCatalog = {};
+  const row = store.busScheduleCatalog[busId] ?? {};
+  return {
+    items: row.items ?? [],
+    showFullscreenAds: row.showFullscreenAds ?? true,
+    showBannerAds: row.showBannerAds ?? true,
+    savedAt: row.savedAt ?? 0,
+    scheduleSavedAt: row.scheduleSavedAt ?? 0,
+    source: row.source ?? null,
+  };
+}
+
+export async function setBusScheduleCatalog(
+  busId,
+  { items = [], showFullscreenAds = true, showBannerAds = true, scheduleSavedAt, source = 'dashboard' } = {}
+) {
+  if (!busId) throw new Error('busId required');
+  const savedAt = Date.now();
+  const payload = {
+    items: normalizeScheduleItems(items),
+    showFullscreenAds: Boolean(showFullscreenAds),
+    showBannerAds: Boolean(showBannerAds),
+    savedAt,
+    scheduleSavedAt: scheduleSavedAt ?? savedAt,
+    source,
+  };
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(`${PG_KEY_BUS_SCHEDULE_PREFIX}${busId}`, payload);
+    return { ...payload, mediaFiles: collectScheduleMediaPaths(payload.items) };
+  }
+  const store = await loadStore();
+  if (!store.busScheduleCatalog) store.busScheduleCatalog = {};
+  store.busScheduleCatalog[busId] = payload;
+  await saveStore();
+  return { ...payload, mediaFiles: collectScheduleMediaPaths(payload.items) };
+}
+
+/** The admin-authored schedules collection itself (reusable playlists, pushed to buses via
+ * pushScheduleToBuses) — Postgres-safe from the start via the same generic platform_settings
+ * blob storage getBusAdsCatalog/getPricingSettings already use, so it actually persists across
+ * deploys/restarts when DATABASE_URL is set. See getCampaignsCatalog below for the equivalent
+ * for cloud/campaigns.js's adCampaigns, which used to be JSON-file-only. */
+export async function getSchedulesCatalog() {
+  if (usePostgres()) {
+    return (await pg.pgGetPlatformSetting(PG_KEY_SCHEDULES_CATALOG, {})) ?? {};
+  }
+  const store = await loadStore();
+  if (!store.schedules) store.schedules = {};
+  return store.schedules;
+}
+
+export async function saveSchedulesCatalog(schedulesById) {
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(PG_KEY_SCHEDULES_CATALOG, schedulesById);
+    return;
+  }
+  const store = await loadStore();
+  store.schedules = schedulesById;
+  await saveStore();
+}
+
+/** The admin-authored ad campaigns collection (cloud/campaigns.js) — mirrors
+ * getSchedulesCatalog/saveSchedulesCatalog exactly. Used to be loadStore()/saveStore() straight
+ * to store.adCampaigns with no Postgres branch, meaning campaigns silently lived only in the
+ * local store.json file even on a Postgres-backed deploy — gone on the next redeploy/restart,
+ * and invisible to any second instance in a multi-instance deployment. Fixed here the same way
+ * schedules already were: same generic platform_settings blob storage, so it actually persists
+ * when DATABASE_URL is set. cloud/campaigns.js and cloud/adAnalytics.js both read/write
+ * campaigns exclusively through these two functions now — no other file should touch
+ * store.adCampaigns directly. */
+export async function getCampaignsCatalog() {
+  if (usePostgres()) {
+    return (await pg.pgGetPlatformSetting(PG_KEY_CAMPAIGNS_CATALOG, {})) ?? {};
+  }
+  const store = await loadStore();
+  if (!store.adCampaigns) store.adCampaigns = {};
+  return store.adCampaigns;
+}
+
+export async function saveCampaignsCatalog(campaignsById) {
+  if (usePostgres()) {
+    await pg.pgSetPlatformSetting(PG_KEY_CAMPAIGNS_CATALOG, campaignsById);
+    return;
+  }
+  const store = await loadStore();
+  store.adCampaigns = campaignsById;
+  await saveStore();
 }
 
 export async function syncBusAdsCatalogFromTelemetry(busId, state = {}) {
@@ -941,8 +1053,8 @@ export async function setStopVoiceAdsCatalog(entries = {}) {
 export async function collectAllReferencedMediaPaths() {
   const paths = new Set();
 
-  const store = await loadStore();
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  const campaigns = await getCampaignsCatalog();
+  for (const campaign of Object.values(campaigns)) {
     for (const p of collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds)) paths.add(p);
   }
 
@@ -964,6 +1076,15 @@ export async function collectAllReferencedMediaPaths() {
   const { mediaFiles: phraseFiles } = await getGlobalPhraseAudio();
   phraseFiles.forEach((p) => paths.add(p));
 
+  const schedules = await getSchedulesCatalog();
+  for (const schedule of Object.values(schedules)) {
+    for (const p of collectScheduleMediaPaths(schedule.items)) paths.add(p);
+  }
+  for (const { busId } of buses) {
+    const scheduleCatalog = await getBusScheduleCatalog(busId);
+    for (const p of collectScheduleMediaPaths(scheduleCatalog.items)) paths.add(p);
+  }
+
   return paths;
 }
 
@@ -981,8 +1102,8 @@ export async function describeMediaReferences() {
     refs.get(relPath).push(ref);
   };
 
-  const store = await loadStore();
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  const campaigns = await getCampaignsCatalog();
+  for (const campaign of Object.values(campaigns)) {
     for (const p of collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds)) {
       add(p, { type: 'campaign', id: campaign.id, label: campaign.name || campaign.id });
     }
@@ -1020,6 +1141,19 @@ export async function describeMediaReferences() {
     }
   }
 
+  const schedules = await getSchedulesCatalog();
+  for (const schedule of Object.values(schedules)) {
+    for (const p of collectScheduleMediaPaths(schedule.items)) {
+      add(p, { type: 'schedule', id: schedule.id, label: schedule.name || schedule.id });
+    }
+  }
+  for (const { busId } of buses) {
+    const scheduleCatalog = await getBusScheduleCatalog(busId);
+    for (const p of collectScheduleMediaPaths(scheduleCatalog.items)) {
+      add(p, { type: 'schedule-bus-catalog', busId });
+    }
+  }
+
   return refs;
 }
 
@@ -1039,19 +1173,18 @@ export async function removeMediaReferenceEverywhere(relPath) {
   if (!relPath) return;
   const matches = (ad) => ad?.mediaFile === relPath || ad?.audioFile === relPath;
 
-  const store = await loadStore();
+  const campaigns = await getCampaignsCatalog();
   let campaignsChanged = false;
-  for (const campaign of Object.values(store.adCampaigns ?? {})) {
+  const nextCampaigns = { ...campaigns };
+  for (const [id, campaign] of Object.entries(campaigns)) {
     const nextAds = (campaign.ads ?? []).filter((ad) => !matches(ad));
     const nextBanners = (campaign.bannerAds ?? []).filter((ad) => !matches(ad));
     if (nextAds.length !== (campaign.ads ?? []).length || nextBanners.length !== (campaign.bannerAds ?? []).length) {
-      campaign.ads = nextAds;
-      campaign.bannerAds = nextBanners;
-      campaign.updatedAt = Date.now();
+      nextCampaigns[id] = { ...campaign, ads: nextAds, bannerAds: nextBanners, updatedAt: Date.now() };
       campaignsChanged = true;
     }
   }
-  if (campaignsChanged) await saveStore();
+  if (campaignsChanged) await saveCampaignsCatalog(nextCampaigns);
 
   const houseAds = await getHouseAds();
   const nextHouseAds = (houseAds.ads ?? []).filter((ad) => !matches(ad));
@@ -1104,6 +1237,32 @@ export async function removeMediaReferenceEverywhere(relPath) {
     }
   }
   if (Object.keys(phraseRemovals).length) await setGlobalPhraseAudio(phraseRemovals);
+
+  const schedules = await getSchedulesCatalog();
+  let schedulesChanged = false;
+  const nextSchedules = { ...schedules };
+  for (const [id, schedule] of Object.entries(schedules)) {
+    const nextItems = (schedule.items ?? []).filter((item) => item?.mediaFile !== relPath);
+    if (nextItems.length !== (schedule.items ?? []).length) {
+      nextSchedules[id] = { ...schedule, items: nextItems, updatedAt: Date.now() };
+      schedulesChanged = true;
+    }
+  }
+  if (schedulesChanged) await saveSchedulesCatalog(nextSchedules);
+
+  for (const { busId } of buses) {
+    const scheduleCatalog = await getBusScheduleCatalog(busId);
+    const nextItems = (scheduleCatalog.items ?? []).filter((item) => item?.mediaFile !== relPath);
+    if (nextItems.length !== (scheduleCatalog.items ?? []).length) {
+      await setBusScheduleCatalog(busId, {
+        items: nextItems,
+        showFullscreenAds: scheduleCatalog.showFullscreenAds,
+        showBannerAds: scheduleCatalog.showBannerAds,
+        scheduleSavedAt: scheduleCatalog.scheduleSavedAt,
+        source: scheduleCatalog.source ?? 'dashboard',
+      });
+    }
+  }
 }
 
 export async function searchRoutes(query = '', { ownerId = null } = {}) {
@@ -1605,10 +1764,15 @@ function ensureBusProfile(store, busId) {
       linkedAt: null,
       ownerId: null,
       assignedRouteIds: [],
+      // 'route' (default) or 'entertainment' — see cloud/schedules.js.
+      mode: 'route',
     };
   }
   if (!Array.isArray(store.busProfiles[busId].assignedRouteIds)) {
     store.busProfiles[busId].assignedRouteIds = [];
+  }
+  if (store.busProfiles[busId].mode !== 'entertainment') {
+    store.busProfiles[busId].mode = 'route';
   }
   return store.busProfiles[busId];
 }
@@ -1625,6 +1789,9 @@ export async function upsertBusProfile(busId, patch = {}) {
   const profile = ensureBusProfile(store, busId);
   if (patch.assignedRouteIds) {
     patch.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
+  }
+  if (patch.mode != null && patch.mode !== 'entertainment') {
+    patch.mode = 'route';
   }
   Object.assign(profile, patch);
   await saveStore();

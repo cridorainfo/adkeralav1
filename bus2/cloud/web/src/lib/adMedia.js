@@ -28,7 +28,7 @@ export function adMediaPreviewUrl(mediaFile) {
   if (slash <= 0) return null;
   const category = normalized.slice(0, slash);
   const filename = normalized.slice(slash + 1);
-  if (!['ads', 'banners'].includes(category) || !filename) return null;
+  if (!['ads', 'banners', 'schedule'].includes(category) || !filename) return null;
   return `/api/media/preview/${encodeURIComponent(category)}/${encodeURIComponent(filename)}`;
 }
 

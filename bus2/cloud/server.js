@@ -38,6 +38,7 @@ import {
   getBusAdsCatalog,
   setBusAdsCatalog,
   syncBusAdsCatalogFromTelemetry,
+  getBusScheduleCatalog,
   getBusDisplaySettingsCatalog,
   setBusDisplaySettingsCatalog,
   pickDisplaySettingsPatch,
@@ -121,6 +122,14 @@ import {
   rerunCampaign,
   getCampaignReport,
 } from './campaigns.js';
+import {
+  listSchedules,
+  getSchedule,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  pushScheduleToBuses,
+} from './schedules.js';
 import { getBusAdAnalytics, getFleetAdAnalytics } from './adAnalytics.js';
 import {
   enrollDevice,
@@ -137,6 +146,7 @@ import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter 
 import { requestLogger, writeAudit } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
+import { collectScheduleMediaPaths, collectRemovedScheduleMediaPaths } from './scheduleCatalog.js';
 import { usePostgres, getPool } from './db/pool.js';
 import { getPublicConfig, getPublicUrl, getCloudUrls } from './config.js';
 import { verifyDriverControlForBus } from './driverOtp.js';
@@ -588,6 +598,72 @@ app.get('/api/campaigns/:id/report', authSession, requireAuth, async (req, res) 
   }
   const report = await getCampaignReport(req.params.id);
   res.json({ ok: true, ...report });
+});
+
+/** ——— Schedules (entertainment/tourist-bus media playlists) ———
+ * Admin-only, unlike campaigns (no advertiser/bus_owner authoring role for this) — mirrors the
+ * campaign CRUD/push shape otherwise. See cloud/schedules.js. */
+
+app.get('/api/schedules', authAdminOnly, async (_req, res) => {
+  const schedules = await listSchedules();
+  res.json({ ok: true, schedules });
+});
+
+app.post('/api/schedules', authAdminOnly, async (req, res) => {
+  const result = await createSchedule(req.user, req.body ?? {});
+  res.json(result);
+});
+
+app.put('/api/schedules/:id', authAdminOnly, async (req, res) => {
+  const prev = await getSchedule(req.params.id);
+  const result = await updateSchedule(req.params.id, req.body ?? {});
+  if (!result.ok) {
+    res.status(404).json(result);
+    return;
+  }
+  if (prev) {
+    const removed = collectRemovedScheduleMediaPaths(prev.items, result.schedule.items);
+    await purgeUnreferencedMedia(removed);
+  }
+  res.json(result);
+});
+
+app.delete('/api/schedules/:id', authAdminOnly, async (req, res) => {
+  const schedule = await getSchedule(req.params.id);
+  const result = await deleteSchedule(req.params.id);
+  if (!result.ok) {
+    res.status(404).json(result);
+    return;
+  }
+  if (schedule) {
+    await purgeUnreferencedMedia(collectScheduleMediaPaths(schedule.items));
+  }
+  res.json(result);
+});
+
+app.post('/api/schedules/:id/push', authAdminOnly, async (req, res) => {
+  const store = await loadStore();
+  const result = await pushScheduleToBuses(req.params.id, store.busProfiles);
+  if (!result.ok) {
+    res.status(400).json(result);
+    return;
+  }
+  res.json(result);
+});
+
+// Bus device pull sync (full reconciliation, same shape as GET .../ads above) — the
+// UPDATE_SCHEDULE command gives near-instant updates while the bus is online; this periodic
+// pull guarantees eventual convergence even if a command was missed.
+app.get('/api/buses/:busId/schedule', authBus, async (req, res) => {
+  const catalog = await getBusScheduleCatalog(req.params.busId);
+  res.json({
+    ok: true,
+    items: catalog.items,
+    showFullscreenAds: catalog.showFullscreenAds,
+    showBannerAds: catalog.showBannerAds,
+    scheduleSavedAt: catalog.scheduleSavedAt,
+    mediaFiles: collectScheduleMediaPaths(catalog.items),
+  });
 });
 
 app.get('/api/driver/account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
@@ -1042,7 +1118,7 @@ app.get('/api/buses/:busId/locations', authFleet, async (req, res) => {
 app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const busId = req.params.busId;
-  const { plate, plateDisplay, pairingCode, displayName } = req.body ?? {};
+  const { plate, plateDisplay, pairingCode, displayName, mode } = req.body ?? {};
 
   let normalizedCode = null;
   if (pairingCode != null) {
@@ -1053,6 +1129,11 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
     }
   }
 
+  if (mode != null && !['route', 'entertainment'].includes(mode)) {
+    res.status(400).json({ ok: false, error: "mode must be 'route' or 'entertainment'" });
+    return;
+  }
+
   let profile;
   if (plate != null) {
     profile = await setBusProfilePlate(busId, plate);
@@ -1061,6 +1142,7 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (displayName != null) patch.displayName = String(displayName).trim().slice(0, 80);
   if (plateDisplay != null && plate == null) patch.plateDisplay = String(plateDisplay).trim();
   if (normalizedCode != null) patch.pairingCode = normalizedCode;
+  if (mode != null) patch.mode = mode;
   if (Object.keys(patch).length) {
     profile = await upsertBusProfile(busId, patch);
   }
@@ -1072,6 +1154,7 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
       plate: profile.plate,
       plateDisplay: profile.plateDisplay,
       displayName: profile.displayName ?? '',
+      mode: profile.mode ?? 'route',
       ...(normalizedCode != null ? { pairingCode: normalizedCode } : {}),
     },
     savedAt: Date.now(),
@@ -1217,6 +1300,10 @@ app.post('/api/buses/:busId/telemetry', authBus, async (req, res) => {
     ok: true,
     devicesDisconnectAt: profile?.devicesDisconnectAt ?? null,
     pairingCode: profile?.pairingCode ?? null,
+    // 'route' (default) or 'entertainment' — this ~5s telemetry round-trip is the fastest
+    // already-existing channel for a bus to learn its own mode, same as pairingCode above; no
+    // new sync endpoint needed just for this one field (see server/cloudSync.js's telemetry push).
+    mode: profile?.mode ?? 'route',
     pendingCommands: commands.length,
     commands,
     wasOffline,
@@ -1886,7 +1973,7 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     return;
   }
   const category = req.body?.category ?? 'stops';
-  const allowed = new Set(['announcements', 'stops', 'ads', 'banners']);
+  const allowed = new Set(['announcements', 'stops', 'ads', 'banners', 'schedule']);
   if (!allowed.has(category)) {
     res.status(400).json({ ok: false, error: 'Invalid category' });
     return;
@@ -1906,7 +1993,9 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     return;
   }
   const maxBytes =
-    category === 'ads' || category === 'banners' ? 100 * 1024 * 1024 : 12 * 1024 * 1024;
+    category === 'ads' || category === 'banners' || category === 'schedule'
+      ? 100 * 1024 * 1024
+      : 12 * 1024 * 1024;
   if (buffer.length > maxBytes) {
     res.status(400).json({
       ok: false,
@@ -1955,7 +2044,7 @@ app.delete('/api/media/:category/:filename', authSession, requireAuth, async (re
   res.json({ ok: true, deleted: relPath, wasReferencedBy: referencedBy, ...result });
 });
 
-const MEDIA_BROWSE_CATEGORIES = ['ads', 'banners', 'stops', 'announcements'];
+const MEDIA_BROWSE_CATEGORIES = ['ads', 'banners', 'stops', 'announcements', 'schedule'];
 
 /** Admin-only listing of every file on the media volume, flagging which ones are still
  * referenced (by a campaign, house ad, bus catalog, stop audio, or phrase) vs orphaned. Backs
@@ -2027,7 +2116,7 @@ async function serveStoredMediaFile(res, relPath) {
 /** Dashboard preview for ad/banner media (session auth). */
 app.get('/api/media/preview/:category/:filename', authFleet, async (req, res) => {
   const category = req.params.category;
-  if (!['ads', 'banners'].includes(category)) {
+  if (!['ads', 'banners', 'schedule'].includes(category)) {
     res.status(403).json({ ok: false, error: 'Preview not allowed for this category' });
     return;
   }
@@ -2085,12 +2174,15 @@ app.put('/api/releases/driver', authAdminOnly, async (req, res) => {
 });
 
 app.put('/api/releases/android', authAdminOnly, async (req, res) => {
-  const { version, downloadUrl, sha256, size, releaseNotes } = req.body ?? {};
-  if (!version || !downloadUrl) {
-    res.status(400).json({ ok: false, error: 'version and downloadUrl required' });
+  const { version, downloadUrl, sha256, size, releaseNotes, variants } = req.body ?? {};
+  // downloadUrl is only required when this call isn't purely adding/merging per-ABI variants
+  // onto an already-registered version (see setAndroidRelease's merge behavior) — a pure
+  // variants-only follow-up call for the same version doesn't need to resupply it.
+  if (!version || (!downloadUrl && !(variants && Object.keys(variants).length))) {
+    res.status(400).json({ ok: false, error: 'version and (downloadUrl or variants) required' });
     return;
   }
-  const android = await setAndroidRelease({ version, downloadUrl, sha256, size, releaseNotes });
+  const android = await setAndroidRelease({ version, downloadUrl, sha256, size, releaseNotes, variants });
   res.json({ ok: true, android });
 });
 

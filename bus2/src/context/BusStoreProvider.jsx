@@ -945,6 +945,50 @@ function useBusStoreLogic() {
     });
   }, []);
 
+  /**
+   * Entertainment-mode playlist playback (Schedules feature) — same shape as playAdNow/endAd
+   * but for a continuously-looping list instead of a timer-gated rotation. No budget/quota/
+   * pendingPlays ledger (schedules have no billing concept) — "keeping track of how it played"
+   * is just currentIndex/loopCount, which reach cloud admin via the bus's own regular telemetry
+   * push (server/cloudSync.js's buildTelemetry), not a separate play-tracking upload.
+   */
+  const playScheduleItem = useCallback((index) => {
+    update((s) => {
+      const items = s.schedule?.items ?? [];
+      if (!items.length) return s;
+      const clamped = ((index % items.length) + items.length) % items.length;
+      if (s.schedule?.currentIndex === clamped && s.schedule?.itemStartedAt) return s;
+      return {
+        ...s,
+        schedule: { ...(s.schedule ?? {}), currentIndex: clamped, itemStartedAt: Date.now() },
+      };
+    });
+  }, [update]);
+
+  /** Current item finished (natural end or its durationSec elapsed) — advance to the next one,
+   * wrapping to 0 and incrementing loopCount once the whole playlist has played through. This
+   * is the one place loopCount ever increments, so "has it looped N times" always means "has it
+   * reached the end of the list and wrapped N times", not e.g. a per-item repeat count. */
+  const endScheduleItem = useCallback(() => {
+    update((s) => {
+      const items = s.schedule?.items ?? [];
+      if (!items.length) return s;
+      const current = s.schedule?.currentIndex ?? 0;
+      const wrapped = current + 1 >= items.length;
+      const nextIndex = wrapped ? 0 : current + 1;
+      return {
+        ...s,
+        schedule: {
+          ...(s.schedule ?? {}),
+          currentIndex: nextIndex,
+          loopCount: wrapped ? (s.schedule?.loopCount ?? 0) + 1 : (s.schedule?.loopCount ?? 0),
+          lastItemEndedAt: Date.now(),
+          itemStartedAt: Date.now(),
+        },
+      };
+    });
+  }, [update]);
+
   /** Banner-ad equivalent of endAd() — BannerAdStrip.jsx tracks its own start time (no shared
    *  displayView state to key off, unlike fullscreen ads) and reports the finished play here. */
   const endBannerAd = useCallback((ad, playedAt, durationPlayedSec, completed) => {
@@ -1241,6 +1285,8 @@ function useBusStoreLogic() {
     updateBannerAdSettings,
     playAdNow,
     endAd,
+    playScheduleItem,
+    endScheduleItem,
     endBannerAd,
     endAudioAd,
     toggleDisplayMode,

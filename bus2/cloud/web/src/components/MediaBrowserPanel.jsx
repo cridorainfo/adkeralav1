@@ -8,6 +8,7 @@ const CATEGORY_LABELS = {
   banners: 'Banner media',
   stops: 'Stop announcement audio',
   announcements: 'Global phrase audio',
+  schedule: 'Schedule (entertainment) media',
 };
 
 function formatReference(ref, buses) {
@@ -26,6 +27,12 @@ function formatReference(ref, buses) {
       return `Stop announcement: ${ref.stopKey} (${ref.lang})`;
     case 'phrase':
       return `Phrase: ${ref.phraseKey} (${ref.lang})`;
+    case 'schedule':
+      return `Schedule "${ref.label}"`;
+    case 'schedule-bus-catalog': {
+      const bus = buses.find((b) => b.busId === ref.busId);
+      return `Bus schedule: ${busDisplayLabel(bus ?? { busId: ref.busId })}`;
+    }
     default:
       return 'In use';
   }

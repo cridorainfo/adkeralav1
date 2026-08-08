@@ -17,9 +17,10 @@ import {
   nextPlayableAdIndex,
 } from '../lib/adPlayback';
 import { mediaPathToUrl } from '../lib/fileStorage';
+import SchedulePlayer from '../components/SchedulePlayer';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
-  const { state, endAd, endBannerAd, playAdNow, update } = useBusStore();
+  const { state, endAd, endBannerAd, playAdNow, update, playScheduleItem, endScheduleItem } = useBusStore();
   const s = state;
   const [adTimer, setAdTimer] = useState(0);
   const audioRef = useRef(null);
@@ -53,8 +54,19 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const announcementPlaying = s.announcementStatus === 'playing';
   const theme = s.displaySettings?.theme ?? {};
   const showClock = theme.showClock !== false;
-  const showBannerStrip =
-    theme.showBanner !== false && (s.bannerAdSettings?.enabled ?? true);
+  // Entertainment (Schedules feature) vs the default route mode — a bus-profile-level toggle
+  // (cloud/schedules.js sets busProfile.mode), not a route/trip-state thing. Ad/banner show-or-
+  // not intent is carried on the schedule itself (schedule.showFullscreenAds/showBannerAds,
+  // separate from adSettings/bannerAdSettings so pushing a schedule can never clobber a route
+  // bus's own settings) rather than the generic adSettings/bannerAdSettings route buses use.
+  const isEntertainmentMode = s.busProfile?.mode === 'entertainment';
+  const fullscreenAdsEnabled = isEntertainmentMode
+    ? (s.schedule?.showFullscreenAds ?? true)
+    : (s.adSettings?.enabled ?? true);
+  const bannerAdsEnabled = isEntertainmentMode
+    ? (s.schedule?.showBannerAds ?? true)
+    : (s.bannerAdSettings?.enabled ?? true);
+  const showBannerStrip = theme.showBanner !== false && bannerAdsEnabled;
   const bannerAds = s.bannerAds ?? [];
   const playableBannerAds = bannerAds.filter(adHasPlayableMedia);
   const reserveBannerSlot = showBannerStrip && !showingAd;
@@ -236,13 +248,20 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   }, [s.displayView, currentAd, ads, s.currentAdIndex, endAd, update]);
 
   useEffect(() => {
-    if (!(s.adSettings?.enabled ?? true) || !ads.some(adHasPlayableMedia)) return;
+    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia)) return;
 
     const id = setInterval(() => {
       const latest = stateRef.current;
       const latestAds = latest.ads ?? [];
-      if (!latest.adSettings?.enabled || !latestAds.length || latest.displayView === 'ad') return;
+      const latestFullscreenAdsEnabled =
+        latest.busProfile?.mode === 'entertainment'
+          ? (latest.schedule?.showFullscreenAds ?? true)
+          : (latest.adSettings?.enabled ?? true);
+      if (!latestFullscreenAdsEnabled || !latestAds.length || latest.displayView === 'ad') return;
 
+      // Stop-triggered ads only make sense with route/stop data — findStopTriggeredAdIndex
+      // already no-ops gracefully with no upcoming stop (entertainment buses never have one),
+      // so no extra isEntertainmentMode guard is needed here beyond what it already does.
       const stopAdIndex = findStopTriggeredAdIndex(latestAds, getUpcomingPassengerStop(latest), latest);
       if (stopAdIndex >= 0) {
         playAdNow(stopAdIndex);
@@ -255,7 +274,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
     return () => clearInterval(id);
   }, [
-    s.adSettings?.enabled,
+    fullscreenAdsEnabled,
     s.adSettings?.intervalSec,
     s.adSettings?.initialDelaySec,
     ads.length,
@@ -403,6 +422,12 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
               <StopJourneyTimeline stopInfo={stopInfo} />
             </div>
           </div>
+        ) : isEntertainmentMode ? (
+          <SchedulePlayer
+            schedule={s.schedule}
+            onItemStart={playScheduleItem}
+            onItemEnd={endScheduleItem}
+          />
         ) : (
           <div className="display-idle-view">
             <p className="display-idle-hint">
