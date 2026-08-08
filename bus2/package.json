@@ -19,6 +19,7 @@
     "start:prod": "node server/prod.js",
     "build": "vite build",
     "build:driver": "vite build && cap sync android",
+    "build:display-bundle": "vite build && node scripts/build-android-node-bundle.mjs",
     "build:kiosk": "vite build && electron-builder --win nsis dir",
     "build:kiosk:dir": "vite build && electron-builder --win dir",
     "build:release": "vite build && electron-builder --win nsis --publish never",

@@ -157,6 +157,18 @@ export async function startBusServer(options = {}) {
       refreshLanProbe().catch(() => {});
     }, 15000);
   }
+  // allow-firewall.bat only exists in the Windows/Electron kiosk build — checkFirewallPorts()
+  // already no-ops firewallStatus on non-win32, but these LAN-probe warnings fire purely off
+  // lanProbe.ok, independent of platform, so they need their own guard. On Android (and inside
+  // the Android emulator, where a device can't self-connect to its own NAT'd 10.0.2.x address —
+  // a routine emulator/hairpin-NAT limitation, not a real blocked-port condition) there's no
+  // local firewall to open, so the remediation hint has to be different.
+  const firewallHint =
+    process.platform === 'win32'
+      ? 'Right-click allow-firewall.bat -> Run as administrator.'
+      : 'Check Wi-Fi/hotspot connectivity — some routers and the Android emulator block a ' +
+        'device from reaching its own LAN address, which can trigger this even when phones on ' +
+        'the same network would connect fine.';
   if (!isSelfTest && !lanProbe.ok) {
     if (lanProbe.error === 'no_lan_ip') {
       console.warn(
@@ -166,19 +178,19 @@ export async function startBusServer(options = {}) {
     } else if (lanProbe.serverListening) {
       console.warn(
         `  LAN probe failed (${lanProbe.ip ?? 'unknown'}:${PORT}) - app is running but phones are blocked (firewall).\n` +
-          '           Right-click allow-firewall.bat -> Run as administrator.'
+          `           ${firewallHint}`
       );
     } else {
       console.warn(
         `  LAN probe failed (${lanProbe.ip ?? 'unknown'}:${PORT}) - phones cannot connect yet (${lanProbe.error ?? 'blocked'}).\n` +
-          '           Right-click allow-firewall.bat -> Run as administrator.'
+          `           ${firewallHint}`
       );
     }
   }
   if (!firewallStatus.ok) {
     console.warn(
       `  Firewall: port(s) ${firewallStatus.closed.join(', ')} may block driver phones.\n` +
-        `           Right-click allow-firewall.bat → Run as administrator (in the app folder).`
+        `           ${firewallHint}`
     );
   }
   logNetworkStartup(urls, {

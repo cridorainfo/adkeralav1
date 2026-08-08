@@ -1,0 +1,124 @@
+apply plugin: 'com.android.application'
+
+// Set by CI from the git tag (npm run ship's same VERSION — see .github/workflows/release.yml's
+// build-android job), so `npm run ship -- 1.2.0` versions PC and Android identically instead of
+// requiring a separate manual build.gradle edit per release. Falls back to a fixed dev value so
+// local builds (Android Studio Run, no env var set) keep working unmodified.
+def androidVersionName = System.getenv("ADKERALA_ANDROID_VERSION") ?: "1.0.1"
+def verParts = androidVersionName.tokenize('.')
+def androidVersionCode =
+    ((verParts.size() > 0 ? verParts[0] as Integer : 0) * 1000000) +
+    ((verParts.size() > 1 ? verParts[1] as Integer : 0) * 1000) +
+    (verParts.size() > 2 ? verParts[2] as Integer : 0)
+
+// Release signing — only present in CI (see release.yml's build-android job, which decodes the
+// ANDROID_RELEASE_KEYSTORE_BASE64 secret to a file and passes these as env vars). Local
+// `assembleRelease` runs without these produce an unsigned APK (installable only after manual
+// `apksigner` signing) — that's fine, `assembleDebug`/Run is what local dev actually uses.
+def releaseStoreFile = System.getenv("ANDROID_RELEASE_STORE_FILE")
+def releaseStorePassword = System.getenv("ANDROID_RELEASE_STORE_PASSWORD")
+def releaseKeyAlias = System.getenv("ANDROID_RELEASE_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
+android {
+    namespace = "com.adkerala.display"
+    compileSdk = rootProject.ext.compileSdkVersion
+    // Pinned rather than left to the AGP default: NDK r27+ is the version where Google made
+    // 16 KB page-size-aligned libraries (developer.android.com/16kb-page-size) the default
+    // output, which is what fixes the libc++_shared.so alignment warning. native-lib.so gets
+    // the same guarantee explicitly below regardless of NDK default (see cmake arguments).
+    // libnode.so (the prebuilt binary in libnode/, not built by this project) is unaffected by
+    // this — see display/LIBNODE-SETUP.md.
+    ndkVersion "27.0.12077973"
+    defaultConfig {
+        applicationId "com.adkerala.display"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode androidVersionCode
+        versionName androidVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+
+        // Embedded local Node server (server/androidMain.js, packaged into
+        // src/main/assets/nodejs-project by scripts/build-android-node-bundle.mjs) — see
+        // display/LIBNODE-SETUP.md for the one-time libnode/ download this depends on.
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path "CMakeLists.txt"
+        }
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libnode/bin']
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // ESP32 stop-announcement console over USB — see AdKeralaSerialBridge.java. JitPack coordinate
+    // (not on Maven Central), repo added in the root build.gradle's allprojects block.
+    implementation 'com.github.mik3y:usb-serial-for-android:3.11.0'
+    // WebViewCompat.addDocumentStartJavaScript — injects window.adKeralaAndroid into the
+    // /display page without replacing Capacitor's own WebViewClient (see MainActivity.java).
+    implementation 'androidx.webkit:webkit:1.16.0'
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

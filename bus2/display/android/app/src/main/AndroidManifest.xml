@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- ESP32 stop-announcement console: auto-launch/foreground this always-on kiosk
+                 app when a matching USB device is plugged in, even if the app was killed —
+                 AdKeralaSerialManager's registered BroadcastReceiver handles the common
+                 already-running case; this is the defensive fallback. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!-- Required component for Device Owner enrollment (silent self-update — see
+             AdKeralaUpdateChecker + ANDROID-UPDATE.md). android:exported="true" +
+             BIND_DEVICE_ADMIN is mandatory boilerplate for any device-admin receiver, not an
+             actual attack-surface concern here: only the system can hold BIND_DEVICE_ADMIN. -->
+        <receiver
+            android:name=".AdKeralaDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_receiver" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Auto-launch on boot, same "always-on kiosk" behavior as the PC app. BOOT_COMPLETED
+             manifest receivers are explicitly exempted from Android 8+'s general
+             implicit-broadcast background restrictions, so this works unmodified across API
+             levels this app targets (minSdk 24 through current). -->
+        <receiver
+            android:name=".AdKeralaBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+    <!-- ESP32 console over USB — required="false" so this build still installs on hardware
+         without USB-host support (that hardware just never gets a serial connection). -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Notification permission for AdKeralaUpdateChecker's status/tap-to-install notifications
+         — API 33+ only concept; requested at runtime in MainActivity, harmless no-op below 33. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+</manifest>

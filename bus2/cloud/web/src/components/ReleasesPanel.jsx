@@ -6,8 +6,10 @@ export default function ReleasesPanel() {
   const [fleet, setFleet] = useState(null);
   const [minPc, setMinPc] = useState('');
   const [minDriver, setMinDriver] = useState('');
+  const [minAndroid, setMinAndroid] = useState('');
   const [pcRelease, setPcRelease] = useState({ version: '', downloadUrl: '', sha512: '', releaseNotes: '' });
   const [driverRelease, setDriverReleaseForm] = useState({ version: '', downloadUrl: '', releaseNotes: '' });
+  const [androidRelease, setAndroidReleaseForm] = useState({ version: '', downloadUrl: '', sha256: '', releaseNotes: '' });
   const [message, setMessage] = useState('');
   const [pushing, setPushing] = useState(false);
   const [busQuery, setBusQuery] = useState('');
@@ -37,6 +39,7 @@ export default function ReleasesPanel() {
     setFleet(json);
     setMinPc(json.minPcVersion ?? '');
     setMinDriver(json.minDriverVersion ?? '');
+    setMinAndroid(json.minAndroidVersion ?? '');
   }
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export default function ReleasesPanel() {
   async function saveMinVersions() {
     await api('/api/releases/min-versions', {
       method: 'PUT',
-      body: JSON.stringify({ minPcVersion: minPc, minDriverVersion: minDriver }),
+      body: JSON.stringify({ minPcVersion: minPc, minDriverVersion: minDriver, minAndroidVersion: minAndroid }),
     });
     setMessage('Minimum versions saved');
     load();
@@ -61,6 +64,12 @@ export default function ReleasesPanel() {
   async function saveDriverRelease() {
     await api('/api/releases/driver', { method: 'PUT', body: JSON.stringify(driverRelease) });
     setMessage(`Driver release v${driverRelease.version} registered`);
+    load();
+  }
+
+  async function saveAndroidRelease() {
+    await api('/api/releases/android', { method: 'PUT', body: JSON.stringify(androidRelease) });
+    setMessage(`Android release v${androidRelease.version} registered`);
     load();
   }
 
@@ -130,7 +139,7 @@ export default function ReleasesPanel() {
         <h2>Fleet versions</h2>
         {fleet && (
           <p className="hint">
-            Cloud v{fleet.cloudVersion} · Latest PC v{fleet.latestPc ?? 'none'} · Latest driver v{fleet.latestDriver ?? 'none'}
+            Cloud v{fleet.cloudVersion} · Latest PC v{fleet.latestPc ?? 'none'} · Latest driver v{fleet.latestDriver ?? 'none'} · Latest Android v{fleet.latestAndroid ?? 'none'}
           </p>
         )}
         <div className="toolbar">
@@ -145,6 +154,7 @@ export default function ReleasesPanel() {
             <tr>
               <th>Bus</th>
               <th>Plate</th>
+              <th>Platform</th>
               <th>Online</th>
               <th>App version</th>
               <th>Status</th>
@@ -159,6 +169,7 @@ export default function ReleasesPanel() {
                   <small className="hint">{row.busId}</small>
                 </td>
                 <td>{row.plateDisplay ?? '—'}</td>
+                <td>{row.platform === 'android' ? 'Android' : 'PC'}</td>
                 <td>{row.online ? 'Yes' : 'No'}</td>
                 <td>{row.appVersion ?? '—'}</td>
                 <td>
@@ -169,7 +180,7 @@ export default function ReleasesPanel() {
               </tr>
             ))}
             {!filteredBuses.length && (
-              <tr><td colSpan={5} className="hint">No buses match "{busQuery}"</td></tr>
+              <tr><td colSpan={6} className="hint">No buses match "{busQuery}"</td></tr>
             )}
           </tbody>
         </table>
@@ -237,6 +248,15 @@ export default function ReleasesPanel() {
             <label>Min driver version</label>
             <input value={minDriver} onChange={(e) => setMinDriver(e.target.value)} />
           </div>
+          <div className="form-group">
+            <label>Min Android version</label>
+            <input value={minAndroid} onChange={(e) => setMinAndroid(e.target.value)} />
+            <p className="hint">
+              Raising this forces an immediate silent install on Android display units, same as
+              trip-aware min-version enforcement on PC — no separate push button exists for
+              Android (see ANDROID-UPDATE.md).
+            </p>
+          </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={saveMinVersions}>
             Save
           </button>
@@ -274,6 +294,32 @@ export default function ReleasesPanel() {
           </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={saveDriverRelease}>
             Register driver release
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Register Android display release</h2>
+        <p className="hint">
+          Android display units install this <strong>silently, with zero interaction</strong> —
+          each unit must be enrolled as Device Owner first (one-time, per device; see
+          ANDROID-UPDATE.md). Not the same artifact as the driver APK above.
+        </p>
+        <div className="inline-form">
+          <div className="form-group">
+            <label>Version</label>
+            <input value={androidRelease.version} onChange={(e) => setAndroidReleaseForm({ ...androidRelease, version: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>Download URL</label>
+            <input value={androidRelease.downloadUrl} onChange={(e) => setAndroidReleaseForm({ ...androidRelease, downloadUrl: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>SHA256</label>
+            <input value={androidRelease.sha256} onChange={(e) => setAndroidReleaseForm({ ...androidRelease, sha256: e.target.value })} />
+          </div>
+          <button type="button" className="btn btn-primary btn-sm" onClick={saveAndroidRelease}>
+            Register Android release
           </button>
         </div>
       </div>

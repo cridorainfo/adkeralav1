@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No policies declared — this app only needs Device Owner status for its
+     PackageInstaller silent-install privilege, not any actual device-restriction policy. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies />
+</device-admin>

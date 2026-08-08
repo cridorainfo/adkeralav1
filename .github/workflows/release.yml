@@ -48,9 +48,101 @@ jobs:
             bus2/release/*.exe
             bus2/release/latest.yml
 
+  build-android:
+    name: Build Android display APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bus2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bus2/package-lock.json
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install NDK (pinned — must match display/android/app/build.gradle's ndkVersion)
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Same download this project's README documents as a one-time manual step
+      # (display/LIBNODE-SETUP.md) — scripted here so CI doesn't depend on a human having done
+      # it. Version pinned to match what server/androidMain.js and this repo's contributors use
+      # locally; bump both places together if the pinned Node version ever changes.
+      - name: Download libnode (nodejs-mobile-android)
+        run: |
+          curl -fsSL -o /tmp/nodejs-mobile-android.zip \
+            https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip
+          mkdir -p /tmp/nodejs-mobile-android
+          unzip -q /tmp/nodejs-mobile-android.zip -d /tmp/nodejs-mobile-android
+          mkdir -p display/android/app/libnode
+          cp -r /tmp/nodejs-mobile-android/include display/android/app/libnode/include
+          cp -r /tmp/nodejs-mobile-android/bin display/android/app/libnode/bin
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm pkg set version="$VERSION"
+
+      - name: Build web + embedded server bundle
+        run: npm run build:display-bundle
+        env:
+          VITE_CLOUD_URL: ${{ secrets.ADKERALA_CLOUD_URL }}
+
+      - name: Decode release keystore
+        if: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}" | base64 -d > display/android/app/release.keystore
+
+      - name: Build signed release APK
+        working-directory: bus2/display/android
+        env:
+          # Only set at all when the keystore secret exists — build.gradle's hasReleaseSigning
+          # check treats an empty/unset value as "no signing", producing an unsigned APK instead
+          # of a broken signingConfig pointing at a file that was never decoded.
+          ANDROID_RELEASE_STORE_FILE: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 != '' && 'release.keystore' || '' }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          export ADKERALA_ANDROID_VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Rename APK
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release-upload
+          cp display/android/app/build/outputs/apk/release/app-release.apk "release-upload/AdKeralaDisplay-${VERSION}.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: bus2/release-upload/*.apk
+
   publish:
     name: GitHub Release + cloud register
-    needs: [build-pc]
+    needs: [build-pc, build-android]
+    # build-android is new and has more moving parts (NDK, a large external download, signing
+    # secrets) than the PC pipeline this sits alongside — a failure there must never block PC
+    # releases, which shipped reliably before this existed. `if: always()` bypasses the default
+    # "only run if all needs succeeded" gate, so the explicit build-pc result check below is
+    # doing the real gating; build-android's result is deliberately not checked here.
+    if: ${{ always() && needs.build-pc.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,11 +153,19 @@ jobs:
           name: pc-release
           path: artifacts/pc
 
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true # build-android may not have produced one — see note above
+        with:
+          name: android-release
+          path: artifacts/android
+
       - name: Prepare release files
         run: |
           mkdir -p release-upload
           cp artifacts/pc/*.exe release-upload/ 2>/dev/null || true
           cp artifacts/pc/latest.yml release-upload/ 2>/dev/null || true
+          cp artifacts/android/*.apk release-upload/ 2>/dev/null || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -114,6 +214,20 @@ jobs:
             --pc-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${PC_NAME}" \
             --sha512 "$SHA512" \
             --size "$SIZE"
+
+          ANDROID_FILE=$(ls ../release-upload/*.apk 2>/dev/null | head -1)
+          if [ -n "$ANDROID_FILE" ]; then
+            ANDROID_NAME=$(basename "$ANDROID_FILE")
+            ANDROID_SHA256=$(sha256sum "$ANDROID_FILE" | awk '{print $1}')
+            node scripts/register-android-release.mjs \
+              --cloud-url "$ADKERALA_CLOUD_URL" \
+              --admin-key "$ADKERALA_ADMIN_KEY" \
+              --version "$VERSION" \
+              --apk-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ANDROID_NAME}" \
+              --sha256 "$ANDROID_SHA256"
+          else
+            echo "No Android APK in this release — skipping Android registration"
+          fi
 
   deploy-cloud:
     name: Deploy cloud to Railway

@@ -1,0 +1,18 @@
+{
+  "name": "adkerala-android-display",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AdKerala passenger display — Android native shell (Android TV boxes / tablets used as non-touch monitors). Wraps the same dist/ SPA already built for the PC kiosk app and embeds the same local server via nodejs-mobile-android, so buses running Android hardware get the same offline-first behavior, driver LAN pairing, and ESP32 serial console as the PC.",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android",
+    "build:apk": "cd android && gradlew.bat assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1"
+  }
+}

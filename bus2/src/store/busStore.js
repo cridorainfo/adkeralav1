@@ -664,7 +664,17 @@ export function generatePairingCode() {
 }
 
 export function createId() {
-  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  // `crypto.randomUUID?.()` alone throws ReferenceError (not just returns undefined) on a
+  // runtime where `crypto` isn't a global at all — true on Node 18 (nodejs-mobile-android, the
+  // Android display's embedded server) without the --experimental-global-webcrypto flag, unlike
+  // browsers/Electron's newer bundled Node where it's always global. Optional chaining only
+  // guards a missing *property*, not a missing *identifier*. Same guard already used correctly
+  // in shared/routeLabels.js and cloud/shared/hub/persist.js — this one was just missed. Caught
+  // by a real driver-phone "forward" button press against the Android build throwing
+  // "crypto is not defined".
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function getActiveRoute(state) {

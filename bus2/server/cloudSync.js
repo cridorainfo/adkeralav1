@@ -179,6 +179,11 @@ function buildTelemetry(state, busId) {
     plateDisplay: state.busProfile?.plateDisplay || state.busProfile?.plate || null,
     linkedDriverId: state.driverLink?.driverId ?? null,
     appVersion: APP_VERSION,
+    // Set by server/androidMain.js on Android display units (unset/undefined -> 'pc' — every
+    // installed base before this field existed). Lets cloud/releases.js's getFleetVersions()
+    // compare a bus's appVersion against the right release channel (pc vs android) instead of
+    // always assuming PC.
+    platform: process.env.ADKERALA_PLATFORM || 'pc',
     installId: loadDeviceConfig(dataRootRef).installId,
   };
 }

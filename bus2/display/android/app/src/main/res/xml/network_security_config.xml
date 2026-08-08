@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <!-- The WebView talks plain HTTP to its own embedded server (127.0.0.1:5174) — same pattern
+       as the driver app's LAN HTTP config (bus2/android/.../network_security_config.xml). -->
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>

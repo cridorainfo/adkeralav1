@@ -3,8 +3,14 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json');
 
-/** Shared app semver (PC kiosk, driver APK web bundle, local server). */
-export const APP_VERSION = pkg.version;
+// On Android, this file's own package.json is scripts/build-android-node-bundle.mjs's generated
+// bundle manifest (version '0.0.0' — the embedded server bundle isn't itself separately
+// versioned/update-checked the way PC's hot-patch is; see server/androidMain.js) — not the real
+// installed APK version, which only Android's PackageManager actually knows. androidMain.js sets
+// this override from the config AdKeralaNodeRunner.java writes (PackageInfo.versionName) so
+// telemetry (server/cloudSync.js's buildTelemetry) reports the real Android app version instead
+// of a meaningless placeholder.
+export const APP_VERSION = process.env.ADKERALA_APP_VERSION_OVERRIDE || pkg.version;
 
 export function compareSemver(a, b) {
   const pa = String(a ?? '0.0.0').split('.').map((n) => Number(n) || 0);

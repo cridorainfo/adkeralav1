@@ -27,9 +27,11 @@ function defaultReleaseConfig() {
   return {
     pc: null,
     driver: null,
+    android: null,
     hotpatch: null,
     minPcVersion: '0.1.0',
     minDriverVersion: '0.1.0',
+    minAndroidVersion: '0.1.0',
   };
 }
 
@@ -115,10 +117,33 @@ export async function setHotpatchRelease(release) {
   return releases.hotpatch;
 }
 
-export async function setMinVersions({ minPcVersion, minDriverVersion }) {
+// Android display units run the exact same server/prod.js code as PC (see server/androidMain.js)
+// but are a genuinely separate release channel — a different installable artifact (APK vs
+// NSIS installer) with its own update mechanism (Device-Owner silent PackageInstaller vs
+// electron-updater), so it gets its own version/downloadUrl slot rather than overloading `pc`.
+export async function setAndroidRelease(release) {
+  const releases = await loadReleaseStore();
+  const incomingVersion = String(release.version ?? '').trim();
+  if (releases.android?.version && compareSemver(incomingVersion, releases.android.version) < 0) {
+    return releases.android;
+  }
+  releases.android = {
+    version: incomingVersion,
+    downloadUrl: String(release.downloadUrl ?? '').trim(),
+    sha256: String(release.sha256 ?? '').trim(),
+    size: Number(release.size ?? 0) || null,
+    releaseNotes: String(release.releaseNotes ?? '').trim(),
+    publishedAt: Date.now(),
+  };
+  await saveReleaseStore(releases);
+  return releases.android;
+}
+
+export async function setMinVersions({ minPcVersion, minDriverVersion, minAndroidVersion }) {
   const releases = await loadReleaseStore();
   if (minPcVersion != null) releases.minPcVersion = String(minPcVersion).trim();
   if (minDriverVersion != null) releases.minDriverVersion = String(minDriverVersion).trim();
+  if (minAndroidVersion != null) releases.minAndroidVersion = String(minAndroidVersion).trim();
   await saveReleaseStore(releases);
   return releases;
 }
@@ -158,24 +183,36 @@ export async function getFleetVersions() {
   const buses = await listBuses();
   const latestPc = config.pc?.version ?? null;
   const latestDriver = config.driver?.version ?? null;
+  const latestAndroid = config.android?.version ?? null;
   const busIds = new Set(buses.map((b) => b.busId));
 
   return {
     cloudVersion: CLOUD_VERSION,
     latestPc,
     latestDriver,
+    latestAndroid,
     minPcVersion: config.minPcVersion,
     minDriverVersion: config.minDriverVersion,
+    minAndroidVersion: config.minAndroidVersion,
     buses: buses.map(({ busId, updatedAt, telemetry, profile }) => {
       const appVersion = telemetry?.appVersion ?? null;
       const online = Date.now() - updatedAt < ONLINE_MS;
+      // Android display units report telemetry through the exact same path as PC (they run the
+      // same server/prod.js — see server/androidMain.js) and are told apart here purely by a
+      // `platform` field that code adds to the telemetry payload (server/cloudSync.js's
+      // buildTelemetry, populated from ADKERALA_PLATFORM — set in server/androidMain.js).
+      // Untagged/older buses default to 'pc', matching every existing installed base before this
+      // field existed.
+      const platform = telemetry?.platform === 'android' ? 'android' : 'pc';
+      const latestForPlatform = platform === 'android' ? latestAndroid : latestPc;
+      const minVersionForPlatform = platform === 'android' ? config.minAndroidVersion : config.minPcVersion;
       let pcStatus = 'unknown';
-      if (appVersion && latestPc) {
-        pcStatus = compareSemver(appVersion, latestPc) >= 0 ? 'current' : 'outdated';
+      if (appVersion && latestForPlatform) {
+        pcStatus = compareSemver(appVersion, latestForPlatform) >= 0 ? 'current' : 'outdated';
       } else if (appVersion) {
         pcStatus = 'reporting';
       }
-      if (appVersion && config.minPcVersion && compareSemver(appVersion, config.minPcVersion) < 0) {
+      if (appVersion && minVersionForPlatform && compareSemver(appVersion, minVersionForPlatform) < 0) {
         pcStatus = 'below-minimum';
       }
       return {
@@ -183,6 +220,7 @@ export async function getFleetVersions() {
         online,
         updatedAt,
         appVersion,
+        platform,
         pcStatus,
         displayName: profile?.displayName ?? null,
         plateDisplay: profile?.plateDisplay ?? telemetry?.plateDisplay ?? null,

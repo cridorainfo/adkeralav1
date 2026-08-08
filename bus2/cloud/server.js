@@ -81,6 +81,7 @@ import {
   buildPcLatestYml,
   getFleetVersions,
   getReleaseConfig,
+  setAndroidRelease,
   setDriverRelease,
   setHotpatchRelease,
   setMinVersions,
@@ -2083,6 +2084,16 @@ app.put('/api/releases/driver', authAdminOnly, async (req, res) => {
   res.json({ ok: true, driver });
 });
 
+app.put('/api/releases/android', authAdminOnly, async (req, res) => {
+  const { version, downloadUrl, sha256, size, releaseNotes } = req.body ?? {};
+  if (!version || !downloadUrl) {
+    res.status(400).json({ ok: false, error: 'version and downloadUrl required' });
+    return;
+  }
+  const android = await setAndroidRelease({ version, downloadUrl, sha256, size, releaseNotes });
+  res.json({ ok: true, android });
+});
+
 app.put('/api/releases/min-versions', authAdminOnly, async (req, res) => {
   const releases = await setMinVersions(req.body ?? {});
   res.json({ ok: true, releases });
@@ -2144,6 +2155,16 @@ app.get('/api/releases/driver/latest', async (_req, res) => {
     ok: true,
     release: config.driver,
     minVersion: config.minDriverVersion,
+  });
+});
+
+/** Android display APK update check — public read; polled by AdKeralaUpdateChecker.java. */
+app.get('/api/releases/android/latest', async (_req, res) => {
+  const config = await getReleaseConfig();
+  res.json({
+    ok: true,
+    release: config.android,
+    minVersion: config.minAndroidVersion,
   });
 });
 
