@@ -54,6 +54,13 @@ android {
         // add it back if that ever changes, the per-ABI libnode/bin/<abi>/ layout (see
         // CMakeLists.txt) already supports it.
         //
+        // The ABI list itself lives ONLY in `splits.abi.include` below now, NOT here —
+        // ndk.abiFilters used to duplicate it, which AGP rejects outright once splits.abi is
+        // enabled ("Conflicting configuration ... ndk abiFilters cannot be present when splits
+        // abi filters are set", a real build failure caught in CI on the v1.0.19 release run).
+        // splits.abi.include alone already restricts which ABIs native code builds/packages
+        // for — nothing is lost by not repeating it here.
+        //
         // This does NOT mean going back to one 152MB universal APK bundling all three (that
         // was the actual problem — three full copies of libnode.so, the embedded Node runtime,
         // in a single download). `splits.abi` below builds one APK PER ABI instead, each
@@ -63,9 +70,6 @@ android {
         // AdKeralaUpdateChecker.java's variant-matching logic and
         // cloud/releases.js's per-ABI `variants` map for the device-side/server-side half of
         // this — all three have to agree on ABI naming.
-        ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
-        }
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_shared"

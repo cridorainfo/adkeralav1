@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*'
+  # Lets the build itself (PC + Android) be smoke-tested from a branch — e.g. to verify a
+  # Gradle/build.gradle fix actually compiles in real CI before cutting a real version tag —
+  # without publishing a GitHub Release, registering anything on the cloud admin, or deploying
+  # to Railway. The publish/deploy-cloud jobs below are gated to real tag pushes only
+  # (startsWith(github.ref, 'refs/tags/')), so a manual dispatch run is fully non-destructive.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -30,7 +36,14 @@ jobs:
       - name: Sync version from tag
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          # GITHUB_REF_NAME is the branch name (e.g. "main"), not a version, on a manual
+          # workflow_dispatch smoke-test run (see the `on:` block above) — npm pkg set requires
+          # a valid semver, so fall back to a harmless placeholder rather than fail outright.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-test"
+          fi
           npm pkg set version="$VERSION"
           npm pkg set version="$VERSION" --prefix cloud
 
@@ -98,7 +111,11 @@ jobs:
 
       - name: Sync version from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-test"
+          fi
           npm pkg set version="$VERSION"
 
       - name: Build web + embedded server bundle
@@ -143,7 +160,16 @@ jobs:
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: |
-          export ADKERALA_ANDROID_VERSION="${GITHUB_REF_NAME#v}"
+          # build.gradle parses this into numeric versionCode parts (verParts[0] as Integer,
+          # etc.) — a branch name like "main" would throw there, not just fail gracefully, on a
+          # workflow_dispatch smoke-test run (see the `on:` block above). Use a real dotted
+          # version in that case so the Gradle build actually exercises the same version-parsing
+          # path a real release does, instead of skipping it.
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            export ADKERALA_ANDROID_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            export ADKERALA_ANDROID_VERSION="0.0.0"
+          fi
           chmod +x gradlew
           ./gradlew assembleRelease
 
@@ -185,7 +211,10 @@ jobs:
     # releases, which shipped reliably before this existed. `if: always()` bypasses the default
     # "only run if all needs succeeded" gate, so the explicit build-pc result check below is
     # doing the real gating; build-android's result is deliberately not checked here.
-    if: ${{ always() && needs.build-pc.result == 'success' }}
+    # && startsWith(github.ref, 'refs/tags/') keeps this from firing on a manual workflow_dispatch
+    # smoke-test run (see the `on:` block above) — a dispatch run only needs build-pc/build-android
+    # to succeed or fail, never a real GitHub Release / cloud registration.
+    if: ${{ always() && needs.build-pc.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -277,6 +306,9 @@ jobs:
   deploy-cloud:
     name: Deploy cloud to Railway
     runs-on: ubuntu-latest
+    # Real tag pushes only — never deploy to production Railway from a manual workflow_dispatch
+    # smoke-test run (see the `on:` block above).
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
 

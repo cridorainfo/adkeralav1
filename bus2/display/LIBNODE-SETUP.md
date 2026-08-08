@@ -11,10 +11,12 @@ this repo (same reason `node_modules/` and `dist/` aren't) — a build machine s
    otherwise targets (check the current release at
    https://github.com/nodejs-mobile/nodejs-mobile/releases — pick the `*-android.zip` asset).
 2. Unzip it. It contains `include/` (Node's C headers) and `bin/<abi>/libnode.so` for each
-   Android ABI. `android/app/build.gradle`'s `abiFilters` lists `armeabi-v7a`, `arm64-v8a`, and
-   `x86_64` — the fleet spans multiple chipsets, not just arm64, so all three are required (`x86`
-   32-bit stays excluded — no device this app ships on is 32-bit x86). Copy all three ABI
-   folders. This does NOT rebuild the old ~152MB universal APK that bundled all three into one
+   Android ABI. `android/app/build.gradle`'s `splits.abi.include` lists `armeabi-v7a`,
+   `arm64-v8a`, and `x86_64` (the ABI list lives there only, not in `ndk.abiFilters` too — AGP
+   rejects having both set at once) — the fleet spans multiple chipsets, not just arm64, so all
+   three are required (`x86` 32-bit stays excluded — no device this app ships on is 32-bit x86).
+   Copy all three ABI folders. This does NOT rebuild the old ~152MB universal APK that bundled
+   all three into one
    download — `build.gradle`'s `splits.abi` block builds one APK per ABI instead, so any given
    device still only downloads its own ~50-60MB, it just downloads the *correct* one for its own
    chipset now (see AdKeralaUpdateChecker.java's variant-matching and cloud/releases.js's
