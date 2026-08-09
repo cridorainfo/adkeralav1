@@ -1,5 +1,5 @@
 import { usePostgres } from './db/pool.js';
-import { pgWriteAudit } from './storePg.js';
+import { pgWriteAudit, pgListAuditLog } from './storePg.js';
 import { loadStore, saveStore } from './store.js';
 import { randomUUID } from 'crypto';
 
@@ -21,6 +21,15 @@ export async function writeAudit(action, actorId, details = {}) {
     store.auditLog = store.auditLog.slice(-5000);
   }
   await saveStore();
+}
+
+/** Most-recent-first audit trail — admin-only viewer (AuditLogPanel.jsx), previously
+ * write-only infrastructure with no way to actually read it back. See the feature-gap audit's
+ * finding on this. */
+export async function listAuditLog({ limit = 200 } = {}) {
+  if (usePostgres()) return pgListAuditLog({ limit });
+  const store = await loadStore();
+  return [...(store.auditLog ?? [])].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
 }
 
 export function logInfo(msg, meta = {}) {

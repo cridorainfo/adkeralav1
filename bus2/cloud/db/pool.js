@@ -17,7 +17,14 @@ export function getPool() {
     pool = new pg.Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.PGSSL === '0' ? false : { rejectUnauthorized: false },
-      max: Number(process.env.PG_POOL_MAX ?? 20),
+      // Default bumped from 20 — undersized for the request volume a large fleet drives (each
+      // bus's ~5s sync touches several DB-backed endpoints). The N+1 query patterns that used to
+      // multiply this pressure far more than raw bus count are fixed (see the scale audit), but
+      // pool size still needs to grow with fleet size: set PG_POOL_MAX explicitly for a
+      // several-hundred-to-1000-vehicle deployment, checked against your Postgres provider's own
+      // max_connections limit (shared across every service connected to that database, not just
+      // this one) so the pool size requested here doesn't itself get refused.
+      max: Number(process.env.PG_POOL_MAX ?? 30),
     });
   }
   return pool;

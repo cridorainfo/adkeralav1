@@ -16,8 +16,12 @@ export function sortBusesAlphabetically(buses = []) {
   });
 }
 
-/** Case-insensitive substring match against name/plate/busId/label — the same fields
- * busDisplayLabel itself can surface, so "search matches what you see" holds. */
+/** Case-insensitive substring match against name/plate/busId/label/tags — the same fields
+ * busDisplayLabel itself can surface (plus tags), so "search matches what you see" holds. Tags
+ * (depot/region/vehicle-type — see cloud/db/009_bus_tags.sql) piggyback on this same search box
+ * everywhere it's already used (Fleet, Live Wall, TargetBusPicker) rather than needing their own
+ * dedicated filter UI — searching "kochi" finds every bus tagged "kochi-depot" the same way it'd
+ * find one named "Kochi Express". */
 export function filterBusesBySearch(buses = [], query = '') {
   const q = query.trim().toLowerCase();
   if (!q) return buses;
@@ -26,6 +30,7 @@ export function filterBusesBySearch(buses = [], query = '') {
     const name = (bus.profile?.displayName || '').toLowerCase();
     const id = (bus.busId || '').toLowerCase();
     const label = busDisplayLabel(bus).toLowerCase();
-    return plate.includes(q) || name.includes(q) || id.includes(q) || label.includes(q);
+    const tags = (bus.profile?.tags ?? []).join(' ').toLowerCase();
+    return plate.includes(q) || name.includes(q) || id.includes(q) || label.includes(q) || tags.includes(q);
   });
 }

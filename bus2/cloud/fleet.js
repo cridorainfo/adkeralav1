@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes, createHash } from 'crypto';
 import { loadStore, saveStore, generatePairingCode, normalizePlate, getBusProfile, getBus, enqueueCommand, findBusIdByPlate, getBusDisplaySettingsCatalog, pickDisplaySettingsPatch } from './store.js';
+import { timingSafeEqual } from './timingSafeEqual.js';
 import { usePostgres, query } from './db/pool.js';
 import { pgUpsertBusProfile } from './storePg.js';
 import { pgEnsureUser, pgOwnerId, isValidUuid } from './usersPg.js';
@@ -493,13 +494,23 @@ export async function claimBusByCode({ fleetClaimCode, plate, ownerId, installId
   };
 }
 
-export async function listPendingEnrollments({ ownerId = null } = {}) {
+/** Lists unclaimed enrollments (installId + the raw 6-digit fleetClaimCode) so an admin can pick
+ * a device off a short list instead of retyping its code. Deliberately admin-only at the route
+ * level now (server.js's GET /api/fleet/pending requires 'admin', not 'bus_owner') — an unclaimed
+ * enrollment's `ownerId` is null by construction (see enrollDevice above; ownership is only set
+ * at the moment of a successful claim), so there was never a real per-owner "your pending devices"
+ * to filter down to. The old `ownerId` filter here looked like it scoped results but was
+ * structurally a no-op for every bus_owner caller, which is exactly what let any self-signed-up
+ * bus_owner read every other operator's in-progress claim code platform-wide and race them to
+ * claim it — see the security audit. The `ownerId` param is kept for signature compatibility but
+ * intentionally unused now; do not resurrect owner-scoping here without also giving pending
+ * enrollments a real per-owner identity to filter on. */
+export async function listPendingEnrollments({ ownerId: _ownerId = null } = {}) {
   const activeSince = Date.now() - ENROLL_ACTIVE_MS;
 
   if (usePostgres()) {
     await pgCleanupExpiredEnrollments();
-    const rows = await pgListPendingEnrollments(activeSince);
-    return rows.filter((row) => !ownerId || !row.ownerId || row.ownerId === ownerId);
+    return pgListPendingEnrollments(activeSince);
   }
 
   const store = await loadStore();
@@ -510,7 +521,6 @@ export async function listPendingEnrollments({ ownerId = null } = {}) {
     if (row.claimed) continue;
     if (row.expiresAt && Date.now() > row.expiresAt) continue;
     if ((row.updatedAt ?? row.lastSeenAt ?? 0) < activeSince) continue;
-    if (ownerId && row.ownerId && row.ownerId !== ownerId) continue;
     rows.push({
       installId: row.installId,
       fleetClaimCode: row.fleetClaimCode,
@@ -572,7 +582,7 @@ export async function verifyBusDeviceToken(busId, token) {
   const store = await loadStore();
   ensureFleetStore(store);
   for (const device of Object.values(store.busDevices)) {
-    if (device.busId === busId && device.tokenHash === hash && !device.revokedAt) {
+    if (device.busId === busId && !device.revokedAt && timingSafeEqual(device.tokenHash, hash)) {
       return true;
     }
   }
@@ -592,7 +602,7 @@ export async function findBusIdByDeviceToken(token) {
   const store = await loadStore();
   ensureFleetStore(store);
   for (const device of Object.values(store.busDevices)) {
-    if (device.tokenHash === hash && !device.revokedAt) {
+    if (!device.revokedAt && timingSafeEqual(device.tokenHash, hash)) {
       return device.busId;
     }
   }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import { downloadCsv } from '../lib/csvExport.js';
 
 function formatMoney(value) {
   const n = Number(value) || 0;
@@ -64,6 +65,24 @@ export default function AdsFleetReport() {
             <p className="empty-state">No ads in campaigns or house ads yet.</p>
           ) : (
             <>
+              <div className="editor-actions" style={{ marginBottom: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() =>
+                    downloadCsv(`adkerala-ads-report-${new Date().toISOString().slice(0, 10)}.csv`, data.ads, [
+                      { key: 'name', label: 'Ad' },
+                      { key: 'format', label: 'Format' },
+                      { key: 'source', label: 'Source' },
+                      { key: 'plays', label: 'Plays' },
+                      { key: 'spend', label: 'Spend (₹)' },
+                      { key: 'budget', label: 'Budget (₹)' },
+                    ])
+                  }
+                >
+                  Export CSV
+                </button>
+              </div>
               <table className="data-table responsive-desktop">
                 <thead>
                   <tr>

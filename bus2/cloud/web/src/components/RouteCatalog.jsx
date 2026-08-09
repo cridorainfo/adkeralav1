@@ -4,6 +4,7 @@ import { api } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 import { useBusAssignedRoutes } from '../hooks/useBusAssignedRoutes.js';
 import { routeEndpointsLabel, routeStopCount, routeViaStopsSummary } from '../lib/routeLabels.js';
+import { downloadCsv } from '../lib/csvExport.js';
 
 export default function RouteCatalog() {
   const { selectedBusId, buses } = useSelectedBus();
@@ -87,6 +88,31 @@ export default function RouteCatalog() {
         />
         <button type="button" className="btn btn-primary btn-sm" onClick={() => search(query)} disabled={loading}>
           {loading ? 'Loading…' : 'Search'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() =>
+            downloadCsv(
+              `adkerala-routes-${new Date().toISOString().slice(0, 10)}.csv`,
+              routes.map((r) => ({
+                id: r.id,
+                name: r.name,
+                start: r.startStop?.en ?? '',
+                end: r.endStop?.en ?? '',
+                stopCount: routeStopCount(r),
+              })),
+              [
+                { key: 'id', label: 'Route ID' },
+                { key: 'name', label: 'Name' },
+                { key: 'start', label: 'Start' },
+                { key: 'end', label: 'End' },
+                { key: 'stopCount', label: 'Stop count' },
+              ]
+            )
+          }
+        >
+          Export CSV
         </button>
       </div>
       <table className="data-table responsive-desktop">

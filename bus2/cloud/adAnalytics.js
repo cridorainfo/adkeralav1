@@ -237,8 +237,15 @@ export async function getFleetAdAnalytics({ summaryOnly = false } = {}) {
   let totalBudget = 0;
   const ads = [];
 
-  for (const entry of known) {
-    const rawPlays = await getAdPlaysRaw(entry.ad.id);
+  // Fetched concurrently, not one-at-a-time — this used to be N sequential DB round trips (one
+  // per known ad), polled every 30s by every open Live Wall tab. A true single aggregate query
+  // would need computeAdSpend's peak/off-peak-hours split moved into SQL too (a bigger rewrite of
+  // the pricing computation itself); parallelizing the existing per-ad fetches is the safe
+  // equivalent for now — see the scale audit's finding on this.
+  const rawPlaysByAd = await Promise.all(known.map((entry) => getAdPlaysRaw(entry.ad.id)));
+
+  known.forEach((entry, i) => {
+    const rawPlays = rawPlaysByAd[i];
     const { spend } = computeAdSpend(rawPlays, entry.format, pricingSettings);
     const playsCount = rawPlays.length;
     totalPlays += playsCount;
@@ -262,7 +269,7 @@ export async function getFleetAdAnalytics({ summaryOnly = false } = {}) {
         })
       );
     }
-  }
+  });
 
   if (!summaryOnly) {
     ads.sort((a, b) => b.plays - a.plays || a.name.localeCompare(b.name));

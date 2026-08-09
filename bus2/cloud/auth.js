@@ -1,8 +1,30 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import { timingSafeEqual } from './timingSafeEqual.js';
 
 const JWT_SECRET = process.env.ADKERALA_JWT_SECRET || 'dev-jwt-secret-change-in-production';
 const ADMIN_KEY = process.env.ADKERALA_ADMIN_KEY ?? 'change-me-in-production';
+
+// Both are live authentication bypasses if left at their dev defaults in production:
+// JWT_SECRET signs every admin session cookie (authSession trusts its `role` claim directly,
+// no DB lookup — anyone who can sign a token with this secret gets instant admin), and ADMIN_KEY
+// is checked first in authSession, before the cookie, granting full legacy-admin access outright.
+// A source-visible hardcoded fallback for either is a full platform compromise, not a "should
+// probably fix" — so this fails startup rather than just logging a warning (see the security
+// audit's finding on this; a warning that scrolls past in a deploy log is too easy to miss).
+if (process.env.NODE_ENV === 'production') {
+  const problems = [];
+  if (!process.env.ADKERALA_JWT_SECRET) problems.push('ADKERALA_JWT_SECRET');
+  if (!process.env.ADKERALA_ADMIN_KEY || ADMIN_KEY === 'change-me-in-production') problems.push('ADKERALA_ADMIN_KEY');
+  if (problems.length) {
+    throw new Error(
+      `Refusing to start in production with default/unset ${problems.join(' and ')} — ` +
+        'these sign/gate full admin access and must be set to real random secrets. ' +
+        '(Set NODE_ENV to something other than "production" only for local/dev use.)'
+    );
+  }
+}
+
 const COOKIE_NAME = 'adkerala_session';
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -74,8 +96,11 @@ export function canAccessBusId(user, busProfiles, busId) {
 }
 
 export function authSession(req, res, next) {
-  const key = req.headers['x-admin-key'] ?? req.query.key;
-  if (key === ADMIN_KEY) {
+  // Header only — a `?key=` query-string fallback used to be accepted too, but a long-lived
+  // admin credential in the URL ends up in browser history, proxy/CDN access logs, and any
+  // Referer header sent from a page that includes it. See the security audit's finding on this.
+  const key = req.headers['x-admin-key'];
+  if (key && timingSafeEqual(key, ADMIN_KEY)) {
     req.user = { id: 'legacy-admin', email: 'admin@legacy', role: 'admin', name: 'API Key Admin', legacy: true };
     req.authMethod = 'api-key';
     next();

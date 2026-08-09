@@ -265,6 +265,8 @@ export async function pgGetBusProfile(busId) {
     : typeof assignedRaw === 'string'
       ? JSON.parse(assignedRaw)
       : [];
+  const tagsRaw = row.tags;
+  const tags = Array.isArray(tagsRaw) ? tagsRaw : typeof tagsRaw === 'string' ? JSON.parse(tagsRaw) : [];
   return {
     plate: row.plate,
     plateDisplay: row.plate_display,
@@ -277,6 +279,8 @@ export async function pgGetBusProfile(busId) {
     devicesDisconnectAt: row.devices_disconnect_at ?? null,
     // 'route' (default) or 'entertainment' — see cloud/db/008_bus_mode.sql / cloud/schedules.js.
     mode: row.mode ?? 'route',
+    // Free-text depot/region/vehicle-type tags — see cloud/db/009_bus_tags.sql.
+    tags,
   };
 }
 
@@ -292,11 +296,15 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
     ownerId: null,
     assignedRouteIds: [],
     mode: 'route',
+    tags: [],
     ...existing,
     ...patch,
   };
   if (patch.assignedRouteIds) {
     profile.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
+  }
+  if (patch.tags) {
+    profile.tags = [...new Set(patch.tags.map((t) => String(t).trim()).filter(Boolean))];
   }
   if (patch.devicesDisconnectAt !== undefined) {
     profile.devicesDisconnectAt = patch.devicesDisconnectAt;
@@ -308,8 +316,8 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   }
 
   await query(
-    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids, devices_disconnect_at, mode)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+    `INSERT INTO bus_profiles (bus_id, plate, plate_display, display_name, pairing_code, linked_driver_id, linked_at, owner_id, assigned_route_ids, devices_disconnect_at, mode, tags)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb)
      ON CONFLICT (bus_id) DO UPDATE SET
        plate = EXCLUDED.plate,
        plate_display = EXCLUDED.plate_display,
@@ -320,7 +328,8 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
        owner_id = COALESCE(EXCLUDED.owner_id, bus_profiles.owner_id),
        assigned_route_ids = EXCLUDED.assigned_route_ids,
        devices_disconnect_at = COALESCE(EXCLUDED.devices_disconnect_at, bus_profiles.devices_disconnect_at),
-       mode = EXCLUDED.mode`,
+       mode = EXCLUDED.mode,
+       tags = EXCLUDED.tags`,
     [
       busId,
       profile.plate ?? '',
@@ -333,6 +342,7 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
       JSON.stringify(profile.assignedRouteIds ?? []),
       profile.devicesDisconnectAt ?? null,
       profile.mode ?? 'route',
+      JSON.stringify(profile.tags ?? []),
     ]
   );
   return profile;
@@ -672,6 +682,20 @@ export async function pgWriteAudit(action, actorId, details = {}) {
     `INSERT INTO audit_log (id, action, actor_id, details, created_at) VALUES ($1, $2, $3, $4, $5)`,
     [randomUUID(), action, actorId ?? null, JSON.stringify(details), Date.now()]
   );
+}
+
+export async function pgListAuditLog({ limit = 200 } = {}) {
+  const { rows } = await query(
+    `SELECT id, action, actor_id, details, created_at FROM audit_log ORDER BY created_at DESC LIMIT $1`,
+    [Math.min(1000, Math.max(1, Number(limit) || 200))]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    action: row.action,
+    actorId: row.actor_id,
+    details: typeof row.details === 'string' ? JSON.parse(row.details) : row.details,
+    createdAt: Number(row.created_at),
+  }));
 }
 
 export { ONLINE_MS };

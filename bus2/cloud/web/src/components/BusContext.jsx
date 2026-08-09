@@ -99,6 +99,7 @@ export function BusSelector() {
     setTargetMode,
     multiBusIds,
     toggleMultiBus,
+    targetBusIds,
   } = useSelectedBus();
 
   return (
@@ -124,6 +125,11 @@ export function BusSelector() {
           <option value="multi">Pick multiple</option>
         </select>
       </label>
+      {targetMode !== 'selected' && (
+        <p className="hint bus-toolbar-hint" style={{ color: 'var(--kerala-amber, #b45309)' }}>
+          ⚠ This page's push actions will target {targetBusIds.length} bus{targetBusIds.length === 1 ? '' : 'es'}, not just one.
+        </p>
+      )}
       {targetMode === 'multi' && buses.length > 0 && (
         <div className="bus-multi-pick">
           {buses.map((b) => (
@@ -164,13 +170,26 @@ export function PushHint() {
  * dashboard's own NAV `to` values exactly, index route is '').
  */
 export function BusToolbar({ basePath, activePaths }) {
-  const { pushToBus, setPushToBus } = useSelectedBus();
+  const { pushToBus, setPushToBus, setTargetMode } = useSelectedBus();
   const location = useLocation();
 
   const relative = location.pathname.startsWith(basePath)
     ? location.pathname.slice(basePath.length)
     : location.pathname;
   const normalized = relative.replace(/\/+$/, '');
+
+  // Push target ('all'/'multi') used to persist silently across every page sharing this one
+  // toolbar (Routes, Stops, Voices, Ads, Display) — e.g. set "All buses" to fix Voices fleet-wide,
+  // navigate to Routes to fix one test bus, and a route push meant for one bus goes to the whole
+  // fleet instead because the setting carried over with no restatement near the button. Reset to
+  // "Selected bus" on every navigation so a fleet-wide push is always a deliberate re-pick per
+  // page, not an inherited default. Effect (not a plain reset-in-render) so it only fires on an
+  // actual route change, not every render.
+  useEffect(() => {
+    setTargetMode('selected');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [normalized]);
+
   if (!activePaths.includes(normalized)) return null;
 
   return (

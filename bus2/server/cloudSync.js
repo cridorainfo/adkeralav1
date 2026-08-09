@@ -59,8 +59,12 @@ const KIOSK_COMMAND_TYPES = new Set(['APPLY_UPDATE']);
 const BUS_KEY = process.env.ADKERALA_BUS_KEY ?? '';
 const SYNC_INTERVAL_MS = Number(process.env.ADKERALA_CLOUD_INTERVAL_MS ?? 5000);
 const ENROLL_POLL_MS = 3000;
+// See runCloudSyncInner's use of this — phrase/stop/voice-ad audio, display settings, and the
+// hotpatch check are polled on this slower cadence instead of every SYNC_INTERVAL_MS tick.
+const RARE_CATALOG_SYNC_INTERVAL_MS = Number(process.env.ADKERALA_RARE_SYNC_INTERVAL_MS ?? 120000);
 
 let lastPushedAt = 0;
+let lastRareCatalogSyncAt = 0;
 let dataRootRef = null;
 let unclaimInProgress = false;
 let syncRunning = false;
@@ -1038,14 +1042,25 @@ async function runCloudSyncInner(root) {
 
   lastPushedAt = Date.now();
   await syncAssignedRoutesFromCloud(root, creds);
-  await syncDisplaySettingsFromCloud(root, creds);
   await syncAdsFromCloud(root, creds);
   await syncScheduleFromCloud(root, creds);
-  await syncGlobalPhraseAudio(root, creds);
-  await syncStopAudioFromCloud(root, creds);
-  await syncStopVoiceAdsFromCloud(root, creds);
-  await syncServerHotpatchFromCloud(root, creds);
   await syncAdPlaysToCloud(root, creds, busId);
+
+  // Phrase/stop/voice-ad audio, display settings, and the hotpatch check change rarely (an
+  // admin editing announcement wording or theme colors is not a several-times-a-minute event the
+  // way ad/schedule/route content can be) — polling them on the same ~5s cadence as everything
+  // else was needless baseline load that multiplies straight into request/DB volume at fleet
+  // scale (see the scale audit's finding on this). This is only the periodic full-reconciliation
+  // pull backstop; an admin's actual edit still reaches the bus promptly through the normal
+  // command-push path each of these functions' own doc comments describe, same as ads/schedule.
+  if (Date.now() - lastRareCatalogSyncAt >= RARE_CATALOG_SYNC_INTERVAL_MS) {
+    lastRareCatalogSyncAt = Date.now();
+    await syncDisplaySettingsFromCloud(root, creds);
+    await syncGlobalPhraseAudio(root, creds);
+    await syncStopAudioFromCloud(root, creds);
+    await syncStopVoiceAdsFromCloud(root, creds);
+    await syncServerHotpatchFromCloud(root, creds);
+  }
 
   // Catch up any ad/banner/schedule media referenced in state but not yet on disk.
   try {

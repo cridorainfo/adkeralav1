@@ -6,6 +6,8 @@ import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { optimizeImageBuffer } from './imageProcess.js';
+import { validateMediaForCategory } from './mediaSniff.js';
+import { timingSafeEqual } from './timingSafeEqual.js';
 import {
   upsertBusTelemetry,
   getBus,
@@ -24,7 +26,9 @@ import {
   listAllRoutes,
   searchStopCatalog,
   upsertStopCatalog,
-  getStopFromCatalog,
+  loadCatalogMap,
+  pruneCommands,
+  stopCatalogKey,
   ensureStopCatalogFromRoutes,
   loadStore,
   saveStore,
@@ -153,8 +157,8 @@ import {
   findBusIdByDeviceToken,
   withMediaFiles,
 } from './fleet.js';
-import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter } from './middleware/rateLimit.js';
-import { requestLogger, writeAudit } from './logger.js';
+import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter, claimLimiter } from './middleware/rateLimit.js';
+import { requestLogger, writeAudit, listAuditLog } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
 import { collectScheduleMediaPaths, collectRemovedScheduleMediaPaths } from './scheduleCatalog.js';
@@ -165,7 +169,6 @@ import { verifyDriverControlForBus } from './driverOtp.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '0.0.0.0';
-const ADMIN_KEY = process.env.ADKERALA_ADMIN_KEY ?? 'change-me-in-production';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 
@@ -191,9 +194,8 @@ async function purgeUnreferencedMedia(candidatePaths = []) {
   }
 }
 
-if (ADMIN_KEY === 'change-me-in-production' && process.env.NODE_ENV === 'production') {
-  console.warn('WARNING: Set ADKERALA_ADMIN_KEY in production!');
-}
+// Production ADKERALA_ADMIN_KEY/ADKERALA_JWT_SECRET validation now lives in auth.js (throws at
+// import time rather than just warning — both are full admin-auth bypasses at their defaults).
 
 const app = express();
 app.set('trust proxy', 1);
@@ -314,9 +316,16 @@ function authBus(req, res, next) {
     return;
   }
 
+  // Fail closed: this is the no-x-bus-token path (device not yet enrolled, or genuinely no
+  // credentials at all). It used to only check the key when ADKERALA_BUS_KEY happened to be
+  // configured server-side — since that var is documented as optional and commonly left unset,
+  // `expected` being '' made this a no-op, letting anyone hit every authBus route (telemetry,
+  // ad-play recording, command queue) for any busId with zero credentials. There's no legitimate
+  // case for a tokenless request to succeed regardless of whether the key is configured — see
+  // the security audit's finding on this.
   const key = req.headers['x-bus-key'] ?? '';
   const expected = process.env.ADKERALA_BUS_KEY ?? '';
-  if (expected && key !== expected) {
+  if (!expected || !timingSafeEqual(key, expected)) {
     res.status(401).json({ ok: false, error: 'Invalid bus key' });
     return;
   }
@@ -336,7 +345,10 @@ app.use('/api/driver', (_req, res, next) => {
 
 /* ——— Auth ——— */
 
-app.post('/api/auth/signup', async (req, res) => {
+// authLimiter reused here (was unrated-limited) — enables scripted mass account creation
+// otherwise, which is a direct prerequisite for brute-forcing fleet-claim codes as a fresh
+// self-registered bus_owner. See the security audit's finding on this.
+app.post('/api/auth/signup', authLimiter, async (req, res) => {
   const { email, password, name, role } = req.body ?? {};
   const result = await createUser({ email, password, name, role });
   if (!result.ok) {
@@ -383,12 +395,26 @@ app.get('/api/users', authAdminOnly, async (_req, res) => {
   res.json({ ok: true, users });
 });
 
+// Most-recent-first — who changed pricing/campaigns/schedules/house-ads/user roles/releases and
+// when, previously write-only infrastructure with no admin-facing view. See the feature-gap
+// audit's finding on this. Coverage isn't exhaustive across every mutating endpoint yet (that's a
+// bigger follow-up), but the highest-value actions for "who changed what" disputes are covered.
+app.get('/api/audit-log', authAdminOnly, async (req, res) => {
+  const limit = Math.min(1000, Math.max(1, Number(req.query.limit) || 200));
+  const entries = await listAuditLog({ limit });
+  res.json({ ok: true, entries });
+});
+
 app.patch('/api/users/:userId', authAdminOnly, async (req, res) => {
   const result = await updateUser(req.params.userId, req.body ?? {});
   if (!result.ok) {
     res.status(404).json(result);
     return;
   }
+  // Especially role changes (who's an admin) and status (who's suspended) — exactly the "who
+  // changed what, when" questions an operator needs answered at fleet/multi-admin scale. See the
+  // feature-gap audit's finding on audit-log coverage.
+  await writeAudit('user.update', req.user.id, { targetUserId: req.params.userId, patch: req.body ?? {} });
   res.json(result);
 });
 
@@ -431,7 +457,7 @@ app.post('/api/fleet/enroll/:installId/ack', enrollLimiter, async (req, res) => 
   res.json(result);
 });
 
-app.post('/api/fleet/claim', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
+app.post('/api/fleet/claim', claimLimiter, authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
   try {
     const { fleetClaimCode, plate, installId } = req.body ?? {};
     const ownerId = req.user.role === 'bus_owner' ? req.user.id : req.body?.ownerId ?? req.user.id;
@@ -453,9 +479,11 @@ app.post('/api/fleet/claim', authSession, requireAuth, requireRole('admin', 'bus
   }
 });
 
-app.get('/api/fleet/pending', authSession, requireAuth, requireRole('admin', 'bus_owner'), async (req, res) => {
-  const ownerId = req.user.role === 'bus_owner' ? req.user.id : null;
-  const pending = await listPendingEnrollments({ ownerId });
+// Admin-only (was 'admin', 'bus_owner') — see fleet.js's listPendingEnrollments doc comment.
+// An unclaimed enrollment has no owner yet, so this used to leak every operator's raw 6-digit
+// claim code to any self-signed-up bus_owner, letting them race the real owner to claim it.
+app.get('/api/fleet/pending', authSession, requireAuth, requireRole('admin'), async (req, res) => {
+  const pending = await listPendingEnrollments();
   res.json({ ok: true, pending });
 });
 
@@ -505,6 +533,7 @@ app.get('/api/campaigns', authSession, requireAuth, async (req, res) => {
 
 app.post('/api/campaigns', authSession, requireAuth, requireRole('admin', 'advertiser'), async (req, res) => {
   const result = await createCampaign(req.user, req.body ?? {});
+  if (result.ok) await writeAudit('campaign.create', req.user.id, { campaignId: result.campaign?.id, name: result.campaign?.name });
   res.json(result);
 });
 
@@ -515,6 +544,7 @@ app.put('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 'ad
     res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
     return;
   }
+  await writeAudit('campaign.update', req.user.id, { campaignId: req.params.id });
   if (prev) {
     const removed = collectRemovedAdMediaPaths(
       prev.ads,
@@ -534,6 +564,7 @@ app.delete('/api/campaigns/:id', authSession, requireAuth, requireRole('admin', 
     res.status(result.error === 'Forbidden' ? 403 : 404).json(result);
     return;
   }
+  await writeAudit('campaign.delete', req.user.id, { campaignId: req.params.id, name: campaign?.name });
   if (campaign) {
     await purgeUnreferencedMedia(collectAdMediaPathsFromLists(campaign.ads, campaign.bannerAds));
   }
@@ -622,6 +653,7 @@ app.get('/api/schedules', authAdminOnly, async (_req, res) => {
 
 app.post('/api/schedules', authAdminOnly, async (req, res) => {
   const result = await createSchedule(req.user, req.body ?? {});
+  if (result.ok) await writeAudit('schedule.create', req.user.id, { scheduleId: result.schedule?.id, name: result.schedule?.name });
   res.json(result);
 });
 
@@ -632,6 +664,7 @@ app.put('/api/schedules/:id', authAdminOnly, async (req, res) => {
     res.status(404).json(result);
     return;
   }
+  await writeAudit('schedule.update', req.user.id, { scheduleId: req.params.id });
   if (prev) {
     const removed = collectRemovedScheduleMediaPaths(prev.items, result.schedule.items);
     await purgeUnreferencedMedia(removed);
@@ -646,6 +679,7 @@ app.delete('/api/schedules/:id', authAdminOnly, async (req, res) => {
     res.status(404).json(result);
     return;
   }
+  await writeAudit('schedule.delete', req.user.id, { scheduleId: req.params.id, name: schedule?.name });
   if (schedule) {
     await purgeUnreferencedMedia(collectScheduleMediaPaths(schedule.items));
   }
@@ -769,9 +803,13 @@ function collectAudioMediaPaths(...maps) {
   return [...paths];
 }
 
-async function mergeStopWithCatalog(stop) {
+// `catalogMap` is a pre-loaded Map (store.js's loadCatalogMap()) keyed by stopCatalogKey — a
+// single query for the whole catalog, not one getStopFromCatalog query per stop. See
+// buildAssignedRoutesPayload below, the one caller that used to pay that N+1 cost every ~5s per
+// bus (see the scale audit's finding on this).
+function mergeStopWithCatalog(stop, catalogMap) {
   if (!stop?.en) return stop;
-  const catalog = await getStopFromCatalog(stop.en);
+  const catalog = catalogMap.get(stopCatalogKey(stop.en)) ?? null;
   if (!catalog) return stop;
   return {
     ...stop,
@@ -783,14 +821,17 @@ async function mergeStopWithCatalog(stop) {
   };
 }
 
-/** Fill missing Malayalam/GPS on route stops from the shared cloud catalog. */
-async function enrichRouteFromCatalog(route) {
+/** Fill missing Malayalam/GPS on route stops from the shared cloud catalog. `catalogMap` can be
+ * pre-loaded (store.js's loadCatalogMap()) by a caller enriching many routes in one request/loop
+ * — falls back to loading it fresh for single-route callers that don't already have one. */
+async function enrichRouteFromCatalog(route, catalogMap = null) {
   if (!route) return route;
+  const map = catalogMap ?? (await loadCatalogMap());
   return {
     ...route,
-    startStop: await mergeStopWithCatalog(route.startStop),
-    endStop: await mergeStopWithCatalog(route.endStop),
-    stops: await Promise.all((route.stops ?? []).map((s) => mergeStopWithCatalog(s))),
+    startStop: mergeStopWithCatalog(route.startStop, map),
+    endStop: mergeStopWithCatalog(route.endStop, map),
+    stops: (route.stops ?? []).map((s) => mergeStopWithCatalog(s, map)),
   };
 }
 
@@ -811,10 +852,10 @@ function attachStopAudioToRoute(route, stopAudioCatalog = {}) {
   };
 }
 
-async function enrichRouteForClient(route) {
-  const merged = await enrichRouteFromCatalog(route);
-  const catalog = await getStopAudioCatalog();
-  return attachStopAudioToRoute(merged, catalog.stopAudio ?? {});
+async function enrichRouteForClient(route, catalogMap = null, stopAudioMap = null) {
+  const merged = await enrichRouteFromCatalog(route, catalogMap);
+  const audioMap = stopAudioMap ?? (await getStopAudioCatalog()).stopAudio ?? {};
+  return attachStopAudioToRoute(merged, audioMap);
 }
 
 const routeSyncDebounce = new Map();
@@ -822,13 +863,19 @@ const ROUTE_SYNC_DEBOUNCE_MS = 5000;
 
 async function buildAssignedRoutesPayload(busId) {
   const rawIds = await getBusAssignedRouteIds(busId);
+  // Loaded once for every assigned route on this bus, not once per stop per route — this
+  // endpoint is hit unconditionally on every bus's ~5s routes poll, so at 1000 buses the old
+  // per-stop query pattern was ~1,800 sequential DB round trips/sec fleet-wide from this one
+  // handler. See the scale audit's finding on this.
+  const [catalogMap, stopAudioCatalog] = await Promise.all([loadCatalogMap(), getStopAudioCatalog()]);
+  const stopAudioMap = stopAudioCatalog.stopAudio ?? {};
   const routes = [];
   const validIds = [];
   for (const id of rawIds) {
     const route = await getRouteById(id);
     if (!route) continue;
     validIds.push(id);
-    const enriched = await enrichRouteForClient(route);
+    const enriched = await enrichRouteForClient(route, catalogMap, stopAudioMap);
     routes.push({
       id: enriched.id,
       name: enriched.name,
@@ -1214,7 +1261,7 @@ app.get('/api/buses/:busId/locations', authFleet, async (req, res) => {
 app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (!(await assertBusAccess(req, res, req.params.busId))) return;
   const busId = req.params.busId;
-  const { plate, plateDisplay, pairingCode, displayName, mode } = req.body ?? {};
+  const { plate, plateDisplay, pairingCode, displayName, mode, tags } = req.body ?? {};
 
   let normalizedCode = null;
   if (pairingCode != null) {
@@ -1243,6 +1290,7 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
   if (plateDisplay != null && plate == null) patch.plateDisplay = String(plateDisplay).trim();
   if (normalizedCode != null) patch.pairingCode = normalizedCode;
   if (mode != null) patch.mode = mode;
+  if (Array.isArray(tags)) patch.tags = tags;
   if (Object.keys(patch).length) {
     profile = await upsertBusProfile(busId, patch);
   }
@@ -1588,6 +1636,7 @@ app.get('/api/pricing-settings', authAdminOnly, async (_req, res) => {
 
 app.put('/api/pricing-settings', authAdminOnly, async (req, res) => {
   const settings = await setPricingSettings(req.body ?? {});
+  await writeAudit('pricing.update', req.user.id, { patch: req.body ?? {} });
   res.json({ ok: true, ...settings });
 });
 
@@ -1608,6 +1657,7 @@ app.put('/api/house-ads', authAdminOnly, async (req, res) => {
   });
   const removed = collectRemovedAdMediaPaths(prev.ads, prev.bannerAds, houseAds.ads, houseAds.bannerAds);
   await purgeUnreferencedMedia(removed);
+  await writeAudit('house-ads.update', req.user.id, { adCount: houseAds.ads.length, bannerAdCount: houseAds.bannerAds.length });
   res.json({ ok: true, ...houseAds });
 });
 
@@ -1976,7 +2026,12 @@ app.delete('/api/routes/:routeId', authCatalog, async (req, res) => {
 app.get('/api/routes', authCatalog, async (_req, res) => {
   try {
     const routes = await listAllRoutes();
-    const enriched = await Promise.all(routes.map((r) => enrichRouteForClient(r)));
+    // Same preload-once pattern as buildAssignedRoutesPayload above — this listed every route in
+    // the whole catalog, so the old per-stop-per-route query pattern was the worst case of this
+    // N+1 in the app.
+    const [catalogMap, stopAudioCatalog] = await Promise.all([loadCatalogMap(), getStopAudioCatalog()]);
+    const stopAudioMap = stopAudioCatalog.stopAudio ?? {};
+    const enriched = await Promise.all(routes.map((r) => enrichRouteForClient(r, catalogMap, stopAudioMap)));
     res.json({ ok: true, routes: enriched });
   } catch (err) {
     console.error('GET /api/routes failed:', err);
@@ -2111,6 +2166,14 @@ app.patch('/api/routes/:routeId/stops/:stopEn', authCatalog, async (req, res) =>
   }
 });
 
+const CATEGORY_MEDIA_LABEL = {
+  ads: 'image/video',
+  banners: 'image/video',
+  schedule: 'image/video',
+  announcements: 'audio',
+  stops: 'audio',
+};
+
 /** Admin upload voice/audio — stored on cloud, bus downloads when online. */
 app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   if (!['admin', 'bus_owner', 'advertiser'].includes(req.user.role)) {
@@ -2130,7 +2193,6 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     return;
   }
 
-  const contentType = req.body?.contentType ?? 'application/octet-stream';
   const base64 = data.includes(',') ? data.split(',')[1] : data;
   const buffer = Buffer.from(base64, 'base64');
   if (!buffer.length) {
@@ -2148,6 +2210,18 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
     });
     return;
   }
+  // Validated by magic bytes, not the filename or the client's own Content-Type header (both
+  // fully attacker-controlled) — an SVG/HTML upload with an embedded <script>, served back
+  // same-origin under a trusting Content-Type, is a stored-XSS path. See mediaSniff.js.
+  const sniffed = validateMediaForCategory(buffer, category);
+  if (!sniffed) {
+    res.status(400).json({
+      ok: false,
+      error: `File doesn't look like a valid ${CATEGORY_MEDIA_LABEL[category] ?? 'media'} file — check the format and try again.`,
+    });
+    return;
+  }
+  const contentType = sniffed.contentType;
   const safeName = String(filename).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 120);
   const relPath = `${category}/${Date.now()}-${safeName}`;
   const fullPath = path.join(MEDIA_DIR, relPath);
@@ -2164,12 +2238,13 @@ app.post('/api/media/upload', authSession, requireAuth, async (req, res) => {
   });
 });
 
-/** Admin removes ad/banner media no longer referenced in catalogs. */
-app.delete('/api/media/:category/:filename', authSession, requireAuth, async (req, res) => {
-  if (!['admin', 'bus_owner'].includes(req.user.role)) {
-    res.status(403).json({ ok: false, error: 'Forbidden' });
-    return;
-  }
+/** Admin removes ad/banner media no longer referenced in catalogs.
+ * Admin-only (was 'admin', 'bus_owner') — media files are frequently shared across campaigns/
+ * buses belonging to other operators, and this deliberately deletes even actively-referenced
+ * files (see the comment below); a bus_owner who happens to learn a shared file's path via their
+ * own bus's ads catalog shouldn't be able to break that ad for every other bus still using it.
+ * See the security audit's finding on this. */
+app.delete('/api/media/:category/:filename', authAdminOnly, async (req, res) => {
   const relPath = `${req.params.category}/${req.params.filename}`;
   // Deliberately still allowed even if referencedBy is non-empty (the media browser shows that
   // warning to the admin before they confirm) — this is the deliberate manual-cleanup override
@@ -2255,6 +2330,10 @@ async function serveStoredMediaFile(res, relPath) {
   else if (lower.endsWith('.png')) res.type('image/png');
   else if (lower.endsWith('.gif')) res.type('image/gif');
   else if (lower.endsWith('.webp')) res.type('image/webp');
+  // Explicit fallback rather than letting sendFile infer a Content-Type from the extension —
+  // upload-time validation (mediaSniff.js) means nothing unrecognized should ever land here, but
+  // this is the defense-in-depth backstop against ever serving something as e.g. image/svg+xml.
+  else res.type('application/octet-stream');
   res.sendFile(fullPath);
 }
 
@@ -2353,6 +2432,7 @@ app.post('/api/releases/push-update', authAdminOnly, async (req, res) => {
     });
     commandIds.push({ busId, commandId: cmd.id });
   }
+  await writeAudit('release.push', req.user.id, { busCount: busIds.length, delaySec });
   res.json({ ok: true, queuedFor: busIds.length, commandIds });
 });
 
@@ -2434,6 +2514,11 @@ async function start() {
         import('./storePg.js').then((m) => m.pgPruneCommands()).catch(() => {});
       }, 60 * 60 * 1000);
     }
+    // JSON-store equivalent of the Postgres pruning above — store.js's pruneCommands() no-ops on
+    // Postgres, so this is safe to always run rather than branching on usePostgres() again.
+    setInterval(() => {
+      pruneCommands().catch(() => {});
+    }, 60 * 60 * 1000);
   } catch (err) {
     console.error('Store warm-up failed (health endpoint still available):', err);
   }

@@ -6,6 +6,7 @@ import { WEEKDAY_OPTIONS, isScheduleWindowActive, describeScheduleWindow } from 
 import { busDisplayLabel } from './BusContext.jsx';
 import { sortBusesAlphabetically } from '../lib/busSort.js';
 import AdMediaPreview from './AdMediaPreview.jsx';
+import TargetBusPicker from './TargetBusPicker.jsx';
 
 /** Day-of-week + optional date-range picker, shared by the create form and every edit panel —
  * `window` is {activeDays, startDate, endDate}, `onChange` receives the same shape back. */
@@ -129,6 +130,18 @@ export default function SchedulesPanel() {
     load();
   }, []);
 
+  // Warn before navigating away with uploaded-but-not-yet-saved playlist items — losing them
+  // silently (no prompt) also orphans whatever was already uploaded to the media volume.
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (!showCreateForm || !form.items.length) return;
+      e.preventDefault();
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [showCreateForm, form.items.length]);
+
   function toggleBus(busId) {
     const ids = form.targetBusIds.includes(busId)
       ? form.targetBusIds.filter((id) => id !== busId)
@@ -191,15 +204,19 @@ export default function SchedulesPanel() {
   async function createSchedule(e) {
     e.preventDefault();
     setMessage('');
-    await api('/api/schedules', {
-      method: 'POST',
-      body: JSON.stringify(form),
-    });
-    setForm(emptyForm);
-    setUploadQueue([]);
-    setMessage('Schedule created — push it to make it live on those buses');
-    setShowCreateForm(false);
-    load();
+    try {
+      await api('/api/schedules', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      setForm(emptyForm);
+      setUploadQueue([]);
+      setMessage('Schedule created — push it to make it live on those buses');
+      setShowCreateForm(false);
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not create schedule');
+    }
   }
 
   async function push(id) {
@@ -380,22 +397,19 @@ export default function SchedulesPanel() {
           </div>
           <div className="form-group">
             <label>Target buses</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              {buses.map((b) => (
-                <label key={b.busId} style={{ fontSize: '0.85rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.targetBusIds.includes(b.busId)}
-                    onChange={() => toggleBus(b.busId)}
-                  />{' '}
-                  {busDisplayLabel(b)}
+            <TargetBusPicker
+              buses={buses}
+              selectedIds={form.targetBusIds}
+              onToggle={toggleBus}
+              renderExtra={(b) => (
+                <>
                   {b.profile?.mode === 'auto' && <span className="hint"> (auto — follows window)</span>}
                   {(!b.profile?.mode || b.profile.mode === 'route') && (
                     <span className="hint"> (currently route mode)</span>
                   )}
-                </label>
-              ))}
-            </div>
+                </>
+              )}
+            />
             <p className="hint">
               Targeting a bus here doesn't switch its mode — set each bus to "entertainment" in
               the Fleet tab too, or it'll download this content but keep showing its route.
@@ -547,18 +561,11 @@ export default function SchedulesPanel() {
                 </div>
                 <div className="form-group">
                   <label>Target buses</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    {buses.map((b) => (
-                      <label key={b.busId} style={{ fontSize: '0.85rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={edit.targetBusIds.includes(b.busId)}
-                          onChange={() => toggleEditBus(s.id, b.busId)}
-                        />{' '}
-                        {busDisplayLabel(b)}
-                      </label>
-                    ))}
-                  </div>
+                  <TargetBusPicker
+                    buses={buses}
+                    selectedIds={edit.targetBusIds}
+                    onToggle={(busId) => toggleEditBus(s.id, busId)}
+                  />
                 </div>
                 <div className="inline-form">
                   <label style={{ fontSize: '0.85rem' }}>

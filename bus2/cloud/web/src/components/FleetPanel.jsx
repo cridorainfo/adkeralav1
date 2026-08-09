@@ -5,6 +5,8 @@ import FleetMap, { isBusOnline } from './FleetMap.jsx';
 import FleetBusDetail from './FleetBusDetail.jsx';
 import { busDisplayLabel, useSelectedBus } from './BusContext.jsx';
 import { sortBusesAlphabetically, filterBusesBySearch } from '../lib/busSort.js';
+import { downloadCsv } from '../lib/csvExport.js';
+import AlertsSummaryPanel from './AlertsSummaryPanel.jsx';
 
 const BUS_MODES = ['route', 'entertainment', 'auto'];
 function normalizeBusMode(mode) {
@@ -84,6 +86,10 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [displayName, setDisplayName] = useState('');
   const [pairingCode, setPairingCode] = useState('');
   const [mode, setMode] = useState('route');
+  // Comma-separated in the input, array in the profile — depot/region/vehicle-type labels so an
+  // admin can act on a cohort ("all Kochi depot buses") instead of one flat 1000-bus list. See
+  // the feature-gap audit's finding on this.
+  const [tagsInput, setTagsInput] = useState('');
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
@@ -108,6 +114,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setDisplayName('');
       setPairingCode('');
       setMode('route');
+      setTagsInput('');
       return undefined;
     }
     let cancelled = false;
@@ -119,6 +126,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setDisplayName(json.profile?.displayName ?? '');
       setPairingCode(json.profile?.pairingCode ?? '');
       setMode(normalizeBusMode(json.profile?.mode));
+      setTagsInput((json.profile?.tags ?? []).join(', '));
     })();
     return () => {
       cancelled = true;
@@ -175,17 +183,23 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       return;
     }
     setMessage('');
-    const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
-      method: 'PUT',
-      body: JSON.stringify({ plate, displayName, pairingCode: code || undefined, mode }),
-    });
-    setProfile(json.profile);
-    setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
-    setDisplayName(json.profile?.displayName ?? displayName);
-    setPairingCode(json.profile?.pairingCode ?? code);
-    setMode(normalizeBusMode(json.profile?.mode));
-    setMessage('Bus profile saved');
-    refreshBuses();
+    const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
+    try {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify({ plate, displayName, pairingCode: code || undefined, mode, tags }),
+      });
+      setProfile(json.profile);
+      setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
+      setDisplayName(json.profile?.displayName ?? displayName);
+      setPairingCode(json.profile?.pairingCode ?? code);
+      setMode(normalizeBusMode(json.profile?.mode));
+      setTagsInput((json.profile?.tags ?? tags).join(', '));
+      setMessage('Bus profile saved');
+      refreshBuses();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not save bus profile');
+    }
   }
 
   async function registerBus() {
@@ -231,16 +245,33 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
 
   async function disconnectDriver() {
     if (!selectedBusId) return;
-    await api(`/api/buses/${encodeURIComponent(selectedBusId)}/unlink-driver`, { method: 'POST' });
-    setMessage('Driver disconnected — pairing QR will show on the bus display');
-    refreshSelected();
+    setMessage('');
+    try {
+      await api(`/api/buses/${encodeURIComponent(selectedBusId)}/unlink-driver`, { method: 'POST' });
+      setMessage('Driver disconnected — pairing QR will show on the bus display');
+      refreshSelected();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not disconnect driver');
+    }
   }
 
   async function revokeDevice() {
-    if (!selectedBusId || !window.confirm(`Revoke device credentials for ${selectedBusId}?`)) return;
-    await api(`/api/fleet/revoke/${encodeURIComponent(selectedBusId)}`, { method: 'POST' });
-    setMessage('Device revoked — bus must be re-claimed');
-    refreshSelected();
+    if (
+      !selectedBusId ||
+      !window.confirm(
+        `Revoke device credentials for ${selectedBusId}? The bus PC will need to be re-claimed with a new fleet code afterward.`
+      )
+    ) {
+      return;
+    }
+    setMessage('');
+    try {
+      await api(`/api/fleet/revoke/${encodeURIComponent(selectedBusId)}`, { method: 'POST' });
+      setMessage('Device revoked — bus must be re-claimed');
+      refreshSelected();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not revoke device');
+    }
   }
 
   async function deleteBus() {
@@ -275,6 +306,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
 
   return (
     <>
+      <AlertsSummaryPanel />
       <OnboardingWizard allowRegister={allowRegister} claimHref={claimHref} />
       <div className="grid-2">
         <div className="card">
@@ -287,10 +319,41 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               placeholder="Search by name, plate, or bus ID"
             />
           </div>
-          <p className="hint">
-            {visibleBuses.length} bus{visibleBuses.length === 1 ? '' : 'es'}
-            {busSearch.trim() ? ' matching' : ''}
-          </p>
+          <div className="campaigns-header">
+            <p className="hint" style={{ marginBottom: 0 }}>
+              {visibleBuses.length} bus{visibleBuses.length === 1 ? '' : 'es'}
+              {busSearch.trim() ? ' matching' : ''}
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() =>
+                downloadCsv(
+                  `adkerala-fleet-${new Date().toISOString().slice(0, 10)}.csv`,
+                  visibleBuses.map((b) => ({
+                    busId: b.busId,
+                    name: b.profile?.displayName ?? '',
+                    plate: b.profile?.plateDisplay || b.profile?.plate || '',
+                    mode: b.profile?.mode ?? 'route',
+                    tags: (b.profile?.tags ?? []).join('; '),
+                    online: isBusOnline(b.updatedAt) ? 'online' : 'offline',
+                    lastSeen: b.updatedAt ? new Date(b.updatedAt).toISOString() : '',
+                  })),
+                  [
+                    { key: 'busId', label: 'Bus ID' },
+                    { key: 'name', label: 'Name' },
+                    { key: 'plate', label: 'Plate' },
+                    { key: 'mode', label: 'Mode' },
+                    { key: 'tags', label: 'Tags' },
+                    { key: 'online', label: 'Online' },
+                    { key: 'lastSeen', label: 'Last seen' },
+                  ]
+                )
+              }
+            >
+              Export CSV
+            </button>
+          </div>
           {buses.length > 0 && !visibleBuses.length && (
             <p className="empty-state">No buses match “{busSearch.trim()}”.</p>
           )}
@@ -316,6 +379,11 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
                     auto
                   </span>
                 )}
+                {(bus.profile?.tags ?? []).map((tag) => (
+                  <span key={tag} className="bus-pill" style={{ marginLeft: '0.35rem', fontSize: '0.7rem' }}>
+                    {tag}
+                  </span>
+                ))}
               </span>
               <small>{bus.busId}</small>
             </div>
@@ -359,6 +427,19 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               <div className="form-group">
                 <label>Number plate</label>
                 <input value={plate} onChange={(e) => setPlate(e.target.value)} placeholder="KL 07 AB 1234" />
+              </div>
+              <div className="form-group">
+                <label>Tags</label>
+                <input
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                  placeholder="e.g. Kochi depot, AC coach"
+                />
+                <p className="hint">
+                  Comma-separated — depot, region, vehicle type, whatever helps you find this bus
+                  as part of a group. Also matched by every search box (Fleet, Live Wall, target-bus
+                  pickers), not just this field.
+                </p>
               </div>
 
               <h3>Content mode</h3>

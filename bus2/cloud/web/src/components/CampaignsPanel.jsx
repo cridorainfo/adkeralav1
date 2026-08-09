@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { uploadMedia } from '../lib/api.js';
@@ -6,6 +6,7 @@ import { doubleConfirm } from '../lib/confirm.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
 import { busDisplayLabel } from './BusContext.jsx';
 import { sortBusesAlphabetically } from '../lib/busSort.js';
+import TargetBusPicker from './TargetBusPicker.jsx';
 import AdMediaPreview from './AdMediaPreview.jsx';
 
 export default function CampaignsPanel({ adminMode = false }) {
@@ -34,6 +35,11 @@ export default function CampaignsPanel({ adminMode = false }) {
   const [editForm, setEditForm] = useState({});
   const [editOpen, setEditOpen] = useState(null);
   const [editUploadingSlot, setEditUploadingSlot] = useState({});
+  // Guards approve/push/submitRerun against a double-click/slow-connection double-submit firing
+  // two overlapping requests (the server side isn't necessarily idempotent for these — a second
+  // "push" could enqueue a duplicate broadcast command). A ref rather than state since it's a
+  // pure in-flight guard, not something that needs to trigger a re-render on its own.
+  const inFlightActions = useRef(new Set());
 
   async function load() {
     const [cJson, bJson, vJson] = await Promise.all([
@@ -91,29 +97,54 @@ export default function CampaignsPanel({ adminMode = false }) {
   async function createCampaign(e) {
     e.preventDefault();
     setMessage('');
-    await api('/api/campaigns', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: form.name,
-        targetBusIds: form.targetBusIds,
-        ads: form.ads ?? [],
-        bannerAds: form.bannerAds ?? [],
-      }),
-    });
-    setForm({ name: '', targetBusIds: [] });
-    setMessage('Campaign created');
-    setShowCreateForm(false);
-    load();
+    try {
+      await api('/api/campaigns', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          targetBusIds: form.targetBusIds,
+          ads: form.ads ?? [],
+          bannerAds: form.bannerAds ?? [],
+        }),
+      });
+      setForm({ name: '', targetBusIds: [] });
+      setMessage('Campaign created');
+      setShowCreateForm(false);
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not create campaign');
+    }
   }
 
   async function approve(id) {
-    await api(`/api/campaigns/${encodeURIComponent(id)}/approve`, { method: 'POST' });
-    load();
+    const key = `approve:${id}`;
+    if (inFlightActions.current.has(key)) return;
+    inFlightActions.current.add(key);
+    setMessage('');
+    try {
+      await api(`/api/campaigns/${encodeURIComponent(id)}/approve`, { method: 'POST' });
+      setMessage('Campaign approved');
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not approve campaign');
+    } finally {
+      inFlightActions.current.delete(key);
+    }
   }
 
   async function push(id) {
-    await api(`/api/campaigns/${encodeURIComponent(id)}/push`, { method: 'POST' });
-    setMessage('Campaign pushed to buses');
+    const key = `push:${id}`;
+    if (inFlightActions.current.has(key)) return;
+    inFlightActions.current.add(key);
+    setMessage('');
+    try {
+      await api(`/api/campaigns/${encodeURIComponent(id)}/push`, { method: 'POST' });
+      setMessage('Campaign pushed to buses');
+    } catch (err) {
+      setMessage(err.message ?? 'Could not push campaign');
+    } finally {
+      inFlightActions.current.delete(key);
+    }
   }
 
   // Deleting a campaign also purges its ad/banner files from the media volume server-side (see
@@ -356,16 +387,26 @@ export default function CampaignsPanel({ adminMode = false }) {
   async function submitRerun(campaignId) {
     const entry = rerunForm[campaignId];
     if (!entry) return;
-    await api(`/api/campaigns/${encodeURIComponent(campaignId)}/rerun`, {
-      method: 'POST',
-      body: JSON.stringify({
-        ads: entry.ads.filter((row) => row.amount).map((row) => ({ adId: row.adId, amount: Number(row.amount) })),
-        bannerAds: entry.bannerAds.filter((row) => row.amount).map((row) => ({ adId: row.adId, amount: Number(row.amount) })),
-      }),
-    });
-    setRerunOpen(null);
-    setMessage('Campaign rerun with new budget');
-    load();
+    const key = `rerun:${campaignId}`;
+    if (inFlightActions.current.has(key)) return;
+    inFlightActions.current.add(key);
+    setMessage('');
+    try {
+      await api(`/api/campaigns/${encodeURIComponent(campaignId)}/rerun`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ads: entry.ads.filter((row) => row.amount).map((row) => ({ adId: row.adId, amount: Number(row.amount) })),
+          bannerAds: entry.bannerAds.filter((row) => row.amount).map((row) => ({ adId: row.adId, amount: Number(row.amount) })),
+        }),
+      });
+      setRerunOpen(null);
+      setMessage('Campaign rerun with new budget');
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not rerun campaign');
+    } finally {
+      inFlightActions.current.delete(key);
+    }
   }
 
   async function attachAudioAd(campaignId, stopKey, amount) {
@@ -376,9 +417,14 @@ export default function CampaignsPanel({ adminMode = false }) {
       ...stopVoiceAds,
       [stopKey]: { ...entry, campaignId, amount: Number(amount) || undefined },
     };
-    await api('/api/stops/voice-ads', { method: 'PUT', body: JSON.stringify({ stopVoiceAds: next }) });
-    setMessage('Audio stop-ad attached to campaign');
-    load();
+    setMessage('');
+    try {
+      await api('/api/stops/voice-ads', { method: 'PUT', body: JSON.stringify({ stopVoiceAds: next }) });
+      setMessage('Audio stop-ad attached to campaign');
+      load();
+    } catch (err) {
+      setMessage(err.message ?? 'Could not attach audio stop-ad');
+    }
   }
 
   function toggleBus(busId) {
@@ -428,18 +474,7 @@ export default function CampaignsPanel({ adminMode = false }) {
               </div>
               <div className="form-group">
                 <label>Target buses</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  {buses.map((b) => (
-                    <label key={b.busId} style={{ fontSize: '0.85rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={form.targetBusIds.includes(b.busId)}
-                        onChange={() => toggleBus(b.busId)}
-                      />{' '}
-                      {busDisplayLabel(b)}
-                    </label>
-                  ))}
-                </div>
+                <TargetBusPicker buses={buses} selectedIds={form.targetBusIds} onToggle={toggleBus} />
               </div>
               <p className="hint">
                 Set a budget and/or stop-trigger below first, then choose the fullscreen ad
@@ -811,18 +846,11 @@ function CampaignCard({
           </div>
           <div className="form-group">
             <label>Target buses</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              {buses.map((b) => (
-                <label key={b.busId} style={{ fontSize: '0.85rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={edit.targetBusIds.includes(b.busId)}
-                    onChange={() => toggleEditBus(c.id, b.busId)}
-                  />{' '}
-                  {busDisplayLabel(b)}
-                </label>
-              ))}
-            </div>
+            <TargetBusPicker
+              buses={buses}
+              selectedIds={edit.targetBusIds}
+              onToggle={(busId) => toggleEditBus(c.id, busId)}
+            />
           </div>
 
           <div className="form-group">

@@ -60,6 +60,8 @@ export default function MediaBrowserPanel() {
   const [category, setCategory] = useState('ads');
   const [onlyOrphaned, setOnlyOrphaned] = useState(false);
   const [deletingPath, setDeletingPath] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('name');
 
   async function load() {
     setError('');
@@ -107,7 +109,15 @@ export default function MediaBrowserPanel() {
   }
 
   const categories = data?.categories ?? {};
-  const files = (categories[category] ?? []).filter((f) => !onlyOrphaned || !f.referencedBy.length);
+  const q = search.trim().toLowerCase();
+  const files = (categories[category] ?? [])
+    .filter((f) => !onlyOrphaned || !f.referencedBy.length)
+    .filter((f) => !q || f.filename.toLowerCase().includes(q))
+    .sort((a, b) => {
+      if (sortBy === 'size') return (b.size ?? 0) - (a.size ?? 0);
+      if (sortBy === 'date') return (b.mtime ?? 0) - (a.mtime ?? 0);
+      return a.filename.localeCompare(b.filename);
+    });
   const summary = data?.summary;
 
   return (
@@ -145,14 +155,31 @@ export default function MediaBrowserPanel() {
         ))}
       </div>
 
-      <label style={{ fontSize: '0.85rem', display: 'block', margin: '0.5rem 0' }}>
+      <div className="inline-form" style={{ margin: '0.5rem 0' }}>
         <input
-          type="checkbox"
-          checked={onlyOrphaned}
-          onChange={(e) => setOnlyOrphaned(e.target.checked)}
-        />{' '}
-        Only show orphaned (unreferenced) files
-      </label>
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search filename"
+          style={{ maxWidth: '16rem' }}
+        />
+        <label style={{ fontSize: '0.85rem' }}>
+          Sort by{' '}
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Name</option>
+            <option value="size">Size (largest first)</option>
+            <option value="date">Date (newest first)</option>
+          </select>
+        </label>
+        <label style={{ fontSize: '0.85rem' }}>
+          <input
+            type="checkbox"
+            checked={onlyOrphaned}
+            onChange={(e) => setOnlyOrphaned(e.target.checked)}
+          />{' '}
+          Only show orphaned (unreferenced) files
+        </label>
+      </div>
 
       {!data && !error && <p className="hint">Loading…</p>}
       {data && !files.length && <p className="empty-state">No files here.</p>}

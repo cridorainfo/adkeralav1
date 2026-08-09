@@ -100,8 +100,11 @@ export default function BackupPanel() {
       'Restoring overwrites routes, schedules, campaigns/ads, pricing, house ads, announcements, ' +
         'bus profiles, and login accounts with whatever is in this backup file — anything created ' +
         'since the backup was taken stays untouched but anything with the same id is replaced. ' +
-        'Every bus will need to be re-claimed (device tokens are not included in backups). Continue?',
-      'This really does overwrite current data with the backup. Restore now?'
+        'This includes YOUR OWN login account: if this backup predates it, or your password has ' +
+        'changed since, you may be signed out immediately and need to log back in with the ' +
+        "credentials from when the backup was taken. Every bus will need to be re-claimed " +
+        '(device tokens are not included in backups). Continue?',
+      'This really does overwrite current data with the backup, including login accounts. Restore now?'
     );
     if (!ok) return;
     setRestoring(true);

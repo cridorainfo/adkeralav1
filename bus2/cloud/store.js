@@ -123,9 +123,50 @@ export async function loadStore() {
   return cache;
 }
 
+let pendingStoreWrite = null;
+let storeWriteAgainAfter = false;
+
+async function flushStoreToDisk() {
+  await fs.writeFile(STORE_FILE, JSON.stringify(cache, null, 2), 'utf8');
+}
+
+/**
+ * Writes the whole in-memory store to disk (JSON-file backend only — every mutator in this file
+ * calls this, including every bus's telemetry push). Coalesces concurrent calls: previously each
+ * call fired its own independent fs.writeFile with no lock, so overlapping writes (routine at
+ * fleet scale — ~200 calls/sec across 1000 buses at the default 5s telemetry interval) could
+ * race each other for the same file with no ordering guarantee, and burned far more disk I/O than
+ * necessary. Now, a call that arrives while a write is already in flight just marks "write once
+ * more after this one finishes" and shares that same in-flight write's promise, rather than
+ * kicking off a second overlapping write — still correct (the follow-up write picks up whatever
+ * changed after the first one started) and every caller's `await saveStore()` still only resolves
+ * once its own change is durably on disk.
+ *
+ * This does not turn the JSON-file store into something that scales cleanly to a 1000-bus fleet
+ * on its own — it still serializes and rewrites the *entire* store on every write, which is
+ * fundamentally not how you want to persist a large, high-churn dataset. Postgres (already fully
+ * implemented — see usePostgres()/storePg.js) is the actual fix at real fleet scale; this just
+ * closes the race condition and cuts redundant writes for whichever backend is in use. See the
+ * scale audit's finding on this.
+ */
 export async function saveStore() {
   await ensureDataDir();
-  await fs.writeFile(STORE_FILE, JSON.stringify(cache, null, 2), 'utf8');
+  if (pendingStoreWrite) {
+    storeWriteAgainAfter = true;
+    return pendingStoreWrite;
+  }
+  pendingStoreWrite = (async () => {
+    await flushStoreToDisk();
+    while (storeWriteAgainAfter) {
+      storeWriteAgainAfter = false;
+      await flushStoreToDisk();
+    }
+  })();
+  try {
+    await pendingStoreWrite;
+  } finally {
+    pendingStoreWrite = null;
+  }
 }
 
 async function pgGetBusCompat(busId) {
@@ -354,6 +395,25 @@ export async function ackCommand(commandId) {
     await saveStore();
   }
   return cmd;
+}
+
+const COMMAND_PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** JSON-store counterpart to storePg.js's pgPruneCommands — the Postgres path already prunes
+ * acked commands >7 days old hourly (see server.js's start()), but the file-store `store.commands`
+ * array had no equivalent, growing unbounded for the lifetime of the deployment. Every push
+ * (profile/ad/schedule/route) enqueues a command, so at fleet scale this compounds saveStore()'s
+ * already-costly full-file rewrite (see store.js's own file-header comment on that) — see the
+ * scale audit's finding on this. No-ops on Postgres; call sites don't need to branch. */
+export async function pruneCommands() {
+  if (usePostgres()) return;
+  const store = await loadStore();
+  const cutoff = Date.now() - COMMAND_PRUNE_MAX_AGE_MS;
+  const before = store.commands?.length ?? 0;
+  store.commands = (store.commands ?? []).filter(
+    (c) => !(c.status === 'acked' && (c.ackedAt ?? 0) < cutoff)
+  );
+  if (store.commands.length !== before) await saveStore();
 }
 
 const PG_KEY_GLOBAL_AUDIO = 'global_audio_catalog';
@@ -1106,9 +1166,16 @@ export async function collectAllReferencedMediaPaths() {
   const houseAds = await getHouseAds();
   for (const p of collectAdMediaPathsFromLists(houseAds.ads, houseAds.bannerAds)) paths.add(p);
 
+  // Per-bus ads/schedule catalog fetches run concurrently, not sequentially — at 1000 buses this
+  // used to be ~2000 sequential DB round trips inside a single request (every campaign/schedule
+  // edit calls this), a multi-second-to-tens-of-seconds blocking call. See the scale audit's
+  // finding on this.
   const buses = await listBuses();
-  for (const { busId } of buses) {
-    const catalog = await getBusAdsCatalog(busId);
+  const [adsCatalogs, scheduleCatalogs] = await Promise.all([
+    Promise.all(buses.map(({ busId }) => getBusAdsCatalog(busId))),
+    Promise.all(buses.map(({ busId }) => getBusScheduleCatalog(busId))),
+  ]);
+  for (const catalog of adsCatalogs) {
     for (const p of collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds)) paths.add(p);
   }
 
@@ -1125,8 +1192,7 @@ export async function collectAllReferencedMediaPaths() {
   for (const schedule of Object.values(schedules)) {
     for (const p of collectScheduleMediaPaths(schedule.items)) paths.add(p);
   }
-  for (const { busId } of buses) {
-    const scheduleCatalog = await getBusScheduleCatalog(busId);
+  for (const scheduleCatalog of scheduleCatalogs) {
     for (const p of collectScheduleMediaPaths(scheduleCatalog.items)) paths.add(p);
   }
 
@@ -1159,9 +1225,14 @@ export async function describeMediaReferences() {
     add(p, { type: 'house-ad' });
   }
 
+  // See collectAllReferencedMediaPaths above (same fix, same reasoning) — this backs
+  // GET /api/media/browse, so it ran on every Media Browser page load too.
   const buses = await listBuses();
-  for (const { busId } of buses) {
-    const catalog = await getBusAdsCatalog(busId);
+  const [adsCatalogsByBus, scheduleCatalogsByBus] = await Promise.all([
+    Promise.all(buses.map(async ({ busId }) => [busId, await getBusAdsCatalog(busId)])),
+    Promise.all(buses.map(async ({ busId }) => [busId, await getBusScheduleCatalog(busId)])),
+  ]);
+  for (const [busId, catalog] of adsCatalogsByBus) {
     for (const p of collectAdMediaPathsFromLists(catalog.ads, catalog.bannerAds)) {
       add(p, { type: 'bus-catalog', busId });
     }
@@ -1192,8 +1263,7 @@ export async function describeMediaReferences() {
       add(p, { type: 'schedule', id: schedule.id, label: schedule.name || schedule.id });
     }
   }
-  for (const { busId } of buses) {
-    const scheduleCatalog = await getBusScheduleCatalog(busId);
+  for (const [busId, scheduleCatalog] of scheduleCatalogsByBus) {
     for (const p of collectScheduleMediaPaths(scheduleCatalog.items)) {
       add(p, { type: 'schedule-bus-catalog', busId });
     }
@@ -1441,7 +1511,7 @@ function normalizeCatalogStop(body = {}) {
   };
 }
 
-function stopCatalogKey(en) {
+export function stopCatalogKey(en) {
   return String(en ?? '')
     .trim()
     .toLowerCase();
@@ -1563,7 +1633,12 @@ function mergeStopFields(...sources) {
   return { en, ml, lat, lng, radiusM };
 }
 
-async function loadCatalogMap() {
+/** Whole stop catalog as a Map keyed by stopCatalogKey — one query total, not one per stop.
+ * Exported for callers (e.g. server.js's enrichRouteFromCatalog) that used to call
+ * getStopFromCatalog once per stop on a route; at 1000 buses that was ~9 sequential DB round
+ * trips per bus per ~5s routes poll (~1,800 queries/sec fleet-wide) — see the scale audit's
+ * finding on this. */
+export async function loadCatalogMap() {
   if (usePostgres()) {
     const { rows } = await query('SELECT en, data FROM stop_catalog');
     const map = new Map();
@@ -1814,10 +1889,15 @@ function ensureBusProfile(store, busId) {
       assignedRouteIds: [],
       // 'route' (default) or 'entertainment' — see cloud/schedules.js.
       mode: 'route',
+      // Free-text depot/region/vehicle-type tags — see cloud/db/009_bus_tags.sql (Postgres side).
+      tags: [],
     };
   }
   if (!Array.isArray(store.busProfiles[busId].assignedRouteIds)) {
     store.busProfiles[busId].assignedRouteIds = [];
+  }
+  if (!Array.isArray(store.busProfiles[busId].tags)) {
+    store.busProfiles[busId].tags = [];
   }
   // Valid modes: 'route' (default), 'entertainment', 'auto' (see cloud/schedules.js /
   // server.js PUT profile validation) — this used to only recognize 'entertainment', silently
@@ -1841,6 +1921,9 @@ export async function upsertBusProfile(busId, patch = {}) {
   const profile = ensureBusProfile(store, busId);
   if (patch.assignedRouteIds) {
     patch.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
+  }
+  if (patch.tags) {
+    patch.tags = [...new Set(patch.tags.map((t) => String(t).trim()).filter(Boolean))];
   }
   if (patch.mode != null && !['entertainment', 'auto'].includes(patch.mode)) {
     patch.mode = 'route';
@@ -2195,7 +2278,19 @@ function detachFleetDevicesForBus(store, busId) {
 }
 
 export async function deleteBus(busId) {
-  if (usePostgres()) return pg.pgDeleteBus(busId);
+  const result = usePostgres() ? await pg.pgDeleteBus(busId) : await deleteBusFromFileStore(busId);
+  if (!result.ok) return result;
+  // Backend-agnostic — campaigns/schedules are read/written through the same catalog functions
+  // regardless of usePostgres(), so one sweep covers both. deleteBus used to only remove the
+  // bus's own profile/device/driver link, leaving its id stuck in every campaign/schedule
+  // targetBusIds array that had ever targeted it — with real fleet turnover this accumulates
+  // silently, and "N buses targeted" counts drift from what's actually still in the fleet. See
+  // the feature-gap audit's finding on this.
+  await sweepBusIdFromTargetLists(busId);
+  return result;
+}
+
+async function deleteBusFromFileStore(busId) {
   const store = await loadStore();
   if (!store.busProfiles?.[busId]) {
     return { ok: false, error: 'Bus not found' };
@@ -2211,6 +2306,28 @@ export async function deleteBus(busId) {
   }
   await saveStore();
   return { ok: true, busId };
+}
+
+async function sweepBusIdFromTargetLists(busId) {
+  const campaigns = await getCampaignsCatalog();
+  let campaignsChanged = false;
+  const nextCampaigns = { ...campaigns };
+  for (const [id, campaign] of Object.entries(campaigns)) {
+    if (!(campaign.targetBusIds ?? []).includes(busId)) continue;
+    nextCampaigns[id] = { ...campaign, targetBusIds: campaign.targetBusIds.filter((b) => b !== busId) };
+    campaignsChanged = true;
+  }
+  if (campaignsChanged) await saveCampaignsCatalog(nextCampaigns);
+
+  const schedules = await getSchedulesCatalog();
+  let schedulesChanged = false;
+  const nextSchedules = { ...schedules };
+  for (const [id, schedule] of Object.entries(schedules)) {
+    if (!(schedule.targetBusIds ?? []).includes(busId)) continue;
+    nextSchedules[id] = { ...schedule, targetBusIds: schedule.targetBusIds.filter((b) => b !== busId) };
+    schedulesChanged = true;
+  }
+  if (schedulesChanged) await saveSchedulesCatalog(nextSchedules);
 }
 
 /** Remove a stale driver record (e.g. orphaned — not linked to any current bus). */
