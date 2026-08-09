@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { isBusOnline } from './FleetMap.jsx';
 
@@ -102,8 +103,8 @@ export function BusSelector() {
 
   return (
     <div className="toolbar bus-selector">
-      <label>
-        Selected bus{' '}
+      <label className="bus-selector-field">
+        <span className="bus-selector-field-label">Selected bus</span>
         <select value={selectedBusId} onChange={(e) => setSelectedBusId(e.target.value)}>
           {(buses ?? []).map((b) => (
             <option key={b.busId} value={b.busId}>
@@ -115,8 +116,8 @@ export function BusSelector() {
           {buses?.length > 0 && !selectedBusId && <option value="">— select bus —</option>}
         </select>
       </label>
-      <label style={{ fontSize: '0.85rem' }}>
-        Push target{' '}
+      <label className="bus-selector-field bus-selector-field-sm">
+        <span className="bus-selector-field-label">Push target</span>
         <select value={targetMode} onChange={(e) => setTargetMode(e.target.value)}>
           <option value="selected">Selected bus</option>
           <option value="all">All buses</option>
@@ -124,9 +125,9 @@ export function BusSelector() {
         </select>
       </label>
       {targetMode === 'multi' && buses.length > 0 && (
-        <div className="bus-multi-pick" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <div className="bus-multi-pick">
           {buses.map((b) => (
-            <label key={b.busId} style={{ fontSize: '0.8rem' }}>
+            <label key={b.busId} className="bus-multi-pick-item">
               <input
                 type="checkbox"
                 checked={multiBusIds.includes(b.busId)}
@@ -143,9 +144,48 @@ export function BusSelector() {
 
 export function PushHint() {
   return (
-    <p className="hint" style={{ margin: '0.25rem 0 0.75rem', fontSize: '0.8rem' }}>
+    <p className="hint bus-toolbar-hint">
       Saves go to the cloud catalog immediately. With push enabled, routes and stop names sync to the bus
       within ~5s when online — same as audio and ads.
     </p>
+  );
+}
+
+/**
+ * Renders BusSelector + push-target toggle + PushHint, but ONLY on pages that actually consume
+ * selectedBusId/targetBusIds (checked directly against which components call useSelectedBus() —
+ * see git log for the exact list) — showing it fleet-wide-only pages (Pricing, House ads, Users,
+ * Releases, Media browser, Content gaps, Ads Report, Campaigns, Schedules, Live Wall, Claim bus)
+ * was pure clutter, since those pages never read the selected bus or push target at all.
+ * Replaces AdminToolbar/OwnerToolbar, which were an identical copy-paste of this same JSX with
+ * no such gating — centralized here once instead of duplicated per dashboard.
+ *
+ * `activePaths` are relative to `basePath` (e.g. '', '/live', '/routes' — matching each
+ * dashboard's own NAV `to` values exactly, index route is '').
+ */
+export function BusToolbar({ basePath, activePaths }) {
+  const { pushToBus, setPushToBus } = useSelectedBus();
+  const location = useLocation();
+
+  const relative = location.pathname.startsWith(basePath)
+    ? location.pathname.slice(basePath.length)
+    : location.pathname;
+  const normalized = relative.replace(/\/+$/, '');
+  if (!activePaths.includes(normalized)) return null;
+
+  return (
+    <>
+      <div className="toolbar bus-toolbar-push">
+        <BusSelector />
+        <label className="toggle-switch-field bus-toolbar-push-toggle">
+          <span>Enable push</span>
+          <span className="toggle-switch">
+            <input type="checkbox" checked={pushToBus} onChange={(e) => setPushToBus(e.target.checked)} />
+            <span className="toggle-switch-track" />
+          </span>
+        </label>
+      </div>
+      <PushHint />
+    </>
   );
 }

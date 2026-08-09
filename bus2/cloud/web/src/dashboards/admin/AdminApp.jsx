@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout.jsx';
 import { RequireAuth } from '../../lib/auth.jsx';
-import { SelectedBusProvider, BusSelector, PushHint } from '../../components/BusContext.jsx';
+import { SelectedBusProvider, BusToolbar } from '../../components/BusContext.jsx';
 import FleetPanel from '../../components/FleetPanel.jsx';
 import LiveBusPanel from '../../components/LiveBusPanel.jsx';
 import LiveWallPanel from '../../components/LiveWallPanel.jsx';
@@ -21,7 +21,6 @@ import ReleasesPanel from '../../components/ReleasesPanel.jsx';
 import ClaimBus from '../../pages/ClaimBus.jsx';
 import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
 import RouteCatalog from '../../components/RouteCatalog.jsx';
-import { useSelectedBus } from '../../components/BusContext.jsx';
 
 const NAV = [
   { to: '', label: 'Fleet', end: true },
@@ -45,25 +44,17 @@ const NAV = [
   { to: '/releases', label: 'Releases' },
 ];
 
-function AdminToolbar() {
-  const { pushToBus, setPushToBus } = useSelectedBus();
-  return (
-    <>
-      <div className="toolbar">
-        <BusSelector />
-        <label style={{ fontSize: '0.85rem' }}>
-          <input type="checkbox" checked={pushToBus} onChange={(e) => setPushToBus(e.target.checked)} /> Enable push
-        </label>
-      </div>
-      <PushHint />
-    </>
-  );
-}
+// Only the pages that actually read selectedBusId/targetBusIds (FleetPanel, LiveBusPanel,
+// RouteEditor, StopsCatalog, VoicesPanel, AdsPanel, DisplaySettingsPanel, RouteCatalog — see
+// BusToolbar's doc comment). Everything else (Claim bus, Live Wall, Ads Report, Campaigns,
+// Schedules, Pricing, House ads, Media browser, Content gaps, Users, Releases) manages its own
+// bus targeting internally or is fleet-wide, so the toolbar would be dead UI there.
+const BUS_TOOLBAR_PATHS = ['', '/live', '/routes', '/stops', '/voices', '/ads', '/display', '/catalog'];
 
 function AdminRoutes() {
   return (
     <>
-      <AdminToolbar />
+      <BusToolbar basePath="/admin" activePaths={BUS_TOOLBAR_PATHS} />
       <Routes>
         <Route index element={<FleetPanel allowRegister claimHref="/admin/claim" />} />
         <Route path="claim" element={<ClaimBus />} />

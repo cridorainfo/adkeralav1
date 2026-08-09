@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import DashboardLayout from '../../layouts/DashboardLayout.jsx';
 import { RequireAuth } from '../../lib/auth.jsx';
-import { SelectedBusProvider, BusSelector, PushHint } from '../../components/BusContext.jsx';
+import { SelectedBusProvider, BusToolbar } from '../../components/BusContext.jsx';
 import FleetPanel from '../../components/FleetPanel.jsx';
 import LiveBusPanel from '../../components/LiveBusPanel.jsx';
 import RouteEditor from '../../components/RouteEditor.jsx';
@@ -12,7 +12,6 @@ import ContentGaps from '../../components/ContentGaps.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import RouteCatalog from '../../components/RouteCatalog.jsx';
 import ClaimBus from '../../pages/ClaimBus.jsx';
-import { useSelectedBus } from '../../components/BusContext.jsx';
 
 const NAV = [
   { to: '', label: 'My fleet', end: true },
@@ -27,25 +26,14 @@ const NAV = [
   { to: '/catalog', label: 'Route catalog' },
 ];
 
-function OwnerToolbar() {
-  const { pushToBus, setPushToBus } = useSelectedBus();
-  return (
-    <>
-      <div className="toolbar">
-        <BusSelector />
-        <label style={{ fontSize: '0.85rem' }}>
-          <input type="checkbox" checked={pushToBus} onChange={(e) => setPushToBus(e.target.checked)} /> Enable push
-        </label>
-      </div>
-      <PushHint />
-    </>
-  );
-}
+// Same gating as AdminApp.jsx's BUS_TOOLBAR_PATHS — Owner has no Display page, so it's not
+// listed here (nothing to gate for a route that doesn't exist in this dashboard).
+const BUS_TOOLBAR_PATHS = ['', '/live', '/routes', '/stops', '/voices', '/ads', '/catalog'];
 
 function OwnerRoutes() {
   return (
     <>
-      <OwnerToolbar />
+      <BusToolbar basePath="/owner" activePaths={BUS_TOOLBAR_PATHS} />
       <Routes>
         <Route index element={<FleetPanel allowRegister claimHref="/owner/claim" />} />
         <Route path="claim" element={<ClaimBus />} />
