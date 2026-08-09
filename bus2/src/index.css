@@ -1,17 +1,21 @@
 :root {
-  --kerala-green: #0b5c4a;
-  --kerala-green-light: #147a63;
-  --kerala-green-dark: #063d32;
-  --kerala-gold: #e8b923;
-  --kerala-gold-soft: #f5d76e;
+  /* Brand colors lifted exactly from public/adkerala-logo.svg (bus body / "kerala" wordmark
+     #006B3C, coconut/"ad" wordmark gold #D4A017) — same source of truth as
+     cloud/web/src/styles/portal.css, kept as a separate :root here since this is a genuinely
+     separate app (the passenger display, not the admin dashboard) with its own bundle. */
+  --kerala-green: #006b3c;
+  --kerala-green-light: #0c975a;
+  --kerala-green-dark: #00331d;
+  --kerala-gold: #d4a017;
+  --kerala-gold-soft: #e8c766;
   --kerala-cream: #faf6ed;
   --kerala-teal: #1a8a7a;
   --kerala-coral: #d45d3a;
   --kerala-white: #ffffff;
   --kerala-text: #1a2e28;
   --kerala-muted: #5a7268;
-  --shadow-soft: 0 4px 24px rgba(11, 92, 74, 0.12);
-  --shadow-glow: 0 8px 40px rgba(232, 185, 35, 0.25);
+  --shadow-soft: 0 4px 24px rgba(0, 107, 60, 0.12);
+  --shadow-glow: 0 8px 40px rgba(212, 160, 23, 0.25);
   --radius: 16px;
   --radius-sm: 10px;
   --font-display: 'Fraunces', Georgia, serif;
@@ -113,7 +117,7 @@ textarea {
   padding: 2rem;
   background:
     radial-gradient(ellipse at 20% 0%, rgba(26, 138, 122, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 100%, rgba(232, 185, 35, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(212, 160, 23, 0.12) 0%, transparent 50%),
     linear-gradient(165deg, var(--kerala-cream) 0%, #eef5f0 100%);
   position: relative;
   overflow: hidden;
@@ -177,7 +181,7 @@ textarea {
   border-radius: var(--radius);
   padding: 2rem;
   box-shadow: var(--shadow-soft);
-  border: 1px solid rgba(11, 92, 74, 0.08);
+  border: 1px solid rgba(0, 107, 60, 0.08);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
   display: flex;
   flex-direction: column;
@@ -253,7 +257,7 @@ textarea {
 
 .driver-connect-banner {
   background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(11, 92, 74, 0.15);
+  border: 1px solid rgba(0, 107, 60, 0.15);
   border-radius: var(--radius-sm);
   padding: 1rem 1.25rem;
   margin: 0 auto 1.5rem;
@@ -310,8 +314,8 @@ html.kiosk-hide-cursor * {
   margin: 0.75rem 0;
   padding: 0.85rem 1rem;
   border-radius: 10px;
-  background: rgba(11, 92, 74, 0.12);
-  border: 1px solid rgba(11, 92, 74, 0.35);
+  background: rgba(0, 107, 60, 0.12);
+  border: 1px solid rgba(0, 107, 60, 0.35);
 }
 
 .gps-permission-banner.denied {
@@ -335,8 +339,8 @@ html.kiosk-hide-cursor * {
 }
 
 .gps-status-card {
-  background: rgba(11, 92, 74, 0.06);
-  border: 1px solid rgba(11, 92, 74, 0.12);
+  background: rgba(0, 107, 60, 0.06);
+  border: 1px solid rgba(0, 107, 60, 0.12);
   border-radius: var(--radius-sm);
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
@@ -380,8 +384,8 @@ html.kiosk-hide-cursor * {
   gap: 1rem;
   padding: 0.65rem 1rem;
   margin-bottom: 1rem;
-  background: rgba(232, 185, 35, 0.15);
-  border: 1px solid rgba(232, 185, 35, 0.35);
+  background: rgba(212, 160, 23, 0.15);
+  border: 1px solid rgba(212, 160, 23, 0.35);
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
   font-weight: 600;
@@ -422,7 +426,7 @@ html.kiosk-hide-cursor * {
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .shared-route-list {
@@ -433,7 +437,7 @@ html.kiosk-hide-cursor * {
 
 .shared-route-row {
   padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .shared-route-row:last-child {
@@ -479,9 +483,9 @@ html.kiosk-hide-cursor * {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--kerala-green);
-  background: rgba(11, 92, 74, 0.1);
+  background: rgba(0, 107, 60, 0.1);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.18);
+  border: 1px solid rgba(0, 107, 60, 0.18);
 }
 
 .shared-route-detail {
@@ -489,7 +493,7 @@ html.kiosk-hide-cursor * {
   padding: 0.65rem 0.85rem;
   background: var(--kerala-cream);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.1);
+  border: 1px solid rgba(0, 107, 60, 0.1);
 }
 
 .shared-route-detail-summary {
@@ -614,7 +618,7 @@ html.kiosk-hide-cursor * {
   display: inline-flex;
   border-radius: 999px;
   overflow: hidden;
-  border: 1px solid rgba(11, 92, 74, 0.2);
+  border: 1px solid rgba(0, 107, 60, 0.2);
 }
 
 .drive-mode-toggle button {
@@ -643,7 +647,7 @@ html.kiosk-hide-cursor * {
   margin: 0.5rem 0 0;
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
-  background: rgba(11, 92, 74, 0.08);
+  background: rgba(0, 107, 60, 0.08);
 }
 
 .gps-drive-status.phase-inside {
@@ -704,7 +708,7 @@ html.kiosk-hide-cursor * {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .stop-gps-row-main {
@@ -752,7 +756,7 @@ html.kiosk-hide-cursor * {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .stop-library-item small {
@@ -778,7 +782,7 @@ html.kiosk-hide-cursor * {
   margin: 0;
   padding: 0;
   background: white;
-  border: 1px solid rgba(11, 92, 74, 0.15);
+  border: 1px solid rgba(0, 107, 60, 0.15);
   border-radius: var(--radius-sm);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   max-height: 180px;
@@ -797,7 +801,7 @@ html.kiosk-hide-cursor * {
 }
 
 .stop-autocomplete-list button:hover {
-  background: rgba(11, 92, 74, 0.06);
+  background: rgba(0, 107, 60, 0.06);
 }
 
 .stop-gps-badge {
@@ -820,7 +824,7 @@ html.kiosk-hide-cursor * {
 .route-endpoint-suggestions {
   margin-top: 1.25rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(11, 92, 74, 0.1);
+  border-top: 1px solid rgba(0, 107, 60, 0.1);
 }
 
 .route-suggest-title {
@@ -847,7 +851,7 @@ html.kiosk-hide-cursor * {
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 0;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .route-suggest-info small {
@@ -871,7 +875,7 @@ html.kiosk-hide-cursor * {
   height: 48px;
   border-radius: 50%;
   border: none;
-  background: rgba(11, 92, 74, 0.92);
+  background: rgba(0, 107, 60, 0.92);
   color: white;
   font-size: 1.25rem;
   cursor: pointer;
@@ -1024,12 +1028,12 @@ html.kiosk-hide-cursor * {
 }
 
 .btn-ghost {
-  background: rgba(11, 92, 74, 0.08);
+  background: rgba(0, 107, 60, 0.08);
   color: var(--kerala-green);
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: rgba(11, 92, 74, 0.14);
+  background: rgba(0, 107, 60, 0.14);
 }
 
 .btn-danger {
@@ -1173,7 +1177,7 @@ html.kiosk-hide-cursor * {
 
 .progress-bar {
   height: 8px;
-  background: rgba(11, 92, 74, 0.1);
+  background: rgba(0, 107, 60, 0.1);
   border-radius: 99px;
   overflow: hidden;
 }
@@ -1190,7 +1194,7 @@ html.kiosk-hide-cursor * {
   border-radius: var(--radius);
   padding: 1.25rem;
   box-shadow: var(--shadow-soft);
-  border: 1px solid rgba(11, 92, 74, 0.06);
+  border: 1px solid rgba(0, 107, 60, 0.06);
   margin-bottom: 1.25rem;
 }
 
@@ -1243,7 +1247,7 @@ html.kiosk-hide-cursor * {
 .form-group textarea {
   width: 100%;
   padding: 0.65rem 0.85rem;
-  border: 1.5px solid rgba(11, 92, 74, 0.15);
+  border: 1.5px solid rgba(0, 107, 60, 0.15);
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
   background: var(--kerala-cream);
@@ -1274,7 +1278,7 @@ html.kiosk-hide-cursor * {
 }
 
 .route-item:hover {
-  background: rgba(11, 92, 74, 0.04);
+  background: rgba(0, 107, 60, 0.04);
 }
 
 .route-item.active {
@@ -1364,7 +1368,7 @@ html.kiosk-hide-cursor * {
 
 .stops-list-middle {
   margin: 0.5rem 0 0.5rem 1rem;
-  border-left: 2px solid rgba(232, 185, 35, 0.35);
+  border-left: 2px solid rgba(212, 160, 23, 0.35);
   padding-left: 0.5rem;
 }
 
@@ -1391,7 +1395,7 @@ html.kiosk-hide-cursor * {
   width: 100%;
   max-width: 280px;
   padding: 0.4rem 0.6rem;
-  border: 1.5px solid rgba(11, 92, 74, 0.12);
+  border: 1.5px solid rgba(0, 107, 60, 0.12);
   border-radius: var(--radius-sm);
   font-size: 0.85rem;
   background: var(--kerala-cream);
@@ -1503,8 +1507,8 @@ html.kiosk-hide-cursor * {
 }
 
 .stop-move-btn {
-  background: rgba(11, 92, 74, 0.1);
-  border: 1px solid rgba(11, 92, 74, 0.15);
+  background: rgba(0, 107, 60, 0.1);
+  border: 1px solid rgba(0, 107, 60, 0.15);
   color: var(--kerala-green);
   border-radius: 6px;
   width: 28px;
@@ -1520,7 +1524,7 @@ html.kiosk-hide-cursor * {
 }
 
 .stop-move-btn:hover:not(:disabled) {
-  background: rgba(11, 92, 74, 0.18);
+  background: rgba(0, 107, 60, 0.18);
 }
 
 .stop-remove-btn {
@@ -1634,7 +1638,7 @@ html.kiosk-hide-cursor * {
 }
 
 .drive-bus-route-card {
-  border: 1.5px solid rgba(11, 92, 74, 0.12);
+  border: 1.5px solid rgba(0, 107, 60, 0.12);
   border-radius: var(--radius-sm);
   background: var(--kerala-cream);
   overflow: hidden;
@@ -1656,7 +1660,7 @@ html.kiosk-hide-cursor * {
 }
 
 .drive-bus-route-select:hover {
-  background: rgba(11, 92, 74, 0.04);
+  background: rgba(0, 107, 60, 0.04);
 }
 
 .drive-bus-route-name {
@@ -1692,14 +1696,14 @@ html.kiosk-hide-cursor * {
 
 .drive-bus-route-id code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background: rgba(11, 92, 74, 0.08);
+  background: rgba(0, 107, 60, 0.08);
   padding: 0.05rem 0.3rem;
   border-radius: 4px;
 }
 
 .drive-bus-route-direction {
   padding: 0 1rem 1rem;
-  border-top: 1px solid rgba(11, 92, 74, 0.08);
+  border-top: 1px solid rgba(0, 107, 60, 0.08);
   background: rgba(255, 255, 255, 0.55);
 }
 
@@ -1713,7 +1717,7 @@ html.kiosk-hide-cursor * {
   padding: 0.75rem 1rem;
   background: var(--kerala-cream);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.1);
+  border: 1px solid rgba(0, 107, 60, 0.1);
 }
 
 .drive-route-stops-summary {
@@ -1761,7 +1765,7 @@ html.kiosk-hide-cursor * {
   padding: 1rem;
   background: var(--kerala-cream);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.1);
+  border: 1px solid rgba(0, 107, 60, 0.1);
 }
 
 .route-direction-label {
@@ -1800,7 +1804,7 @@ html.kiosk-hide-cursor * {
   display: flex;
   gap: 0.25rem;
   margin-bottom: 1rem;
-  border-bottom: 2px solid rgba(11, 92, 74, 0.08);
+  border-bottom: 2px solid rgba(0, 107, 60, 0.08);
 }
 
 .tab {
@@ -1837,7 +1841,7 @@ html.kiosk-hide-cursor * {
 .ad-card {
   border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1.5px solid rgba(11, 92, 74, 0.1);
+  border: 1.5px solid rgba(0, 107, 60, 0.1);
   position: relative;
 }
 
@@ -1906,13 +1910,13 @@ html.kiosk-hide-cursor * {
 }
 
 .upload-zone {
-  border: 2px dashed rgba(11, 92, 74, 0.25);
+  border: 2px dashed rgba(0, 107, 60, 0.25);
   border-radius: var(--radius-sm);
   padding: 1.5rem;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
-  background: rgba(11, 92, 74, 0.02);
+  background: rgba(0, 107, 60, 0.02);
 }
 
 .upload-zone:hover {
@@ -2080,8 +2084,8 @@ html.kiosk-hide-cursor * {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 1rem;
-  padding: 1.15rem 2rem;
+  gap: clamp(0.5rem, 1.5vw, 1rem);
+  padding: clamp(0.6rem, 1.2vw + 0.6vh, 1.15rem) clamp(0.85rem, 3vw, 2rem);
   position: relative;
   z-index: 2;
 }
@@ -2165,20 +2169,23 @@ html.kiosk-hide-cursor * {
 
 .display-brand-text h2 {
   font-family: var(--font-display);
-  font-size: 1.35rem;
+  /* vw+vh combined (not vw alone) so this scales correctly on BOTH a wide-short ultra-stretch
+     screen and a narrow-tall portrait one, not just by width — same reasoning applies to every
+     clamp() below in this top-bar block. */
+  font-size: clamp(1rem, 1.8vw + 0.6vh, 1.6rem);
 }
 
 .display-brand-text span {
-  font-size: 0.95rem;
+  font-size: clamp(0.7rem, 1vw + 0.4vh, 1.05rem);
   opacity: 0.7;
 }
 
 .display-route-badge {
-  background: rgba(232, 185, 35, 0.2);
-  border: 1px solid rgba(232, 185, 35, 0.4);
-  padding: 0.5rem 1.25rem;
+  background: rgba(212, 160, 23, 0.2);
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  padding: clamp(0.35rem, 1vh, 0.5rem) clamp(0.75rem, 2.5vw, 1.25rem);
   border-radius: 99px;
-  font-size: 1.1rem;
+  font-size: clamp(0.85rem, 1.2vw + 0.5vh, 1.1rem);
   font-weight: 600;
   color: var(--kerala-gold-soft);
   text-align: center;
@@ -2190,12 +2197,12 @@ html.kiosk-hide-cursor * {
 
 .display-clock {
   text-align: right;
-  min-width: 280px;
+  min-width: min(280px, 32vw);
 }
 
 .display-clock-time {
   display: block;
-  font-size: 3.2rem;
+  font-size: clamp(1.8rem, 3vw + 1.5vh, 3.4rem);
   font-weight: 600;
   letter-spacing: 0.02em;
   line-height: 1.2;
@@ -2203,7 +2210,7 @@ html.kiosk-hide-cursor * {
 
 .display-clock-date {
   display: block;
-  font-size: 1.75rem;
+  font-size: clamp(1rem, 1.6vw + 0.8vh, 1.85rem);
   opacity: 0.7;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2401,8 +2408,8 @@ html.kiosk-hide-cursor * {
 }
 
 .display-stop-card.next {
-  border-color: rgba(232, 185, 35, 0.35);
-  background: rgba(232, 185, 35, 0.08);
+  border-color: rgba(212, 160, 23, 0.35);
+  background: rgba(212, 160, 23, 0.08);
 }
 
 .display-stop-card span {
@@ -2464,7 +2471,7 @@ html.kiosk-hide-cursor * {
   min-width: 1.6rem;
   height: 1.6rem;
   border-radius: 999px;
-  background: rgba(232, 185, 35, 0.18);
+  background: rgba(212, 160, 23, 0.18);
   color: var(--kerala-gold-soft);
   font-size: 1.1rem;
   line-height: 1;
@@ -2557,7 +2564,7 @@ html.kiosk-hide-cursor * {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--kerala-gold) 0%, var(--kerala-gold-soft) 85%, #fff4c2 100%);
-  box-shadow: 0 0 12px rgba(232, 185, 35, 0.45);
+  box-shadow: 0 0 12px rgba(212, 160, 23, 0.45);
   transition: width 0.65s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1;
 }
@@ -2660,7 +2667,7 @@ html.kiosk-hide-cursor * {
   width: 28px;
   height: 28px;
   background: linear-gradient(145deg, var(--kerala-gold) 0%, #c9981a 100%);
-  box-shadow: 0 0 12px rgba(232, 185, 35, 0.4);
+  box-shadow: 0 0 12px rgba(212, 160, 23, 0.4);
 }
 
 .metro-line__bus-icon {
@@ -2691,7 +2698,7 @@ html.kiosk-hide-cursor * {
   background: #fff;
   color: var(--kerala-green);
   box-shadow:
-    0 0 0 3px rgba(232, 185, 35, 0.5),
+    0 0 0 3px rgba(212, 160, 23, 0.5),
     0 0 16px rgba(255, 255, 255, 0.55);
   animation: metroNextGlow 1.5s ease-in-out infinite;
 }
@@ -2700,12 +2707,12 @@ html.kiosk-hide-cursor * {
   0%,
   100% {
     box-shadow:
-      0 0 0 3px rgba(232, 185, 35, 0.45),
+      0 0 0 3px rgba(212, 160, 23, 0.45),
       0 0 14px rgba(255, 255, 255, 0.5);
   }
   50% {
     box-shadow:
-      0 0 0 5px rgba(232, 185, 35, 0.65),
+      0 0 0 5px rgba(212, 160, 23, 0.65),
       0 0 24px rgba(255, 255, 255, 0.85);
   }
 }
@@ -2714,7 +2721,7 @@ html.kiosk-hide-cursor * {
   position: absolute;
   inset: -7px;
   border-radius: 50%;
-  border: 2px solid rgba(232, 185, 35, 0.55);
+  border: 2px solid rgba(212, 160, 23, 0.55);
   animation: metroNextRing 1.5s ease-out infinite;
 }
 
@@ -2840,7 +2847,7 @@ html.kiosk-hide-cursor * {
   overflow: hidden;
   background: var(--kerala-green-dark);
   border: none;
-  border-top: 1px solid rgba(232, 185, 35, 0.25);
+  border-top: 1px solid rgba(212, 160, 23, 0.25);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
   animation: fadeUp 0.5s ease;
 }
@@ -2942,7 +2949,7 @@ html.kiosk-hide-cursor * {
 
 .legend-item.completed i {
   background: var(--kerala-gold);
-  box-shadow: 0 0 8px rgba(232, 185, 35, 0.5);
+  box-shadow: 0 0 8px rgba(212, 160, 23, 0.5);
 }
 
 .legend-item.current i {
@@ -2953,7 +2960,7 @@ html.kiosk-hide-cursor * {
 .legend-item.next i {
   background: white;
   box-shadow:
-    0 0 0 2px rgba(232, 185, 35, 0.6),
+    0 0 0 2px rgba(212, 160, 23, 0.6),
     0 0 12px rgba(255, 255, 255, 0.8);
   animation: journeyPulse 1.8s ease-in-out infinite;
 }
@@ -3030,7 +3037,7 @@ html.kiosk-hide-cursor * {
   width: 100%;
   max-width: 920px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(232, 185, 35, 0.4) transparent;
+  scrollbar-color: rgba(212, 160, 23, 0.4) transparent;
 }
 
 .stop-journey-rail {
@@ -3061,7 +3068,7 @@ html.kiosk-hide-cursor * {
   background: linear-gradient(90deg, var(--kerala-gold) 0%, var(--kerala-gold-soft) 100%);
   border-radius: 99px;
   transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 12px rgba(232, 185, 35, 0.45);
+  box-shadow: 0 0 12px rgba(212, 160, 23, 0.45);
   max-width: calc(100% - 48px);
   z-index: 1;
 }
@@ -3144,7 +3151,7 @@ html.kiosk-hide-cursor * {
 
 .stop-journey-node--completed .stop-journey-node-marker {
   background: linear-gradient(135deg, var(--kerala-gold) 0%, #c9981a 100%);
-  box-shadow: 0 0 16px rgba(232, 185, 35, 0.5);
+  box-shadow: 0 0 16px rgba(212, 160, 23, 0.5);
 }
 
 .marker-check {
@@ -3171,7 +3178,7 @@ html.kiosk-hide-cursor * {
 .stop-journey-node--next .stop-journey-node-marker {
   background: white;
   box-shadow:
-    0 0 0 4px rgba(232, 185, 35, 0.45),
+    0 0 0 4px rgba(212, 160, 23, 0.45),
     0 0 24px rgba(255, 255, 255, 0.75);
   animation: nextStopGlow 1.6s ease-in-out infinite;
 }
@@ -3180,12 +3187,12 @@ html.kiosk-hide-cursor * {
   0%,
   100% {
     box-shadow:
-      0 0 0 4px rgba(232, 185, 35, 0.45),
+      0 0 0 4px rgba(212, 160, 23, 0.45),
       0 0 20px rgba(255, 255, 255, 0.6);
   }
   50% {
     box-shadow:
-      0 0 0 6px rgba(232, 185, 35, 0.65),
+      0 0 0 6px rgba(212, 160, 23, 0.65),
       0 0 32px rgba(255, 255, 255, 0.95);
   }
 }
@@ -3194,7 +3201,7 @@ html.kiosk-hide-cursor * {
   position: absolute;
   inset: -6px;
   border-radius: 50%;
-  border: 2px solid rgba(232, 185, 35, 0.5);
+  border: 2px solid rgba(212, 160, 23, 0.5);
   animation: nextRingPulse 1.6s ease-out infinite;
 }
 
@@ -3250,7 +3257,7 @@ html.kiosk-hide-cursor * {
 .stop-journey-node--current .stop-journey-node-marker {
   background: white;
   box-shadow:
-    0 0 0 4px rgba(232, 185, 35, 0.35),
+    0 0 0 4px rgba(212, 160, 23, 0.35),
     0 0 20px rgba(255, 255, 255, 0.6);
 }
 
@@ -3293,8 +3300,8 @@ html.kiosk-hide-cursor * {
 }
 
 .stop-journey-node--end.stop-journey-node--upcoming .stop-journey-node-marker {
-  border-color: rgba(232, 185, 35, 0.5);
-  background: rgba(232, 185, 35, 0.12);
+  border-color: rgba(212, 160, 23, 0.5);
+  background: rgba(212, 160, 23, 0.12);
 }
 
 .stop-journey-node-label {
@@ -3428,7 +3435,7 @@ html.kiosk-hide-cursor * {
   justify-content: space-between;
   gap: 1.5rem;
   padding: 1rem 2rem;
-  background: linear-gradient(180deg, rgba(6, 61, 50, 0.98) 0%, rgba(11, 92, 74, 1) 100%);
+  background: linear-gradient(180deg, rgba(6, 61, 50, 0.98) 0%, rgba(0, 107, 60, 1) 100%);
   border-top: 3px solid var(--kerala-gold);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
 }
@@ -3605,9 +3612,9 @@ html.kiosk-hide-cursor * {
 
 .voice-phrase-row {
   padding: 0.85rem 1rem;
-  background: rgba(11, 92, 74, 0.04);
+  background: rgba(0, 107, 60, 0.04);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.08);
+  border: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .voice-stop-list {
@@ -3620,7 +3627,7 @@ html.kiosk-hide-cursor * {
 .voice-stop-row {
   padding: 0.85rem 1rem;
   background: var(--kerala-white);
-  border: 1px solid rgba(11, 92, 74, 0.1);
+  border: 1px solid rgba(0, 107, 60, 0.1);
   border-radius: var(--radius-sm);
 }
 
@@ -3808,7 +3815,7 @@ html.kiosk-hide-cursor * {
 .serial-panel--remote {
   margin-bottom: 1.5rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid rgba(11, 92, 74, 0.1);
+  border-bottom: 1px solid rgba(0, 107, 60, 0.1);
 }
 
 .serial-status-text {
@@ -4049,7 +4056,7 @@ html.kiosk-hide-cursor * {
   top: 1rem;
   right: 1rem;
   z-index: 8200;
-  background: rgba(11, 92, 74, 0.92);
+  background: rgba(0, 107, 60, 0.92);
   color: #ecfdf5;
   border-radius: 999px;
   padding: 0.4rem 0.85rem;
@@ -4065,7 +4072,7 @@ html.kiosk-hide-cursor * {
   align-items: center;
   justify-content: center;
   padding: 1.25rem;
-  background: linear-gradient(160deg, #0b5c4a 0%, #064e3b 45%, #022c22 100%);
+  background: linear-gradient(160deg, #006b3c 0%, #064e3b 45%, #022c22 100%);
   color: #ecfdf5;
 }
 
@@ -4190,7 +4197,7 @@ html.kiosk-hide-cursor * {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, #0b5c4a 0%, #064e3b 50%, #022c22 100%);
+  background: linear-gradient(145deg, #006b3c 0%, #064e3b 50%, #022c22 100%);
   color: #ecfdf5;
   padding: 2rem;
 }
@@ -4262,8 +4269,8 @@ html.kiosk-hide-cursor * {
   background: #fff;
   border-radius: 16px;
   padding: 1.75rem;
-  box-shadow: 0 12px 40px rgba(11, 92, 74, 0.12);
-  border: 1px solid rgba(11, 92, 74, 0.08);
+  box-shadow: 0 12px 40px rgba(0, 107, 60, 0.12);
+  border: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .driver-connect-header {
@@ -4279,7 +4286,7 @@ html.kiosk-hide-cursor * {
 .driver-connect-header h1 {
   margin: 0 0 0.35rem;
   font-size: 1.5rem;
-  color: var(--kerala-green, #0b5c4a);
+  color: var(--kerala-green, #006b3c);
 }
 
 .driver-connect-header p {
@@ -4298,7 +4305,7 @@ html.kiosk-hide-cursor * {
 .driver-connect-section label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--kerala-green, #0b5c4a);
+  color: var(--kerala-green, #006b3c);
 }
 
 .driver-connect-section input {
@@ -4347,7 +4354,7 @@ html.kiosk-hide-cursor * {
 
 .driver-bus-info {
   background: #f0fdf4;
-  border: 1px solid rgba(11, 92, 74, 0.15);
+  border: 1px solid rgba(0, 107, 60, 0.15);
   border-radius: 12px;
   padding: 0.85rem 1rem;
   margin-bottom: 0.85rem;
@@ -4362,7 +4369,7 @@ html.kiosk-hide-cursor * {
 }
 
 .driver-bus-info-row + .driver-bus-info-row {
-  border-top: 1px solid rgba(11, 92, 74, 0.08);
+  border-top: 1px solid rgba(0, 107, 60, 0.08);
 }
 
 .driver-bus-info-row.muted {
@@ -4378,7 +4385,7 @@ html.kiosk-hide-cursor * {
 
 .driver-bus-info-value {
   font-size: 0.95rem;
-  color: var(--kerala-green, #0b5c4a);
+  color: var(--kerala-green, #006b3c);
   text-align: right;
 }
 
@@ -4496,7 +4503,7 @@ html.kiosk-hide-cursor * {
   width: 100%;
   padding: 0.65rem 0.75rem;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(11, 92, 74, 0.2);
+  border: 1px solid rgba(0, 107, 60, 0.2);
   font-size: 1rem;
   margin-bottom: 1rem;
 }
@@ -4528,7 +4535,7 @@ html.kiosk-hide-cursor * {
 .driver-esp-serial-section {
   margin: 1.25rem 0 0;
   padding: 1.25rem 0 0;
-  border-top: 2px solid rgba(11, 92, 74, 0.2);
+  border-top: 2px solid rgba(0, 107, 60, 0.2);
 }
 
 .driver-esp-serial-section--compact {
@@ -4557,7 +4564,7 @@ html.kiosk-hide-cursor * {
 .driver-esp-serial-detail {
   margin: 1rem 0;
   padding: 0.75rem 0;
-  border-top: 1px solid rgba(11, 92, 74, 0.12);
+  border-top: 1px solid rgba(0, 107, 60, 0.12);
 }
 
 .driver-esp-serial-summary {
@@ -4601,7 +4608,7 @@ html.kiosk-hide-cursor * {
   font-weight: 600;
   border: none;
   border-radius: 8px;
-  background: rgba(11, 92, 74, 0.92);
+  background: rgba(0, 107, 60, 0.92);
   color: #fff;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
