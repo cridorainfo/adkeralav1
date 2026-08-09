@@ -5,6 +5,11 @@ import FleetMap, { isBusOnline } from './FleetMap.jsx';
 import FleetBusDetail from './FleetBusDetail.jsx';
 import { busDisplayLabel, useSelectedBus } from './BusContext.jsx';
 
+const BUS_MODES = ['route', 'entertainment', 'auto'];
+function normalizeBusMode(mode) {
+  return BUS_MODES.includes(mode) ? mode : 'route';
+}
+
 function OnboardingWizard({ allowRegister, claimHref }) {
   const [pcDownload, setPcDownload] = useState(null);
 
@@ -111,7 +116,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
       setPlate(json.profile?.plateDisplay || json.profile?.plate || '');
       setDisplayName(json.profile?.displayName ?? '');
       setPairingCode(json.profile?.pairingCode ?? '');
-      setMode(json.profile?.mode === 'entertainment' ? 'entertainment' : 'route');
+      setMode(normalizeBusMode(json.profile?.mode));
     })();
     return () => {
       cancelled = true;
@@ -130,6 +135,36 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     return () => clearInterval(t);
   }, [refreshSelected]);
 
+  // Content mode is deliberately its own instant-apply action, separate from the "Save profile"
+  // button below — admins flip Route/Auto/Entertainment often and in the moment (a charter
+  // group boards early, a tour wraps late), so it can't wait on remembering to also click Save.
+  // A mode-only PUT (server.js) both updates the profile and enqueues MERGE_STATE, which the bus
+  // picks up on its next command poll — faster than waiting for the ~5s telemetry round-trip the
+  // full profile save relies on — so this is the "seamless toggle" path.
+  const [modeSwitching, setModeSwitching] = useState(false);
+  async function switchMode(newMode) {
+    if (!selectedBusId || newMode === mode) return;
+    const prevMode = mode;
+    setMode(newMode);
+    setModeSwitching(true);
+    setMessage('');
+    try {
+      const json = await api(`/api/buses/${encodeURIComponent(selectedBusId)}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode: newMode }),
+      });
+      setProfile(json.profile);
+      setMode(normalizeBusMode(json.profile?.mode));
+      setMessage(`Content mode set to "${newMode}" — takes effect on the bus within a few seconds`);
+      refreshBuses();
+    } catch (err) {
+      setMode(prevMode);
+      setMessage(err.message ?? 'Could not change content mode');
+    } finally {
+      setModeSwitching(false);
+    }
+  }
+
   async function saveProfile() {
     if (!selectedBusId) return;
     const code = pairingCode.replace(/\D/g, '').slice(0, 4);
@@ -146,7 +181,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     setPlate(json.profile?.plateDisplay || json.profile?.plate || plate);
     setDisplayName(json.profile?.displayName ?? displayName);
     setPairingCode(json.profile?.pairingCode ?? code);
-    setMode(json.profile?.mode === 'entertainment' ? 'entertainment' : 'route');
+    setMode(normalizeBusMode(json.profile?.mode));
     setMessage('Bus profile saved');
     refreshBuses();
   }
@@ -251,6 +286,11 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
                     entertainment
                   </span>
                 )}
+                {bus.profile?.mode === 'auto' && (
+                  <span className="version-pill version-unknown" style={{ marginLeft: '0.5rem' }}>
+                    auto
+                  </span>
+                )}
               </span>
               <small>{bus.busId}</small>
             </div>
@@ -300,26 +340,34 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
               <p className="hint">
                 Route buses show stops/announcements as normal. Entertainment buses (tourist
                 charters etc.) show a looping media playlist instead — no stops/announcements —
-                with ads/banners still playing on top. Manage playlists in the{' '}
-                <strong>Schedules</strong> tab.
+                with ads/banners still playing on top. <strong>Auto</strong> follows whichever
+                schedule is targeted at this bus: entertainment content only while that
+                schedule's own day/date window is active (e.g. weekends-only), route view the
+                rest of the time — no manual switching back and forth needed. Manage playlists
+                and their windows in the <strong>Schedules</strong> tab.
               </p>
               <div className="form-group">
-                <label className="toggle-switch-field toggle-switch-field-dual">
-                  <span className={mode === 'route' ? 'toggle-switch-side-active' : ''}>
-                    Route (default)
-                  </span>
-                  <span className="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={mode === 'entertainment'}
-                      onChange={(e) => setMode(e.target.checked ? 'entertainment' : 'route')}
-                    />
-                    <span className="toggle-switch-track" />
-                  </span>
-                  <span className={mode === 'entertainment' ? 'toggle-switch-side-active' : ''}>
-                    Entertainment
-                  </span>
-                </label>
+                <div className="campaign-filter-tabs">
+                  {[
+                    { key: 'route', label: 'Route (default)' },
+                    { key: 'auto', label: 'Auto (follow schedule calendar)' },
+                    { key: 'entertainment', label: 'Entertainment (always)' },
+                  ].map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      disabled={modeSwitching}
+                      className={`campaign-filter-tab${mode === opt.key ? ' active' : ''}`}
+                      onClick={() => switchMode(opt.key)}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {modeSwitching && <small className="hint">Switching…</small>}
+                <p className="hint">
+                  Applies immediately — no need to click "Save profile" below for this.
+                </p>
               </div>
 
               <h3>Driver access</h3>

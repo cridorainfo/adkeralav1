@@ -500,6 +500,16 @@ export async function pgGetAdPlayCountForBus(busId, adId) {
   return rows[0]?.count ?? 0;
 }
 
+/** Same as pgGetAdPlayCountForBus, scoped to plays at/after `sinceMs` — see
+ * store.js's getAdPlayCountForBusSince for why (weekly view-pacing progress). */
+export async function pgGetAdPlayCountForBusSince(busId, adId, sinceMs) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS count FROM ad_plays WHERE bus_id = $1 AND ad_id = $2 AND played_at >= $3`,
+    [busId, adId, sinceMs]
+  );
+  return rows[0]?.count ?? 0;
+}
+
 /** All play events for one bus — used by per-bus ad analytics (spend/plays on that bus only). */
 export async function pgGetAdPlaysForBus(busId) {
   const { rows } = await query(

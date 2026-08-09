@@ -11,7 +11,13 @@ export default function CampaignsPanel({ adminMode = false }) {
   const { user } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
   const [buses, setBuses] = useState([]);
-  const [form, setForm] = useState({ name: '', targetBusIds: [], pendingAmount: '', pendingTriggerStopEn: '' });
+  const [form, setForm] = useState({
+    name: '',
+    targetBusIds: [],
+    pendingAmount: '',
+    pendingWeeklyViewTarget: '',
+    pendingTriggerStopEn: '',
+  });
   const [message, setMessage] = useState('');
   const [plays, setPlays] = useState({});
   const [adSpend, setAdSpend] = useState({});
@@ -53,14 +59,17 @@ export default function CampaignsPanel({ adminMode = false }) {
     setPlays(nextPlays);
 
     // Per-ad spend vs budget — fullscreen, banner, and linked audio stop-ads all carry a
-    // budget/exhaustion concept now (see cloud/pricing.js's format-aware computeAdSpend).
+    // budget/exhaustion concept now (see cloud/pricing.js's format-aware computeAdSpend). Also
+    // fetch for ads that only set a weeklyViewTarget with no money amount — /api/ads/:id/spend
+    // returns weekly-view stats too now, independent of whether a ₹ budget exists.
     const linkedAudioAds = Object.values(vJson?.stopVoiceAds ?? {}).filter((ad) =>
       loadedCampaigns.some((c) => c.id === ad.campaignId)
     );
+    const hasBudget = (ad) => Boolean(ad.amount) || Boolean(ad.weeklyViewTarget);
     const budgetedAds = [
-      ...loadedCampaigns.flatMap((c) => (c.ads ?? []).filter((ad) => ad.amount)),
-      ...loadedCampaigns.flatMap((c) => (c.bannerAds ?? []).filter((ad) => ad.amount)),
-      ...linkedAudioAds.filter((ad) => ad.amount),
+      ...loadedCampaigns.flatMap((c) => (c.ads ?? []).filter(hasBudget)),
+      ...loadedCampaigns.flatMap((c) => (c.bannerAds ?? []).filter(hasBudget)),
+      ...linkedAudioAds.filter(hasBudget),
     ];
     const spendResults = await Promise.all(
       budgetedAds.map((ad) => api(`/api/ads/${encodeURIComponent(ad.id)}/spend`).catch(() => null))
@@ -145,16 +154,20 @@ export default function CampaignsPanel({ adminMode = false }) {
         mediaFile: up.path,
         durationSec: isBanner ? 8 : 12,
         // Budget applies to both fullscreen and banner ads now (both are play-tracked and
-        // priced — see cloud/pricing.js). Stop-trigger stays fullscreen-only, banners just show
-        // in the fixed strip regardless of approaching stop.
+        // priced — see cloud/pricing.js). Stop-trigger and the weekly view target both stay
+        // fullscreen-only: banners show continuously in the fixed strip, there's no discrete
+        // "play" to pace or pin to an approaching stop.
         ...(form.pendingAmount ? { amount: Number(form.pendingAmount) } : {}),
+        ...(!isBanner && form.pendingWeeklyViewTarget
+          ? { weeklyViewTarget: Number(form.pendingWeeklyViewTarget) }
+          : {}),
         ...(!isBanner && form.pendingTriggerStopEn ? { triggerStopEn: form.pendingTriggerStopEn } : {}),
       };
       setForm({
         ...form,
         [key]: [...(form[key] ?? []), item],
         pendingAmount: '',
-        ...(!isBanner ? { pendingTriggerStopEn: '' } : {}),
+        ...(!isBanner ? { pendingWeeklyViewTarget: '', pendingTriggerStopEn: '' } : {}),
       });
       setMessage(`Uploaded ${file.name}`);
     } catch (err) {
@@ -178,6 +191,7 @@ export default function CampaignsPanel({ adminMode = false }) {
         ads: (c.ads ?? []).map((ad) => ({ ...ad })),
         bannerAds: (c.bannerAds ?? []).map((ad) => ({ ...ad })),
         pendingAmount: '',
+        pendingWeeklyViewTarget: '',
         pendingTriggerStopEn: '',
       },
     });
@@ -243,6 +257,9 @@ export default function CampaignsPanel({ adminMode = false }) {
         mediaFile: up.path,
         durationSec: isBanner ? 8 : 12,
         ...(current.pendingAmount ? { amount: Number(current.pendingAmount) } : {}),
+        ...(!isBanner && current.pendingWeeklyViewTarget
+          ? { weeklyViewTarget: Number(current.pendingWeeklyViewTarget) }
+          : {}),
         ...(!isBanner && current.pendingTriggerStopEn ? { triggerStopEn: current.pendingTriggerStopEn } : {}),
       };
       setEditForm({
@@ -251,7 +268,7 @@ export default function CampaignsPanel({ adminMode = false }) {
           ...current,
           [key]: [...current[key], item],
           pendingAmount: '',
-          ...(!isBanner ? { pendingTriggerStopEn: '' } : {}),
+          ...(!isBanner ? { pendingWeeklyViewTarget: '', pendingTriggerStopEn: '' } : {}),
         },
       });
       setMessage(`Uploaded ${file.name}`);
@@ -438,6 +455,21 @@ export default function CampaignsPanel({ adminMode = false }) {
                   />
                 </div>
                 <div className="form-group">
+                  <label>Weekly view target (fullscreen only, optional)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="e.g. 50 views/week"
+                    value={form.pendingWeeklyViewTarget}
+                    onChange={(e) => setForm({ ...form, pendingWeeklyViewTarget: e.target.value })}
+                  />
+                  <small className="hint">
+                    Independent of the ₹ budget above — split evenly across its target buses and
+                    paced across the week (Mon–Sun) instead of showing back-to-back.
+                  </small>
+                </div>
+                <div className="form-group">
                   <label>Show approaching stop (optional)</label>
                   <input
                     type="text"
@@ -576,10 +608,11 @@ function CampaignCard({
 }) {
   const completed = Boolean(c.completed);
   const linkedAudioAds = Object.entries(stopVoiceAds).filter(([, ad]) => ad.campaignId === c.id);
+  const hasBudget = (ad) => Boolean(ad.amount) || Boolean(ad.weeklyViewTarget);
   const budgetedAds = [
-    ...(c.ads ?? []).filter((ad) => ad.amount),
-    ...(c.bannerAds ?? []).filter((ad) => ad.amount),
-    ...linkedAudioAds.filter(([, ad]) => ad.amount).map(([, ad]) => ad),
+    ...(c.ads ?? []).filter(hasBudget),
+    ...(c.bannerAds ?? []).filter(hasBudget),
+    ...linkedAudioAds.filter(([, ad]) => hasBudget(ad)).map(([, ad]) => ad),
   ];
   const availableStops = Object.entries(stopVoiceAds).filter(
     ([, ad]) => !ad.campaignId || ad.campaignId === c.id
@@ -645,21 +678,39 @@ function CampaignCard({
             const amount = Number(ad.amount) || 0;
             const pct = amount > 0 ? Math.min(100, (spend / amount) * 100) : 0;
             const exhausted = spend >= amount;
+            const weeklyTarget = Number(ad.weeklyViewTarget) || 0;
+            const weeklyUsed = adSpend[ad.id]?.weeklyViewsUsed ?? 0;
+            const weeklyPct = weeklyTarget > 0 ? Math.min(100, (weeklyUsed / weeklyTarget) * 100) : 0;
             return (
               <div key={ad.id}>
-                <div className="budget-row-label">
-                  <span>{ad.name || ad.audioFile || ad.id}</span>
-                  <span>
-                    ₹{spend.toFixed(2)} / ₹{amount.toFixed(2)}
-                    {exhausted ? ' — exhausted' : ''}
-                  </span>
-                </div>
-                <div className="budget-bar">
-                  <div
-                    className={`budget-bar-fill${exhausted ? ' exhausted' : ''}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
+                {amount > 0 && (
+                  <>
+                    <div className="budget-row-label">
+                      <span>{ad.name || ad.audioFile || ad.id}</span>
+                      <span>
+                        ₹{spend.toFixed(2)} / ₹{amount.toFixed(2)}
+                        {exhausted ? ' — exhausted' : ''}
+                      </span>
+                    </div>
+                    <div className="budget-bar">
+                      <div
+                        className={`budget-bar-fill${exhausted ? ' exhausted' : ''}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </>
+                )}
+                {weeklyTarget > 0 && (
+                  <>
+                    <div className="budget-row-label">
+                      <span>{amount > 0 ? '' : ad.name || ad.audioFile || ad.id} Weekly views (Mon–Sun)</span>
+                      <span>{weeklyUsed} / {weeklyTarget} this week</span>
+                    </div>
+                    <div className="budget-bar">
+                      <div className="budget-bar-fill" style={{ width: `${weeklyPct}%` }} />
+                    </div>
+                  </>
+                )}
               </div>
             );
           })}
@@ -789,6 +840,18 @@ function CampaignCard({
                   placeholder="Budget ₹"
                   value={ad.amount ?? ''}
                   onChange={(e) => updateEditAdField(c.id, 'ads', ad.id, 'amount', e.target.value ? Number(e.target.value) : undefined)}
+                  style={{ width: '6rem' }}
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="Views/week"
+                  title="Weekly view target — split across target buses, paced across the week"
+                  value={ad.weeklyViewTarget ?? ''}
+                  onChange={(e) =>
+                    updateEditAdField(c.id, 'ads', ad.id, 'weeklyViewTarget', e.target.value ? Number(e.target.value) : undefined)
+                  }
                   style={{ width: '6rem' }}
                 />
                 <input

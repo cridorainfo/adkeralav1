@@ -15,8 +15,10 @@ import {
   findStopTriggeredAdIndex,
   getFullscreenAdSchedule,
   nextPlayableAdIndex,
+  nextPacedAdIndex,
 } from '../lib/adPlayback';
 import { mediaPathToUrl } from '../lib/fileStorage';
+import { isScheduleWindowActive } from '../lib/scheduleWindow';
 import SchedulePlayer from '../components/SchedulePlayer';
 
 export default function DisplayScreen({ embedded = false, passengerMode = false }) {
@@ -59,7 +61,14 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   // not intent is carried on the schedule itself (schedule.showFullscreenAds/showBannerAds,
   // separate from adSettings/bannerAdSettings so pushing a schedule can never clobber a route
   // bus's own settings) rather than the generic adSettings/bannerAdSettings route buses use.
-  const isEntertainmentMode = s.busProfile?.mode === 'entertainment';
+  //
+  // 'auto' mode is the third option: entertainment content only while the pushed schedule's own
+  // activeDays/startDate/endDate window is active right now (e.g. weekends only), route view the
+  // rest of the time — re-evaluated on every render, so the 1s clock-tick re-render below
+  // (setNow) is what actually catches the moment a window opens/closes, not a one-time check.
+  const busMode = s.busProfile?.mode;
+  const isEntertainmentMode =
+    busMode === 'entertainment' || (busMode === 'auto' && isScheduleWindowActive(s.schedule, Date.now()));
   const fullscreenAdsEnabled = isEntertainmentMode
     ? (s.schedule?.showFullscreenAds ?? true)
     : (s.adSettings?.enabled ?? true);
@@ -247,21 +256,24 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     );
   }, [s.displayView, currentAd, ads, s.currentAdIndex, endAd, update]);
 
+  // Wall-clock ad trigger — route mode only. Entertainment/schedule buses get their fullscreen
+  // ads from handleScheduleItemEnd below instead (triggered at content switches, not mid-video),
+  // so this timer deliberately no-ops for them rather than interrupting whatever's playing.
   useEffect(() => {
-    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia)) return;
+    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia) || isEntertainmentMode) return;
 
     const id = setInterval(() => {
       const latest = stateRef.current;
       const latestAds = latest.ads ?? [];
-      const latestFullscreenAdsEnabled =
-        latest.busProfile?.mode === 'entertainment'
-          ? (latest.schedule?.showFullscreenAds ?? true)
-          : (latest.adSettings?.enabled ?? true);
+      const latestMode = latest.busProfile?.mode;
+      if (latestMode === 'entertainment' || (latestMode === 'auto' && isScheduleWindowActive(latest.schedule)))
+        return;
+      const latestFullscreenAdsEnabled = latest.adSettings?.enabled ?? true;
       if (!latestFullscreenAdsEnabled || !latestAds.length || latest.displayView === 'ad') return;
 
-      // Stop-triggered ads only make sense with route/stop data — findStopTriggeredAdIndex
-      // already no-ops gracefully with no upcoming stop (entertainment buses never have one),
-      // so no extra isEntertainmentMode guard is needed here beyond what it already does.
+      // Stop-triggered ads are an explicit admin pin to an upcoming stop — shown as-is,
+      // unaffected by weekly-view pacing (that's for the general rotation below, not a
+      // deliberate one-off placement).
       const stopAdIndex = findStopTriggeredAdIndex(latestAds, getUpcomingPassengerStop(latest), latest);
       if (stopAdIndex >= 0) {
         playAdNow(stopAdIndex);
@@ -269,17 +281,37 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       }
 
       const { ready } = getFullscreenAdSchedule(latest);
-      if (ready) playAdNow();
+      if (!ready) return;
+      const pacedIndex = nextPacedAdIndex(latestAds, latest.nextAdIndex ?? 0);
+      if (pacedIndex >= 0) playAdNow(pacedIndex);
     }, 1000);
 
     return () => clearInterval(id);
   }, [
     fullscreenAdsEnabled,
+    isEntertainmentMode,
     s.adSettings?.intervalSec,
     s.adSettings?.initialDelaySec,
     ads.length,
     playAdNow,
   ]);
+
+  // Content-switch ad trigger for entertainment schedules — strategically shows a fullscreen ad
+  // between playlist items instead of mid-video, and not necessarily at every switch (same
+  // getFullscreenAdSchedule/nextPacedAdIndex pacing the route-mode timer above uses, just checked
+  // at switch boundaries here rather than every second). endScheduleItem() runs first so the
+  // schedule has already advanced past the item that just ended; SchedulePlayer then unmounts for
+  // the ad's duration (the `showingAd` ternary below takes priority over it) and remounts showing
+  // the *new* currentIndex once the ad ends — so the ad naturally lands between two pieces of
+  // content rather than interrupting or replaying either one.
+  function handleScheduleItemEnd() {
+    endScheduleItem();
+    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia)) return;
+    const { ready } = getFullscreenAdSchedule(s);
+    if (!ready) return;
+    const pacedIndex = nextPacedAdIndex(ads, s.nextAdIndex ?? 0);
+    if (pacedIndex >= 0) playAdNow(pacedIndex);
+  }
 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>
@@ -426,14 +458,16 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
           <SchedulePlayer
             schedule={s.schedule}
             onItemStart={playScheduleItem}
-            onItemEnd={endScheduleItem}
+            onItemEnd={handleScheduleItemEnd}
           />
         ) : (
           <div className="display-idle-view">
             <p className="display-idle-hint">
-              {hasRouteStops
-                ? 'Press Start on the driver Control panel to begin the trip and show the origin.'
-                : 'Select a route on the driver Control panel to show stops and journey progress.'}
+              {busMode === 'auto' && (s.schedule?.items?.length ?? 0) > 0
+                ? "Outside this bus's scheduled entertainment window right now — showing route view."
+                : hasRouteStops
+                  ? 'Press Start on the driver Control panel to begin the trip and show the origin.'
+                  : 'Select a route on the driver Control panel to show stops and journey progress.'}
             </p>
           </div>
         )}

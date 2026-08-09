@@ -264,7 +264,7 @@ export function applyCloudCommands(current, commands) {
       }
 
       case 'UPDATE_SCHEDULE': {
-        const { items, showFullscreenAds, showBannerAds, savedAt, scheduleSavedAt } = payload;
+        const { items, showFullscreenAds, showBannerAds, activeDays, startDate, endDate, savedAt, scheduleSavedAt } = payload;
         const prevSchedule = next.schedule ?? {};
         // Playback position (currentIndex/loopCount/etc.) deliberately survives a re-push of the
         // same-shaped playlist (e.g. a show/hide-ads-only edit) rather than resetting to the
@@ -282,6 +282,13 @@ export function applyCloudCommands(current, commands) {
             ...(Array.isArray(items) ? { items } : {}),
             ...(showFullscreenAds != null ? { showFullscreenAds } : {}),
             ...(showBannerAds != null ? { showBannerAds } : {}),
+            // 'auto' bus mode reads these to decide whether this schedule is in-window right
+            // now (src/lib/scheduleWindow.js) — always overwritten wholesale (not merged like
+            // the boolean toggles above) since an admin clearing a day-of-week or date field back
+            // to "no restriction" must actually clear it here too, not leave the old one stuck.
+            activeDays: Array.isArray(activeDays) ? activeDays : [],
+            startDate: startDate ?? null,
+            endDate: endDate ?? null,
             currentIndex,
             scheduleSavedAt: scheduleSavedAt ?? savedAt ?? Date.now(),
           },

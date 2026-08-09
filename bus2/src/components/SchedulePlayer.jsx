@@ -5,7 +5,9 @@ const DEFAULT_IMAGE_DURATION_SEC = 10;
 
 /**
  * Entertainment-mode content view — replaces the route/idle view in DisplayScreen.jsx's <main>
- * for buses in entertainment mode (busProfile.mode === 'entertainment'). Renders whatever
+ * for buses in entertainment mode (busProfile.mode === 'entertainment', or 'auto' while its
+ * pushed schedule's own active window — src/lib/scheduleWindow.js — is currently in effect).
+ * Renders whatever
  * schedule.items[schedule.currentIndex] currently is and advances on its own: video plays to
  * its natural end, an image holds for durationSec (or a sensible default if none was set).
  * Banner strip and the fullscreen-ad overlay are siblings in DisplayScreen.jsx, not this

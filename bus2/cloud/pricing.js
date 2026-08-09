@@ -90,6 +90,46 @@ export function estimateCostPerPlay(ad, format, pricingSettings) {
   return durationSec * rate;
 }
 
+const WEEKDAY_INDEX = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Milliseconds elapsed since the start of the current Mon–Sun local week (Asia/Kolkata, same
+ * timezone as the rest of this module) — the shared building block for weekly ad-view pacing:
+ * spreading a "50 views/week" target evenly Monday through Sunday instead of letting it burn out
+ * on day one. Local-calendar based (not a rolling 7×24h window), so "this week" resets cleanly
+ * every Monday the way an admin reading a wall calendar would expect. */
+export function msIntoWeek(timestampMs = Date.now(), timeZone = PEAK_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestampMs));
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const dayIndex = WEEKDAY_INDEX[get('weekday')] ?? 0;
+  const msIntoDay = ((Number(get('hour')) * 60 + Number(get('minute'))) * 60 + Number(get('second'))) * 1000;
+  return dayIndex * 24 * 60 * 60 * 1000 + msIntoDay;
+}
+
+/** Start-of-week timestamp (ms) containing `timestampMs` — used to bucket raw play events into
+ * "this week's plays" without pulling in a real calendar/timezone library. */
+export function weekStartMs(timestampMs = Date.now(), timeZone = PEAK_TIMEZONE) {
+  return timestampMs - msIntoWeek(timestampMs, timeZone);
+}
+
+/** Divides an ad's fleet-wide weekly view target into one bus's even share — same "split by how
+ * many buses carry this ad" idea as computeBusPlayQuota below, just view-count instead of money.
+ * Rounds rather than floors/ceils: being off by a view or two per bus matters less here than
+ * staying close to an even split (unlike money, where floor guarantees never over-budget). */
+export function computeWeeklyViewShare(weeklyViewTarget, busCount) {
+  const target = Number(weeklyViewTarget);
+  if (!Number.isFinite(target) || target <= 0) return null;
+  const buses = Math.max(1, Number(busCount) || 0);
+  return Math.max(1, Math.round(target / buses));
+}
+
 /** Divides an ad's total budget into a fixed play-count quota per bus it's targeted at, so each
  * bus can enforce its own hard stop locally — including while fully offline — instead of relying
  * on a live, fleet-wide spend check. Recomputed fresh every time (same "never cached" philosophy

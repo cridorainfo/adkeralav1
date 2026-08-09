@@ -26,6 +26,7 @@ export default function BusPreviewCard({ bus, selected, onSelectAnalytics }) {
   const preview = bus.preview ?? {};
   const view = preview.displayView ?? 'route';
   const ad = preview.ad;
+  const isEntertainment = preview.mode === 'entertainment';
   const plate = bus.profile?.plateDisplay || bus.profile?.plate || '';
   const name = busDisplayLabel(bus);
 
@@ -77,7 +78,27 @@ export default function BusPreviewCard({ bus, selected, onSelectAnalytics }) {
             <span>Ad slot active — media unavailable</span>
           </div>
         )}
-        {online && view !== 'ad' && (
+        {online && view !== 'ad' && isEntertainment && preview.scheduleItem?.mediaFile && (
+          <>
+            <AdMediaPreview ad={preview.scheduleItem} format="fullscreen" playing className="live-wall-ad-thumb" />
+            <div className="live-wall-preview-meta">
+              <strong>Entertainment playlist</strong>
+              <span>
+                Item {(preview.scheduleCurrentIndex ?? 0) + 1}/{preview.scheduleItemCount ?? 0} · looped{' '}
+                {preview.scheduleLoopCount ?? 0}×
+              </span>
+            </div>
+          </>
+        )}
+        {online && view !== 'ad' && isEntertainment && !preview.scheduleItem?.mediaFile && (
+          <div className="live-wall-preview-empty">
+            Entertainment mode
+            <span>
+              {preview.scheduleItemCount ? 'Waiting for playback to start…' : 'No content assigned yet — add it in the Schedules tab'}
+            </span>
+          </div>
+        )}
+        {online && view !== 'ad' && !isEntertainment && (
           <div className="live-wall-preview-route">
             <div className="live-wall-preview-badge">Route view</div>
             <h3>{preview.routeName || '—'}</h3>

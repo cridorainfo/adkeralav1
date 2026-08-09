@@ -462,13 +462,28 @@ export async function setBusAdsCatalog(busId, { ads = [], bannerAds = [], adsSav
  * bus's own GET /api/buses/:busId/schedule pull reads this; pushScheduleToBuses() (schedules.js)
  * writes it once per targeted bus each time an admin pushes a schedule. */
 export async function getBusScheduleCatalog(busId) {
-  if (!busId) return { items: [], showFullscreenAds: true, showBannerAds: true, savedAt: 0, scheduleSavedAt: 0, source: null };
+  if (!busId) {
+    return {
+      items: [],
+      showFullscreenAds: true,
+      showBannerAds: true,
+      activeDays: [],
+      startDate: null,
+      endDate: null,
+      savedAt: 0,
+      scheduleSavedAt: 0,
+      source: null,
+    };
+  }
   if (usePostgres()) {
     const row = await pg.pgGetPlatformSetting(`${PG_KEY_BUS_SCHEDULE_PREFIX}${busId}`, null);
     return {
       items: row?.items ?? [],
       showFullscreenAds: row?.showFullscreenAds ?? true,
       showBannerAds: row?.showBannerAds ?? true,
+      activeDays: row?.activeDays ?? [],
+      startDate: row?.startDate ?? null,
+      endDate: row?.endDate ?? null,
       savedAt: row?.savedAt ?? 0,
       scheduleSavedAt: row?.scheduleSavedAt ?? 0,
       source: row?.source ?? null,
@@ -481,6 +496,9 @@ export async function getBusScheduleCatalog(busId) {
     items: row.items ?? [],
     showFullscreenAds: row.showFullscreenAds ?? true,
     showBannerAds: row.showBannerAds ?? true,
+    activeDays: row.activeDays ?? [],
+    startDate: row.startDate ?? null,
+    endDate: row.endDate ?? null,
     savedAt: row.savedAt ?? 0,
     scheduleSavedAt: row.scheduleSavedAt ?? 0,
     source: row.source ?? null,
@@ -489,7 +507,16 @@ export async function getBusScheduleCatalog(busId) {
 
 export async function setBusScheduleCatalog(
   busId,
-  { items = [], showFullscreenAds = true, showBannerAds = true, scheduleSavedAt, source = 'dashboard' } = {}
+  {
+    items = [],
+    showFullscreenAds = true,
+    showBannerAds = true,
+    activeDays = [],
+    startDate = null,
+    endDate = null,
+    scheduleSavedAt,
+    source = 'dashboard',
+  } = {}
 ) {
   if (!busId) throw new Error('busId required');
   const savedAt = Date.now();
@@ -497,6 +524,13 @@ export async function setBusScheduleCatalog(
     items: normalizeScheduleItems(items),
     showFullscreenAds: Boolean(showFullscreenAds),
     showBannerAds: Boolean(showBannerAds),
+    // The bus's own local window check (src/lib/scheduleWindow.js) reads these two straight off
+    // its pushed schedule catalog — see server.js's 'auto' mode handling for why this can't just
+    // be resolved server-side once at push time (the window's active/inactive state changes
+    // every day without a new push).
+    activeDays: Array.isArray(activeDays) ? activeDays : [],
+    startDate: startDate ?? null,
+    endDate: endDate ?? null,
     savedAt,
     scheduleSavedAt: scheduleSavedAt ?? savedAt,
     source,
@@ -658,6 +692,17 @@ export async function getAdPlayCountForBus(busId, adId) {
   if (usePostgres()) return pg.pgGetAdPlayCountForBus(busId, adId);
   const store = await loadStore();
   return (store.adPlays ?? []).filter((p) => p.busId === busId && p.adId === adId).length;
+}
+
+/** Same as getAdPlayCountForBus, scoped to plays at/after `sinceMs` — feeds this bus's progress
+ * against its weekly view-pacing share (see cloud/pricing.js weekStartMs / server.js
+ * stampExhaustion's weekly-views stamping, mirrors the money-quota stamping just above it). */
+export async function getAdPlayCountForBusSince(busId, adId, sinceMs) {
+  if (usePostgres()) return pg.pgGetAdPlayCountForBusSince(busId, adId, sinceMs);
+  const store = await loadStore();
+  return (store.adPlays ?? []).filter(
+    (p) => p.busId === busId && p.adId === adId && Number(p.playedAt) >= sinceMs
+  ).length;
 }
 
 /** Raw play events for one bus — feeds per-bus spend/play analytics. */
@@ -1258,6 +1303,9 @@ export async function removeMediaReferenceEverywhere(relPath) {
         items: nextItems,
         showFullscreenAds: scheduleCatalog.showFullscreenAds,
         showBannerAds: scheduleCatalog.showBannerAds,
+        activeDays: scheduleCatalog.activeDays,
+        startDate: scheduleCatalog.startDate,
+        endDate: scheduleCatalog.endDate,
         scheduleSavedAt: scheduleCatalog.scheduleSavedAt,
         source: scheduleCatalog.source ?? 'dashboard',
       });

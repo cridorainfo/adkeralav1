@@ -66,6 +66,7 @@ import {
   getCampaignPlaysSummary,
   getAdPlaysRaw,
   getAdPlayCountForBus,
+  getAdPlayCountForBusSince,
   getPricingSettings,
   setPricingSettings,
   getHouseAds,
@@ -76,7 +77,14 @@ import {
   describeMediaReferences,
   removeMediaReferenceEverywhere,
 } from './store.js';
-import { computeAdSpend, isAdExhausted, estimateCostPerPlay, computeBusPlayQuota } from './pricing.js';
+import {
+  computeAdSpend,
+  isAdExhausted,
+  estimateCostPerPlay,
+  computeBusPlayQuota,
+  computeWeeklyViewShare,
+  weekStartMs,
+} from './pricing.js';
 import {
   CLOUD_VERSION,
   buildPcLatestYml,
@@ -129,6 +137,7 @@ import {
   updateSchedule,
   deleteSchedule,
   pushScheduleToBuses,
+  isScheduleWindowActive,
 } from './schedules.js';
 import { getBusAdAnalytics, getFleetAdAnalytics } from './adAnalytics.js';
 import {
@@ -661,6 +670,12 @@ app.get('/api/buses/:busId/schedule', authBus, async (req, res) => {
     items: catalog.items,
     showFullscreenAds: catalog.showFullscreenAds,
     showBannerAds: catalog.showBannerAds,
+    // 'auto' bus mode (see cloud/schedules.js isScheduleWindowActive) resolves these on-device,
+    // re-checked continuously — not resolved here, since a "weekends only" schedule's
+    // active/inactive state changes daily without any new push happening.
+    activeDays: catalog.activeDays,
+    startDate: catalog.startDate,
+    endDate: catalog.endDate,
     scheduleSavedAt: catalog.scheduleSavedAt,
     mediaFiles: collectScheduleMediaPaths(catalog.items),
   });
@@ -966,6 +981,15 @@ function buildLiveWallPreview(row) {
   const routeName = telemetry.routeName ?? state.routeName ?? null;
   const currentStopEn = telemetry.currentStopEn ?? null;
   const nextStopEn = telemetry.nextStopEn ?? null;
+  // 'auto' resolves to whichever the bus itself would currently be showing — entertainment only
+  // while its pushed schedule's window (activeDays/startDate/endDate) is active right now, same
+  // isScheduleWindowActive check the device runs locally (src/lib/scheduleWindow.js), so the
+  // Live Wall preview matches what's actually on screen instead of assuming "auto" == route.
+  const rawMode = state.busProfile?.mode;
+  const mode =
+    rawMode === 'entertainment' || (rawMode === 'auto' && isScheduleWindowActive(state.schedule))
+      ? 'entertainment'
+      : 'route';
 
   let ad = null;
   if (displayView === 'ad') {
@@ -984,14 +1008,38 @@ function buildLiveWallPreview(row) {
     }
   }
 
+  // Entertainment-mode counterpart to `ad` above — same "what's actually on screen right now"
+  // idea, sourced from the bus's own pushed schedule state rather than route telemetry (an
+  // entertainment bus never has route/stop fields, so the plain route preview below would
+  // otherwise render as an empty "Route view" card even while content is actively looping).
+  let scheduleItem = null;
+  const scheduleItems = state.schedule?.items ?? [];
+  if (mode === 'entertainment' && displayView !== 'ad' && scheduleItems.length) {
+    const idx = Number.isFinite(Number(state.schedule?.currentIndex)) ? Number(state.schedule.currentIndex) : 0;
+    const raw = scheduleItems[idx] ?? null;
+    if (raw) {
+      scheduleItem = {
+        id: raw.id ?? null,
+        type: raw.kind ?? null,
+        mediaFile: raw.mediaFile ?? null,
+        durationSec: raw.durationSec ?? null,
+      };
+    }
+  }
+
   return {
     displayView,
+    mode,
     routeName,
     currentStopEn,
     nextStopEn,
     tripStarted: Boolean(state.tripStarted ?? telemetry.tripStarted ?? telemetry.tripDeparted),
     tripEnded: Boolean(state.tripEnded ?? telemetry.tripEnded),
     ad,
+    scheduleItem,
+    scheduleCurrentIndex: state.schedule?.currentIndex ?? 0,
+    scheduleItemCount: scheduleItems.length,
+    scheduleLoopCount: state.schedule?.loopCount ?? 0,
   };
 }
 
@@ -1129,8 +1177,12 @@ app.put('/api/buses/:busId/profile', authFleet, async (req, res) => {
     }
   }
 
-  if (mode != null && !['route', 'entertainment'].includes(mode)) {
-    res.status(400).json({ ok: false, error: "mode must be 'route' or 'entertainment'" });
+  // 'auto' — follows whatever schedule is currently pushed to this bus: entertainment content
+  // while that schedule's own day-of-week/date window is active (cloud/schedules.js
+  // isScheduleWindowActive), route view the rest of the time — e.g. a bus that's route on
+  // weekdays and a tour playlist on weekends, with no manual toggling required in between.
+  if (mode != null && !['route', 'entertainment', 'auto'].includes(mode)) {
+    res.status(400).json({ ok: false, error: "mode must be 'route', 'entertainment', or 'auto'" });
     return;
   }
 
@@ -1400,25 +1452,50 @@ async function stampExhaustion(list = [], busId, format = 'fullscreen') {
   const pricingSettings = await getPricingSettings();
   return Promise.all(
     list.map(async (ad) => {
-      if (!Number.isFinite(Number(ad.amount)) || Number(ad.amount) <= 0) return ad;
-      const plays = await getAdPlaysRaw(ad.id);
-      const { spend } = computeAdSpend(plays, format, pricingSettings);
-      const exhaustedBySpend = isAdExhausted(ad.amount, spend);
+      const hasAmount = Number.isFinite(Number(ad.amount)) && Number(ad.amount) > 0;
+      // weeklyViewTarget is a separate, independent budget concept from `amount` (see
+      // cloud/pricing.js computeWeeklyViewShare's doc comment) — an ad can carry either, both, or
+      // neither, so this can't just piggyback on the hasAmount guard below it used to share.
+      const hasWeeklyTarget = Number.isFinite(Number(ad.weeklyViewTarget)) && Number(ad.weeklyViewTarget) > 0;
+      if (!hasAmount && !hasWeeklyTarget) return ad;
+
+      let exhaustedBySpend = false;
+      if (hasAmount) {
+        const plays = await getAdPlaysRaw(ad.id);
+        const { spend } = computeAdSpend(plays, format, pricingSettings);
+        exhaustedBySpend = isAdExhausted(ad.amount, spend);
+      }
 
       let playQuota = null;
       let playsUsed = null;
       let playsRemaining = null;
+      let weeklyPerBusTarget = null;
+      let weeklyViewsUsed = null;
       const campaign = ad.campaignId ? await getCampaign(ad.campaignId) : null;
       if (campaign) {
-        const costPerPlay = estimateCostPerPlay(ad, format, pricingSettings);
-        playQuota = computeBusPlayQuota({
-          amount: ad.amount,
-          costPerPlay,
-          busCount: campaign.targetBusIds?.length ?? 0,
-        });
-        if (playQuota != null && busId) {
-          playsUsed = await getAdPlayCountForBus(busId, ad.id);
-          playsRemaining = Math.max(0, playQuota - playsUsed);
+        if (hasAmount) {
+          const costPerPlay = estimateCostPerPlay(ad, format, pricingSettings);
+          playQuota = computeBusPlayQuota({
+            amount: ad.amount,
+            costPerPlay,
+            busCount: campaign.targetBusIds?.length ?? 0,
+          });
+          if (playQuota != null && busId) {
+            playsUsed = await getAdPlayCountForBus(busId, ad.id);
+            playsRemaining = Math.max(0, playQuota - playsUsed);
+          }
+        }
+
+        // Weekly view-pacing (distinct from the money-budget quota above) — fullscreen-only,
+        // same as the rest of this function's per-bus stamping. The bus-side rotation
+        // (src/lib/adPlayback.js isAdOnWeeklyPace) uses weeklyPerBusTarget/weeklyViewsUsed to
+        // throttle itself so ~50 views/week spreads evenly instead of bursting on day one — see
+        // that file for the actual pacing math.
+        if (hasWeeklyTarget) {
+          weeklyPerBusTarget = computeWeeklyViewShare(ad.weeklyViewTarget, campaign.targetBusIds?.length ?? 0);
+          if (weeklyPerBusTarget != null && busId) {
+            weeklyViewsUsed = await getAdPlayCountForBusSince(busId, ad.id, weekStartMs());
+          }
         }
       }
 
@@ -1426,6 +1503,7 @@ async function stampExhaustion(list = [], busId, format = 'fullscreen') {
         ...ad,
         exhausted: exhaustedBySpend || (playsRemaining != null && playsRemaining <= 0),
         ...(playQuota != null ? { playQuota, playsUsed, playsRemaining } : {}),
+        ...(weeklyPerBusTarget != null ? { weeklyPerBusTarget, weeklyViewsUsed } : {}),
       };
     })
   );
@@ -1504,7 +1582,26 @@ app.get('/api/ads/:adId/spend', authSession, requireAuth, async (req, res) => {
   const plays = await getAdPlaysRaw(req.params.adId);
   const format = await adFormatInCampaign(campaign, req.params.adId);
   const { peakSec, offPeakSec, spend } = computeAdSpend(plays, format, pricingSettings);
-  res.json({ ok: true, adId: req.params.adId, format, plays: plays.length, peakSec, offPeakSec, spend });
+
+  // Weekly view-pacing summary — fleet-wide across every play this week (unlike the per-bus
+  // weeklyPerBusTarget/weeklyViewsUsed stamped onto the ad in stampExhaustion, which is each
+  // bus's own local share/progress). This is just for the admin's own visibility into "how's the
+  // 50-views-a-week budget doing so far", not something any bus reads.
+  const ad = [...(campaign?.ads ?? []), ...(campaign?.bannerAds ?? [])].find((a) => a.id === req.params.adId);
+  const weeklyViewTarget = Number(ad?.weeklyViewTarget) || 0;
+  const weekStart = weekStartMs();
+  const weeklyViewsUsed = weeklyViewTarget > 0 ? plays.filter((p) => Number(p.playedAt) >= weekStart).length : 0;
+
+  res.json({
+    ok: true,
+    adId: req.params.adId,
+    format,
+    plays: plays.length,
+    peakSec,
+    offPeakSec,
+    spend,
+    ...(weeklyViewTarget > 0 ? { weeklyViewTarget, weeklyViewsUsed } : {}),
+  });
 });
 
 app.get('/api/buses/:busId/display-settings/catalog', authFleet, async (req, res) => {

@@ -2,8 +2,87 @@ import { useEffect, useState } from 'react';
 import { api, uploadMedia } from '../lib/api.js';
 import { doubleConfirm } from '../lib/confirm.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
+import { WEEKDAY_OPTIONS, isScheduleWindowActive, describeScheduleWindow } from '../lib/scheduleWindow.js';
 import { busDisplayLabel } from './BusContext.jsx';
 import AdMediaPreview from './AdMediaPreview.jsx';
+
+/** Day-of-week + optional date-range picker, shared by the create form and every edit panel —
+ * `window` is {activeDays, startDate, endDate}, `onChange` receives the same shape back. */
+function ScheduleWindowEditor({ window, onChange }) {
+  const activeDays = window.activeDays ?? [];
+  function toggleDay(key) {
+    const next = activeDays.includes(key) ? activeDays.filter((d) => d !== key) : [...activeDays, key];
+    onChange({ ...window, activeDays: next });
+  }
+  return (
+    <div className="form-group">
+      <label>Active window (optional)</label>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Leave everything blank for "always active" (the original behavior). Pick days and/or a
+        date range for e.g. a weekend-only tour playlist — set the target bus's Content mode to
+        "Auto" in the Fleet tab so it switches to route view automatically outside this window.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        {WEEKDAY_OPTIONS.map((d) => (
+          <label key={d.key} style={{ fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={activeDays.includes(d.key)} onChange={() => toggleDay(d.key)} />{' '}
+            {d.label}
+          </label>
+        ))}
+      </div>
+      <div className="inline-form">
+        <div className="form-group">
+          <label>Start date</label>
+          <input
+            type="date"
+            value={window.startDate ?? ''}
+            onChange={(e) => onChange({ ...window, startDate: e.target.value })}
+          />
+        </div>
+        <div className="form-group">
+          <label>End date</label>
+          <input
+            type="date"
+            value={window.endDate ?? ''}
+            onChange={(e) => onChange({ ...window, endDate: e.target.value })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const UPLOAD_STATUS_LABEL = {
+  pending: 'Queued',
+  uploading: 'Uploading…',
+  done: '✓ Uploaded',
+  error: '✗ Failed',
+};
+
+const UPLOAD_STATUS_PILL_CLASS = {
+  pending: 'version-unknown',
+  uploading: 'version-outdated',
+  done: 'version-current',
+  error: 'version-below',
+};
+
+/** Per-file progress for the most recent multi-select upload — reused by both the create form's
+ * `uploadQueue` and each edit panel's `editUploadQueue[scheduleId]`. */
+function UploadStatusList({ queue }) {
+  if (!queue?.length) return null;
+  return (
+    <div style={{ marginTop: '0.4rem' }}>
+      {queue.map((row, i) => (
+        <div key={i} className="edit-ad-row">
+          <span style={{ flex: 1, fontSize: '0.85rem' }}>{row.name}</span>
+          <span className={`version-pill ${UPLOAD_STATUS_PILL_CLASS[row.status]}`}>
+            {row.status === 'error' && row.error ? `✗ ${row.error}` : UPLOAD_STATUS_LABEL[row.status]}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Entertainment/tourist-bus media playlists — deliberately mirrors CampaignsPanel.jsx's create/
@@ -14,19 +93,28 @@ import AdMediaPreview from './AdMediaPreview.jsx';
 export default function SchedulesPanel() {
   const [schedules, setSchedules] = useState([]);
   const [buses, setBuses] = useState([]);
-  const [form, setForm] = useState({
+  const emptyForm = {
     name: '',
     targetBusIds: [],
     items: [],
     showFullscreenAds: true,
     showBannerAds: true,
-  });
+    activeDays: [],
+    startDate: '',
+    endDate: '',
+  };
+  const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState('');
   const [uploading, setUploading] = useState(false);
+  // One row per file in the most recent multi-select, in selection order — status is
+  // 'pending' | 'uploading' | 'done' | 'error', shown next to the file input so an admin
+  // dropping in a batch of files can see exactly which ones landed and which failed.
+  const [uploadQueue, setUploadQueue] = useState([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editOpen, setEditOpen] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [editUploading, setEditUploading] = useState(null);
+  const [editUploadQueue, setEditUploadQueue] = useState({});
 
   async function load() {
     const [sJson, bJson] = await Promise.all([api('/api/schedules'), api('/api/buses')]);
@@ -45,31 +133,52 @@ export default function SchedulesPanel() {
     setForm({ ...form, targetBusIds: ids });
   }
 
-  async function uploadItem(file) {
-    if (!file) return;
-    const validationError = validateAdMediaFile(file);
-    if (validationError) {
-      setMessage(validationError);
-      return;
-    }
+  // Uploads a batch of files one at a time (server takes one file per request; sequential also
+  // keeps playlist `order` deterministic and matching selection order) while keeping
+  // `uploadQueue` updated after every step so the status list reflects live progress instead of
+  // jumping straight from "all pending" to "all done".
+  async function uploadItems(fileList) {
+    const files = Array.from(fileList ?? []);
+    if (!files.length) return;
+    const queue = files.map((file) => ({ name: file.name, status: 'pending', error: null }));
+    setUploadQueue(queue);
     setUploading(true);
-    setMessage(`Uploading ${file.name}…`);
-    try {
-      const up = await uploadMedia(file, 'schedule');
-      const item = {
-        id: `item-${Date.now()}`,
-        mediaFile: up.path,
-        kind: adMediaTypeFromFile(file),
-        order: form.items.length,
-        durationSec: null,
-      };
-      setForm({ ...form, items: [...form.items, item] });
-      setMessage(`Added ${file.name}`);
-    } catch (err) {
-      setMessage(err.message ?? 'Upload failed');
-    } finally {
-      setUploading(false);
+    setMessage('');
+    const newItems = [];
+    const baseOrder = form.items.length;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const validationError = validateAdMediaFile(file);
+      if (validationError) {
+        queue[i] = { ...queue[i], status: 'error', error: validationError };
+        setUploadQueue([...queue]);
+        continue;
+      }
+      queue[i] = { ...queue[i], status: 'uploading' };
+      setUploadQueue([...queue]);
+      try {
+        const up = await uploadMedia(file, 'schedule');
+        newItems.push({
+          id: `item-${Date.now()}-${i}`,
+          mediaFile: up.path,
+          kind: adMediaTypeFromFile(file),
+          order: baseOrder + newItems.length,
+          durationSec: null,
+        });
+        queue[i] = { ...queue[i], status: 'done' };
+      } catch (err) {
+        queue[i] = { ...queue[i], status: 'error', error: err.message ?? 'Upload failed' };
+      }
+      setUploadQueue([...queue]);
     }
+    if (newItems.length) setForm((f) => ({ ...f, items: [...f.items, ...newItems] }));
+    setUploading(false);
+    const failed = queue.filter((q) => q.status === 'error').length;
+    setMessage(
+      failed
+        ? `Uploaded ${newItems.length}/${files.length} file(s) — ${failed} failed`
+        : `Uploaded ${newItems.length} file(s)`
+    );
   }
 
   function removeItem(id) {
@@ -83,7 +192,8 @@ export default function SchedulesPanel() {
       method: 'POST',
       body: JSON.stringify(form),
     });
-    setForm({ name: '', targetBusIds: [], items: [], showFullscreenAds: true, showBannerAds: true });
+    setForm(emptyForm);
+    setUploadQueue([]);
     setMessage('Schedule created — push it to make it live on those buses');
     setShowCreateForm(false);
     load();
@@ -121,6 +231,7 @@ export default function SchedulesPanel() {
 
   function openEdit(s) {
     setEditOpen(s.id);
+    clearEditUploadQueue(s.id);
     setEditForm({
       ...editForm,
       [s.id]: {
@@ -129,12 +240,22 @@ export default function SchedulesPanel() {
         items: (s.items ?? []).map((i) => ({ ...i })),
         showFullscreenAds: s.showFullscreenAds !== false,
         showBannerAds: s.showBannerAds !== false,
+        activeDays: [...(s.activeDays ?? [])],
+        startDate: s.startDate ?? '',
+        endDate: s.endDate ?? '',
       },
     });
   }
 
   function closeEdit() {
     setEditOpen(null);
+  }
+
+  function clearEditUploadQueue(id) {
+    setEditUploadQueue((q) => {
+      const { [id]: _removed, ...rest } = q;
+      return rest;
+    });
   }
 
   function updateEditField(id, field, value) {
@@ -154,32 +275,54 @@ export default function SchedulesPanel() {
     updateEditField(id, 'items', current.items.filter((i) => i.id !== itemId));
   }
 
-  async function uploadEditItem(id, file) {
-    if (!file) return;
-    const validationError = validateAdMediaFile(file);
-    if (validationError) {
-      setMessage(validationError);
-      return;
-    }
+  // Edit-form counterpart to uploadItems() above — same sequential-with-live-status shape, keyed
+  // by schedule id since multiple schedules' edit panels could in principle be open across
+  // re-renders (editUploadQueue is a map, not a single list).
+  async function uploadEditItems(id, fileList) {
+    const files = Array.from(fileList ?? []);
+    if (!files.length) return;
+    const queue = files.map((file) => ({ name: file.name, status: 'pending', error: null }));
+    setEditUploadQueue((q) => ({ ...q, [id]: queue }));
     setEditUploading(id);
-    setMessage(`Uploading ${file.name}…`);
-    try {
-      const up = await uploadMedia(file, 'schedule');
-      const current = editForm[id];
-      const item = {
-        id: `item-${Date.now()}`,
-        mediaFile: up.path,
-        kind: adMediaTypeFromFile(file),
-        order: current.items.length,
-        durationSec: null,
-      };
-      updateEditField(id, 'items', [...current.items, item]);
-      setMessage(`Added ${file.name}`);
-    } catch (err) {
-      setMessage(err.message ?? 'Upload failed');
-    } finally {
-      setEditUploading(null);
+    setMessage('');
+    const newItems = [];
+    const baseOrder = editForm[id].items.length;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const validationError = validateAdMediaFile(file);
+      if (validationError) {
+        queue[i] = { ...queue[i], status: 'error', error: validationError };
+        setEditUploadQueue((q) => ({ ...q, [id]: [...queue] }));
+        continue;
+      }
+      queue[i] = { ...queue[i], status: 'uploading' };
+      setEditUploadQueue((q) => ({ ...q, [id]: [...queue] }));
+      try {
+        const up = await uploadMedia(file, 'schedule');
+        newItems.push({
+          id: `item-${Date.now()}-${i}`,
+          mediaFile: up.path,
+          kind: adMediaTypeFromFile(file),
+          order: baseOrder + newItems.length,
+          durationSec: null,
+        });
+        queue[i] = { ...queue[i], status: 'done' };
+      } catch (err) {
+        queue[i] = { ...queue[i], status: 'error', error: err.message ?? 'Upload failed' };
+      }
+      setEditUploadQueue((q) => ({ ...q, [id]: [...queue] }));
     }
+    if (newItems.length) {
+      const current = editForm[id];
+      updateEditField(id, 'items', [...current.items, ...newItems]);
+    }
+    setEditUploading(null);
+    const failed = queue.filter((q) => q.status === 'error').length;
+    setMessage(
+      failed
+        ? `Uploaded ${newItems.length}/${files.length} file(s) — ${failed} failed`
+        : `Uploaded ${newItems.length} file(s)`
+    );
   }
 
   // Saving immediately re-pushes to whatever buses are (still) targeted, so an edit takes effect
@@ -243,7 +386,8 @@ export default function SchedulesPanel() {
                     onChange={() => toggleBus(b.busId)}
                   />{' '}
                   {busDisplayLabel(b)}
-                  {b.profile?.mode !== 'entertainment' && (
+                  {b.profile?.mode === 'auto' && <span className="hint"> (auto — follows window)</span>}
+                  {(!b.profile?.mode || b.profile.mode === 'route') && (
                     <span className="hint"> (currently route mode)</span>
                   )}
                 </label>
@@ -272,6 +416,7 @@ export default function SchedulesPanel() {
               Show banner ads
             </label>
           </div>
+          <ScheduleWindowEditor window={form} onChange={(w) => setForm({ ...form, ...w })} />
           <div className="form-group">
             <label>Playlist items ({form.items.length})</label>
             {form.items.map((item, i) => (
@@ -287,14 +432,15 @@ export default function SchedulesPanel() {
             <input
               type="file"
               accept={AD_MEDIA_ACCEPT}
+              multiple
               disabled={uploading}
               onChange={(e) => {
-                const file = e.target.files?.[0];
+                const files = e.target.files;
                 e.target.value = '';
-                if (file) uploadItem(file);
+                if (files?.length) uploadItems(files);
               }}
             />
-            {uploading && <small className="hint">Uploading…</small>}
+            <UploadStatusList queue={uploadQueue} />
           </div>
           <button type="submit" className="btn btn-primary btn-sm" disabled={!form.items.length}>
             Create schedule
@@ -338,6 +484,16 @@ export default function SchedulesPanel() {
               <span>{s.items?.length ?? 0} item(s)</span>
               <span>fullscreen ads {s.showFullscreenAds !== false ? 'on' : 'off'}</span>
               <span>banner ads {s.showBannerAds !== false ? 'on' : 'off'}</span>
+              {(() => {
+                const windowDesc = describeScheduleWindow(s);
+                if (!windowDesc) return <span>always active</span>;
+                const active = isScheduleWindowActive(s);
+                return (
+                  <span className={`version-pill ${active ? 'version-current' : 'version-unknown'}`}>
+                    {windowDesc} {active ? '— active now' : '— not active now'}
+                  </span>
+                );
+              })()}
             </div>
 
             {(s.targetBusIds ?? []).length > 0 && (
@@ -350,7 +506,13 @@ export default function SchedulesPanel() {
                     <span key={busId}>
                       {label}: item {status.currentIndex + 1}/{status.itemCount}, looped{' '}
                       {status.loopCount}×
-                      {status.mode !== 'entertainment' ? ' (bus not in entertainment mode)' : ''}
+                      {status.mode === 'entertainment'
+                        ? ''
+                        : status.mode === 'auto'
+                          ? isScheduleWindowActive(s)
+                            ? ' (auto — active now)'
+                            : ' (auto — outside this schedule’s window, showing route)'
+                          : ' (bus not in entertainment mode)'}
                     </span>
                   );
                 })}
@@ -413,6 +575,10 @@ export default function SchedulesPanel() {
                     Show banner ads
                   </label>
                 </div>
+                <ScheduleWindowEditor
+                  window={edit}
+                  onChange={(w) => setEditForm({ ...editForm, [s.id]: { ...edit, ...w } })}
+                />
                 <div className="form-group">
                   <label>Playlist items ({edit.items.length})</label>
                   {edit.items.map((item, i) => (
@@ -428,14 +594,15 @@ export default function SchedulesPanel() {
                   <input
                     type="file"
                     accept={AD_MEDIA_ACCEPT}
+                    multiple
                     disabled={editSlot}
                     onChange={(e) => {
-                      const file = e.target.files?.[0];
+                      const files = e.target.files;
                       e.target.value = '';
-                      if (file) uploadEditItem(s.id, file);
+                      if (files?.length) uploadEditItems(s.id, files);
                     }}
                   />
-                  {editSlot && <small className="hint">Uploading…</small>}
+                  <UploadStatusList queue={editUploadQueue[s.id] ?? []} />
                 </div>
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => submitEdit(s.id)}>
                   Save + push

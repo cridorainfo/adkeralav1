@@ -515,11 +515,15 @@ async function syncScheduleFromCloud(root, creds) {
     const cloudScheduleSavedAt = json.scheduleSavedAt ?? 0;
     const localScheduleSavedAt = current.schedule?.scheduleSavedAt ?? 0;
 
+    const nextActiveDays = Array.isArray(json.activeDays) ? json.activeDays : [];
     const catalogChanged =
       cloudScheduleSavedAt > localScheduleSavedAt ||
       JSON.stringify(current.schedule?.items ?? []) !== JSON.stringify(nextItems) ||
       current.schedule?.showFullscreenAds !== json.showFullscreenAds ||
-      current.schedule?.showBannerAds !== json.showBannerAds;
+      current.schedule?.showBannerAds !== json.showBannerAds ||
+      JSON.stringify(current.schedule?.activeDays ?? []) !== JSON.stringify(nextActiveDays) ||
+      (current.schedule?.startDate ?? null) !== (json.startDate ?? null) ||
+      (current.schedule?.endDate ?? null) !== (json.endDate ?? null);
     if (!catalogChanged) return;
 
     const oldSchedulePaths = new Set(collectScheduleMediaFromState(current));
@@ -535,6 +539,11 @@ async function syncScheduleFromCloud(root, creds) {
         items: nextItems,
         showFullscreenAds: json.showFullscreenAds ?? true,
         showBannerAds: json.showBannerAds ?? true,
+        // Read by the display's 'auto' bus-mode check (src/lib/scheduleWindow.js) — re-evaluated
+        // locally every tick against the device's own clock, not resolved here.
+        activeDays: nextActiveDays,
+        startDate: json.startDate ?? null,
+        endDate: json.endDate ?? null,
         currentIndex,
         scheduleSavedAt: cloudScheduleSavedAt || pushAt,
       },
