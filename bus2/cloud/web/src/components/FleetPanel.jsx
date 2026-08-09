@@ -304,23 +304,21 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
                 <strong>Schedules</strong> tab.
               </p>
               <div className="form-group">
-                <label>
-                  <input
-                    type="radio"
-                    name="bus-mode"
-                    checked={mode === 'route'}
-                    onChange={() => setMode('route')}
-                  />{' '}
-                  Route (default)
-                </label>
-                <label style={{ marginLeft: '1rem' }}>
-                  <input
-                    type="radio"
-                    name="bus-mode"
-                    checked={mode === 'entertainment'}
-                    onChange={() => setMode('entertainment')}
-                  />{' '}
-                  Entertainment
+                <label className="toggle-switch-field toggle-switch-field-dual">
+                  <span className={mode === 'route' ? 'toggle-switch-side-active' : ''}>
+                    Route (default)
+                  </span>
+                  <span className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={mode === 'entertainment'}
+                      onChange={(e) => setMode(e.target.checked ? 'entertainment' : 'route')}
+                    />
+                    <span className="toggle-switch-track" />
+                  </span>
+                  <span className={mode === 'entertainment' ? 'toggle-switch-side-active' : ''}>
+                    Entertainment
+                  </span>
                 </label>
               </div>
 

@@ -2565,6 +2565,20 @@ tr.route-row-assigned {
   font-size: 0.9rem;
 }
 
+/* Two-label variant — a label on each side of the switch (e.g. "Route" / "Entertainment")
+   instead of one label + switch. The currently-active side is bolded/brand-colored so which
+   state is "on" is never ambiguous the way a bare unlabeled switch can be. */
+.toggle-switch-field-dual span:not(.toggle-switch) {
+  color: var(--slate-500);
+  font-weight: 500;
+  transition: color 0.15s, font-weight 0.15s;
+}
+
+.toggle-switch-field-dual span.toggle-switch-side-active {
+  color: var(--kerala-700);
+  font-weight: 700;
+}
+
 /* Alert banner — success/warning/danger/info callouts. <div class="alert-banner alert-danger">
    <span class="alert-banner-icon">...</span><div class="alert-banner-body">
    <strong>Title</strong><p>Message</p></div></div> */
