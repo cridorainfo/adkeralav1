@@ -97,6 +97,37 @@ export async function listUsers() {
   return Object.values(store.users ?? {}).map(sanitizeUser);
 }
 
+/** Raw user records including passwordHash — unlike listUsers() above, which deliberately
+ * sanitizes that out for every normal API response. Backup-only: cloud/backup.js is the sole
+ * caller, guarded by the same admin-only auth + passphrase-encryption as the rest of the backup
+ * file, so a hashed (never plaintext) password surviving a restore is an acceptable trade-off for
+ * "admins keep their login after restoring onto a fresh deployment" instead of everyone needing a
+ * password reset. */
+export async function exportUsersForBackup() {
+  const store = await loadStore();
+  return Object.values(store.users ?? {});
+}
+
+/** Restore-side counterpart — writes raw records (already-hashed passwords, original ids) back
+ * verbatim rather than going through createUser()'s signup validation/hashing, and mirrors each
+ * into Postgres the same way every other user-write here does. */
+export async function restoreUsersFromBackup(users = []) {
+  const store = await loadStore();
+  if (!store.users) store.users = {};
+  const { pgUpsertUser } = await import('./usersPg.js');
+  let restored = 0;
+  for (const user of users) {
+    if (!user?.id || !user?.email || !user?.passwordHash) continue;
+    store.users[user.id] = { ...user };
+    restored++;
+  }
+  await saveStore();
+  for (const user of Object.values(store.users)) {
+    await pgUpsertUser(user);
+  }
+  return { restored };
+}
+
 export async function updateUser(userId, patch) {
   const store = await loadStore();
   const user = store.users?.[userId];

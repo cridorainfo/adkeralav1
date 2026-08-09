@@ -12,6 +12,7 @@ import VoicesPanel from '../../components/VoicesPanel.jsx';
 import AdsPanel from '../../components/AdsPanel.jsx';
 import ContentGaps from '../../components/ContentGaps.jsx';
 import UsersPanel from '../../components/UsersPanel.jsx';
+import BackupPanel from '../../components/BackupPanel.jsx';
 import CampaignsPanel from '../../components/CampaignsPanel.jsx';
 import SchedulesPanel from '../../components/SchedulesPanel.jsx';
 import PricingPanel from '../../components/PricingPanel.jsx';
@@ -42,6 +43,7 @@ const NAV = [
   { to: '/catalog', label: 'Route catalog' },
   { to: '/users', label: 'Users' },
   { to: '/releases', label: 'Releases' },
+  { to: '/backup', label: 'Backup' },
 ];
 
 // Only the pages that actually read selectedBusId/targetBusIds (FleetPanel, LiveBusPanel,
@@ -75,6 +77,7 @@ function AdminRoutes() {
         <Route path="catalog" element={<RouteCatalog />} />
         <Route path="users" element={<UsersPanel />} />
         <Route path="releases" element={<ReleasesPanel />} />
+        <Route path="backup" element={<BackupPanel />} />
       </Routes>
     </>
   );

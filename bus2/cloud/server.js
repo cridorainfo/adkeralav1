@@ -139,6 +139,8 @@ import {
   pushScheduleToBuses,
   isScheduleWindowActive,
 } from './schedules.js';
+import { buildBackupPayload, restoreBackupPayload } from './backup.js';
+import { encryptBackup, decryptBackup } from './backupCrypto.js';
 import { getBusAdAnalytics, getFleetAdAnalytics } from './adAnalytics.js';
 import {
   enrollDevice,
@@ -679,6 +681,52 @@ app.get('/api/buses/:busId/schedule', authBus, async (req, res) => {
     scheduleSavedAt: catalog.scheduleSavedAt,
     mediaFiles: collectScheduleMediaPaths(catalog.items),
   });
+});
+
+// ——— Platform backup/restore — see cloud/backup.js for exactly what's included/excluded and
+// cloud/backupCrypto.js for the file encryption. Admin-only; the passphrase never touches disk or
+// logs (Express body-parsed in memory, used once to derive a key, discarded with the request).
+app.post('/api/admin/backup/export', authAdminOnly, async (req, res) => {
+  const passphrase = req.body?.passphrase;
+  if (!passphrase || String(passphrase).length < 8) {
+    res.status(400).json({ ok: false, error: 'Backup passphrase must be at least 8 characters' });
+    return;
+  }
+  try {
+    const payload = await buildBackupPayload();
+    const encrypted = encryptBackup(JSON.stringify(payload), passphrase);
+    const filename = `adkerala-backup-${new Date(payload.exportedAt).toISOString().slice(0, 10)}.abkp`;
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(encrypted);
+  } catch (err) {
+    console.error('Backup export failed:', err);
+    res.status(500).json({ ok: false, error: 'Backup export failed' });
+  }
+});
+
+app.post('/api/admin/backup/restore', authAdminOnly, async (req, res) => {
+  const { fileBase64, passphrase } = req.body ?? {};
+  if (!fileBase64 || !passphrase) {
+    res.status(400).json({ ok: false, error: 'Backup file and passphrase are required' });
+    return;
+  }
+  let payload;
+  try {
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const json = decryptBackup(buffer, passphrase);
+    payload = JSON.parse(json);
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message ?? 'Could not read backup file' });
+    return;
+  }
+  try {
+    const result = await restoreBackupPayload(payload);
+    console.log(`Backup restored by ${req.user.email ?? req.user.id}:`, result.summary, result.errors);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message ?? 'Restore failed' });
+  }
 });
 
 app.get('/api/driver/account', authSession, requireAuth, requireRole('driver'), async (req, res) => {
