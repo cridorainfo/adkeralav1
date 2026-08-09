@@ -149,7 +149,7 @@ export default function ReleasesPanel() {
             onChange={(e) => setBusQuery(e.target.value)}
           />
         </div>
-        <table className="data-table">
+        <table className="data-table responsive-desktop">
           <thead>
             <tr>
               <th>Bus</th>
@@ -185,6 +185,43 @@ export default function ReleasesPanel() {
           </tbody>
         </table>
 
+        <div className="table-card-list">
+          {filteredBuses.map((row) => (
+            <div className="table-card" key={row.busId}>
+              <div className="table-card-title">
+                {busDisplayLabel({ busId: row.busId, profile: { displayName: row.displayName, plateDisplay: row.plateDisplay } })}
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Bus ID</span>
+                <span>{row.busId}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Plate</span>
+                <span>{row.plateDisplay ?? '—'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Platform</span>
+                <span>{row.platform === 'android' ? 'Android' : 'PC'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Online</span>
+                <span>{row.online ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">App version</span>
+                <span>{row.appVersion ?? '—'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Status</span>
+                <span className={`version-pill version-${row.pcStatus === 'current' ? 'current' : row.pcStatus === 'outdated' ? 'outdated' : row.pcStatus === 'below-minimum' ? 'below' : 'unknown'}`}>
+                  {row.pcStatus}
+                </span>
+              </div>
+            </div>
+          ))}
+          {!filteredBuses.length && <p className="hint">No buses match "{busQuery}"</p>}
+        </div>
+
         <h3>Driver apps</h3>
         {orphanedDrivers.length > 0 && (
           <p className="hint">
@@ -194,7 +231,7 @@ export default function ReleasesPanel() {
             </button>
           </p>
         )}
-        <table className="data-table">
+        <table className="data-table responsive-desktop">
           <thead>
             <tr>
               <th>Driver</th>
@@ -235,6 +272,44 @@ export default function ReleasesPanel() {
             )}
           </tbody>
         </table>
+
+        <div className="table-card-list">
+          {(fleet?.drivers ?? []).map((row) => (
+            <div className="table-card" key={row.driverId}>
+              <div className="table-card-title">
+                <code>{row.driverId.slice(0, 8)}…</code>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Bus</span>
+                <span>
+                  {row.linkedBusId ?? '—'}
+                  {row.orphaned && <span className="version-pill version-below"> orphaned</span>}
+                </span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">App version</span>
+                <span>{row.appVersion ?? '—'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Status</span>
+                <span className={`version-pill version-${row.status === 'current' ? 'current' : row.status === 'outdated' ? 'outdated' : row.status === 'below-minimum' ? 'below' : 'unknown'}`}>
+                  {row.status}
+                </span>
+              </div>
+              <div className="table-card-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={removingDriverId === row.driverId}
+                  onClick={() => removeDriver(row.driverId)}
+                >
+                  {removingDriverId === row.driverId ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          ))}
+          {!fleet?.drivers?.length && <p className="hint">No driver version reports yet</p>}
+        </div>
       </div>
 
       <div className="grid-2">

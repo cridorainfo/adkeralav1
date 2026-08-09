@@ -46,40 +46,66 @@ export default function ContentGaps() {
       </button>
 
       {otherGaps.length > 0 && (
-        <table className="data-table" style={{ marginTop: '1rem' }}>
-          <thead>
-            <tr>
-              <th>Route</th>
-              <th>Stop</th>
-              <th>Missing</th>
-              <th>Fix</th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <table className="data-table responsive-desktop" style={{ marginTop: '1rem' }}>
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th>Stop</th>
+                <th>Missing</th>
+                <th>Fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              {otherGaps.map((gap, i) => (
+                <tr key={`${gap.routeId}-${gap.stopEn}-${i}`}>
+                  <td>{gap.routeName}</td>
+                  <td>
+                    {gap.stopEn}
+                    {gap.stopMl ? ` / ${gap.stopMl}` : ''}
+                  </td>
+                  <td>{gap.missing?.filter((m) => m !== 'stop_audio').map((m) => <span key={m} className="gap-tag">{m}</span>)}</td>
+                  <td>
+                    <Link className="btn btn-secondary btn-sm" to={stopsLink(stopsBase, gap)}>
+                      Open in Stops
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="table-card-list" style={{ marginTop: '1rem' }}>
             {otherGaps.map((gap, i) => (
-              <tr key={`${gap.routeId}-${gap.stopEn}-${i}`}>
-                <td>{gap.routeName}</td>
-                <td>
+              <div className="table-card" key={`${gap.routeId}-${gap.stopEn}-${i}`}>
+                <div className="table-card-title">
                   {gap.stopEn}
                   {gap.stopMl ? ` / ${gap.stopMl}` : ''}
-                </td>
-                <td>{gap.missing?.filter((m) => m !== 'stop_audio').map((m) => <span key={m} className="gap-tag">{m}</span>)}</td>
-                <td>
+                </div>
+                <div className="table-card-row">
+                  <span className="table-card-row-label">Route</span>
+                  <span>{gap.routeName}</span>
+                </div>
+                <div className="table-card-row">
+                  <span className="table-card-row-label">Missing</span>
+                  <span>{gap.missing?.filter((m) => m !== 'stop_audio').map((m) => <span key={m} className="gap-tag">{m}</span>)}</span>
+                </div>
+                <div className="table-card-actions">
                   <Link className="btn btn-secondary btn-sm" to={stopsLink(stopsBase, gap)}>
                     Open in Stops
                   </Link>
-                </td>
-              </tr>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
 
       {audioGaps.length > 0 && (
         <>
           <h3 style={{ marginTop: '1.25rem' }}>Missing stop audio</h3>
           <p className="hint">Upload voice clips in the Voices tab.</p>
-          <table className="data-table">
+          <table className="data-table responsive-desktop">
             <thead>
               <tr>
                 <th>Route</th>
@@ -97,6 +123,22 @@ export default function ContentGaps() {
               ))}
             </tbody>
           </table>
+
+          <div className="table-card-list">
+            {audioGaps.map((gap, i) => (
+              <div className="table-card" key={`audio-${gap.routeId}-${gap.stopEn}-${i}`}>
+                <div className="table-card-title">{gap.stopEn}</div>
+                <div className="table-card-row">
+                  <span className="table-card-row-label">Route</span>
+                  <span>{gap.routeName}</span>
+                </div>
+                <div className="table-card-row">
+                  <span className="table-card-row-label">Missing</span>
+                  <span className="gap-tag">stop_audio</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </>
       )}
 

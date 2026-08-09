@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSelectedBus, busDisplayLabel } from './BusContext.jsx';
 import AdMediaPreview from './AdMediaPreview.jsx';
@@ -176,7 +177,15 @@ export default function AdsPanel() {
 
       <section className="ads-live-preview">
         <h3>All ads on this bus ({allAds.length})</h3>
-        {error && <p className="hint" style={{ color: '#dc2626' }}>{error}</p>}
+        {error && (
+          <div className="alert-banner alert-danger">
+            <span className="alert-banner-icon"><AlertCircle size={18} aria-hidden="true" /></span>
+            <div className="alert-banner-body">
+              <strong>Couldn't load ads</strong>
+              <p>{error}</p>
+            </div>
+          </div>
+        )}
         {!liveAds && !error && <p className="hint">Loading…</p>}
         {liveAds && !allAds.length && (
           <p className="empty-state">
@@ -184,29 +193,64 @@ export default function AdsPanel() {
           </p>
         )}
         {allAds.length > 0 && (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Preview</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Source</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            <table className="data-table responsive-desktop">
+              <thead>
+                <tr>
+                  <th>Preview</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {allAds.map((ad) => (
+                  <tr key={ad.id}>
+                    <td className="ads-table-thumb">
+                      <AdMediaPreview ad={ad} format={ad.format === 'Banner' ? 'banner' : 'fullscreen'} />
+                    </td>
+                    <td>{ad.name?.trim() || ad.id}</td>
+                    <td>{ad.format}</td>
+                    <td>{sourceLabel(ad)}</td>
+                    <td>{statusLabel(ad)}</td>
+                    <td>
+                      {isDirectAd(ad) && (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          disabled={removingAdId === ad.id}
+                          onClick={() => removeDirectAd(ad, ad.format)}
+                        >
+                          {removingAdId === ad.id ? 'Removing…' : 'Remove'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="table-card-list">
               {allAds.map((ad) => (
-                <tr key={ad.id}>
-                  <td className="ads-table-thumb">
-                    <AdMediaPreview ad={ad} format={ad.format === 'Banner' ? 'banner' : 'fullscreen'} />
-                  </td>
-                  <td>{ad.name?.trim() || ad.id}</td>
-                  <td>{ad.format}</td>
-                  <td>{sourceLabel(ad)}</td>
-                  <td>{statusLabel(ad)}</td>
-                  <td>
-                    {isDirectAd(ad) && (
+                <div className="table-card" key={ad.id}>
+                  <AdMediaPreview ad={ad} format={ad.format === 'Banner' ? 'banner' : 'fullscreen'} />
+                  <div className="table-card-title">{ad.name?.trim() || ad.id}</div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Type</span>
+                    <span>{ad.format}</span>
+                  </div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Source</span>
+                    <span>{sourceLabel(ad)}</span>
+                  </div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Status</span>
+                    <span>{statusLabel(ad)}</span>
+                  </div>
+                  {isDirectAd(ad) && (
+                    <div className="table-card-actions">
                       <button
                         type="button"
                         className="btn btn-danger btn-sm"
@@ -215,12 +259,12 @@ export default function AdsPanel() {
                       >
                         {removingAdId === ad.id ? 'Removing…' : 'Remove'}
                       </button>
-                    )}
-                  </td>
-                </tr>
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </>
         )}
       </section>
     </div>

@@ -1,7 +1,25 @@
 :root {
-  --kerala-green: #0b5c4a;
-  --kerala-green-light: #147a63;
-  --kerala-green-dark: #063d32;
+  /* Emerald brand scale — reskin source of truth. Every existing --kerala-green/-light/-dark
+     etc. below is aliased onto this scale rather than renamed, so the ~190 existing var(...)
+     references elsewhere in this file keep working unchanged; only the scale needs editing to
+     retune the palette in future. */
+  --kerala-50: #f2fbf6;
+  --kerala-100: #dff5e7;
+  --kerala-200: #b9e8cb;
+  --kerala-300: #8ad9a9;
+  --kerala-400: #45c37c;
+  --kerala-500: #1db55e;
+  --kerala-600: #14944b;
+  --kerala-700: #107a3e;
+  --kerala-800: #0f6135;
+  --kerala-900: #0d4c2b;
+  --kerala-950: #062b18;
+
+  /* Existing semantic names — kept as-is so nothing else in this file needs to change, now
+     aliased onto the scale above instead of standalone hex. */
+  --kerala-green: var(--kerala-600);
+  --kerala-green-light: var(--kerala-500);
+  --kerala-green-dark: var(--kerala-900);
   --kerala-gold: #e8b923;
   --kerala-gold-soft: #f5d76e;
   --kerala-cream: #faf6ed;
@@ -10,9 +28,52 @@
   --kerala-white: #ffffff;
   --kerala-text: #1a2e28;
   --kerala-muted: #5a7268;
-  --shadow-soft: 0 4px 24px rgba(11, 92, 74, 0.12);
+
+  /* Slate grey scale — replaces the raw hex greys (#e2e8f0, #94a3b8, #1e293b etc.) that were
+     scattered ad hoc through table/badge/border rules. */
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+
+  /* Status color triplets (bg tint / text / border) — one place to edit every badge/pill/alert
+     color instead of re-declaring the same hex per component. */
+  --status-success-bg: #dcfce7;
+  --status-success-text: #166534;
+  --status-success-border: #bbf7d0;
+  --status-warning-bg: #fef3c7;
+  --status-warning-text: #92400e;
+  --status-warning-border: #fde68a;
+  --status-danger-bg: #fee2e2;
+  --status-danger-text: #991b1b;
+  --status-danger-border: #fecaca;
+  --status-info-bg: #dbeafe;
+  --status-info-text: #1e40af;
+  --status-info-border: #bfdbfe;
+  --status-special-bg: #f3e8ff;
+  --status-special-text: #6b21a8;
+  --status-special-border: #e9d5ff;
+
+  /* Radius scale — --radius/--radius-sm unchanged (nothing regresses), --radius-lg/-full new
+     for the rounder section-container and pill-badge look. */
   --radius: 16px;
   --radius-sm: 10px;
+  --radius-lg: 24px;
+  --radius-full: 999px;
+
+  /* Shadow/elevation scale — --shadow-soft kept as an alias so existing var(--shadow-soft)
+     references keep working; everything new should reference the named tiers directly. */
+  --shadow-xs: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
+  --shadow-glass: 0 10px 30px 0 rgba(20, 148, 75, 0.08);
+  --shadow-brand: 0 4px 14px rgba(20, 148, 75, 0.25);
+  --shadow-soft: var(--shadow-card);
+
   --font-display: 'Fraunces', Georgia, serif;
   --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
@@ -96,27 +157,29 @@ button, input, select, textarea { font-family: inherit; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  padding: 0.6rem 1.1rem;
-  border-radius: var(--radius-sm);
-  border: none;
+  gap: 0.4rem;
+  padding: 0.65rem 1.15rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.95rem;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
 .btn:hover { transform: translateY(-1px); }
 
 .btn-primary {
-  background: var(--kerala-green);
+  background: linear-gradient(135deg, var(--kerala-600), var(--kerala-500));
   color: var(--kerala-white);
-  box-shadow: 0 4px 14px rgba(11, 92, 74, 0.25);
+  box-shadow: var(--shadow-brand);
 }
 
 .btn-secondary {
-  background: #e2e8f0;
-  color: var(--kerala-text);
+  background: var(--kerala-white);
+  color: var(--slate-700);
+  border-color: var(--slate-200);
+  box-shadow: var(--shadow-xs);
 }
 
 .btn-gold {
@@ -125,18 +188,29 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .btn-outline {
-  background: transparent;
-  border: 2px solid var(--kerala-green);
-  color: var(--kerala-green);
+  background: var(--kerala-50);
+  color: var(--kerala-700);
+  border-color: var(--kerala-200);
 }
 
-.btn-sm { padding: 0.4rem 0.75rem; font-size: 0.85rem; }
+.btn-ghost {
+  background: transparent;
+  color: var(--kerala-muted);
+}
+
+.btn-ghost:hover { background: var(--kerala-50); }
+
+.btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
 
 .btn-lg { padding: 0.85rem 1.5rem; font-size: 1.05rem; }
 
 .btn-block { width: 100%; }
 
-.btn-danger { background: #dc2626; color: white; }
+.btn-danger {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
+}
 
 .btn-hero-outline {
   background: rgba(255, 255, 255, 0.12);
@@ -779,21 +853,24 @@ button, input, select, textarea { font-family: inherit; }
 .form-group textarea {
   width: 100%;
   padding: 0.6rem 0.75rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--slate-300);
   border-radius: var(--radius-sm);
   font-size: 1rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
-  outline: 2px solid var(--kerala-green-light);
-  border-color: transparent;
+  outline: none;
+  border-color: var(--kerala-500);
+  box-shadow: 0 0 0 3px rgba(29, 181, 94, 0.15);
 }
 
 .form-error {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+  border: 1px solid var(--status-danger-border);
   padding: 0.6rem 0.75rem;
   border-radius: var(--radius-sm);
   font-size: 0.9rem;
@@ -841,20 +918,36 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .dashboard-nav a {
-  display: block;
-  padding: 0.55rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.1rem 0.6rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
+  font-weight: 500;
   opacity: 0.85;
   transition: background 0.15s, opacity 0.15s;
 }
 
+.dashboard-nav a svg { flex-shrink: 0; opacity: 0.85; }
+
 .dashboard-nav { flex: 1; overflow-y: auto; min-height: 0; }
 
-.dashboard-nav a:hover,
-.dashboard-nav a.active {
-  background: rgba(255,255,255,0.1);
+.dashboard-nav a:hover {
+  background: rgba(255,255,255,0.08);
   opacity: 1;
 }
+
+.dashboard-nav a.active {
+  background: var(--kerala-600);
+  color: var(--kerala-white);
+  opacity: 1;
+  font-weight: 700;
+  box-shadow: var(--shadow-xs);
+}
+
+.dashboard-nav a.active svg { opacity: 1; }
 
 .dashboard-sidebar-footer {
   flex-shrink: 0;
@@ -890,39 +983,17 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 .dashboard-menu-toggle {
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 5px;
   width: 2.75rem;
   height: 2.75rem;
   padding: 0.5rem;
-  border: 1px solid rgba(11, 92, 74, 0.18);
+  border: 1px solid var(--slate-200);
   border-radius: var(--radius-sm);
   background: var(--kerala-white);
   color: var(--kerala-green);
   cursor: pointer;
-  box-shadow: var(--shadow-soft);
-}
-
-.dashboard-menu-toggle-bar {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.dashboard-layout--nav-open .dashboard-menu-toggle-bar:nth-child(1) {
-  transform: translateY(7px) rotate(45deg);
-}
-
-.dashboard-layout--nav-open .dashboard-menu-toggle-bar:nth-child(2) {
-  opacity: 0;
-}
-
-.dashboard-layout--nav-open .dashboard-menu-toggle-bar:nth-child(3) {
-  transform: translateY(-7px) rotate(-45deg);
+  box-shadow: var(--shadow-xs);
 }
 
 body.dashboard-nav-open {
@@ -933,9 +1004,10 @@ body.dashboard-nav-open {
 
 .card {
   background: var(--kerala-white);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--slate-100);
   padding: 1.25rem;
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-card);
   margin-bottom: 1rem;
 }
 
@@ -1039,25 +1111,47 @@ body.dashboard-nav-open {
   margin-right: 0.4rem;
 }
 
-.status-dot.online { background: #22c55e; }
-.status-dot.offline { background: #ef4444; }
+.status-dot.online { background: var(--status-success-text); }
+.status-dot.offline { background: var(--status-danger-text); }
 
-.data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.data-table thead th {
+  background: var(--slate-50);
+  color: var(--slate-400);
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
 
 .data-table th,
 .data-table td {
   text-align: left;
-  padding: 0.5rem 0.4rem;
-  border-bottom: 1px solid #eee;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--slate-100);
 }
+
+.data-table tbody tr:hover { background: var(--slate-50); }
+
+.data-table tbody tr:last-child td { border-bottom: none; }
 
 .gap-tag {
   display: inline-block;
-  background: #fef3c7;
-  color: #92400e;
-  padding: 0.15rem 0.45rem;
-  border-radius: 6px;
+  background: var(--status-warning-bg);
+  color: var(--status-warning-text);
+  border: 1px solid var(--status-warning-border);
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--radius-full);
   font-size: 0.75rem;
+  font-weight: 600;
   margin-right: 0.25rem;
 }
 
@@ -1499,38 +1593,43 @@ tr.route-row-assigned {
 
 .version-pill {
   display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 6px;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
   font-size: 0.75rem;
+  font-weight: 600;
 }
 
-.version-current { background: #dcfce7; color: #166534; }
-.version-outdated { background: #fef3c7; color: #92400e; }
-.version-below { background: #fee2e2; color: #991b1b; }
-.version-unknown { background: #f1f5f9; color: #64748b; }
+.version-current { background: var(--status-success-bg); color: var(--status-success-text); border-color: var(--status-success-border); }
+.version-outdated { background: var(--status-warning-bg); color: var(--status-warning-text); border-color: var(--status-warning-border); }
+.version-below { background: var(--status-danger-bg); color: var(--status-danger-text); border-color: var(--status-danger-border); }
+.version-unknown { background: var(--slate-100); color: var(--slate-500); border-color: var(--slate-200); }
 
 .campaign-card {
-  border: 1px solid #e2e8f0;
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius);
   padding: 1rem;
   margin-bottom: 0.75rem;
   background: var(--kerala-white);
+  box-shadow: var(--shadow-xs);
 }
 
 .campaign-status {
   display: inline-block;
-  padding: 0.2rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-.campaign-status.pending { background: #fef3c7; color: #92400e; }
-.campaign-status.active { background: #dcfce7; color: #166534; }
-.campaign-status.paused { background: #f1f5f9; color: #64748b; }
-.campaign-status.completed { background: #dbeafe; color: #1e40af; }
+.campaign-status.pending { background: var(--status-warning-bg); color: var(--status-warning-text); border-color: var(--status-warning-border); }
+.campaign-status.active { background: var(--status-success-bg); color: var(--status-success-text); border-color: var(--status-success-border); }
+.campaign-status.paused { background: var(--slate-100); color: var(--slate-500); border-color: var(--slate-200); }
+.campaign-status.completed { background: var(--status-info-bg); color: var(--status-info-text); border-color: var(--status-info-border); }
 
 .campaigns-header {
   display: flex;
@@ -1563,8 +1662,8 @@ tr.route-row-assigned {
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
   background: var(--kerala-white);
   color: var(--kerala-text);
   font-size: 0.85rem;
@@ -1777,6 +1876,16 @@ tr.route-row-assigned {
 .driver-connect-status-error {
   color: #b91c1c;
   font-weight: 600;
+}
+
+/* Standalone error line (DriverConnect.jsx/DriverGpsTest.jsx) — was referenced in JSX with no
+   matching rule at all until this pass, silently rendering unstyled. */
+.driver-connect-error {
+  color: var(--status-danger-text);
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-align: center;
+  margin-top: 0.5rem;
 }
 
 .driver-connect-actions {
@@ -2268,14 +2377,6 @@ tr.route-row-assigned {
   margin: 1rem 0;
 }
 
-.btn-lg {
-  padding: 0.85rem 1rem;
-  font-size: 1rem;
-  border-radius: 12px;
-  border: 0;
-  cursor: pointer;
-}
-
 .btn-start {
   background: linear-gradient(135deg, var(--kerala-gold) 0%, #d4a017 100%);
   color: #1a1a1a;
@@ -2322,6 +2423,176 @@ tr.route-row-assigned {
 .drive-no-route-hint {
   font-size: 0.85rem;
   color: var(--kerala-muted);
+}
+
+/* ——— New UI primitives (reskin pass) ——— */
+
+/* Toggle switch — styled checkbox, replaces a plain <input type="checkbox"> where wrapped in
+   this markup: <label class="toggle-switch"><input type="checkbox" />
+   <span class="toggle-switch-track"></span></label> */
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch-track {
+  width: 3.1rem;
+  height: 1.6rem;
+  background: var(--slate-300);
+  border-radius: var(--radius-full);
+  transition: background 0.15s;
+}
+
+.toggle-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 1.35rem;
+  height: 1.35rem;
+  background: var(--kerala-white);
+  border-radius: 50%;
+  box-shadow: var(--shadow-xs);
+  transition: transform 0.15s;
+}
+
+.toggle-switch input:checked + .toggle-switch-track {
+  background: var(--kerala-600);
+}
+
+.toggle-switch input:checked + .toggle-switch-track::after {
+  transform: translateX(1.5rem);
+}
+
+.toggle-switch input:focus-visible + .toggle-switch-track {
+  outline: 2px solid var(--kerala-500);
+  outline-offset: 2px;
+}
+
+/* Composite field: label text + toggle switch side by side. <label class="toggle-switch-field">
+   <span>Label text</span><span class="toggle-switch">...</span></label> */
+.toggle-switch-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* Alert banner — success/warning/danger/info callouts. <div class="alert-banner alert-danger">
+   <span class="alert-banner-icon">...</span><div class="alert-banner-body">
+   <strong>Title</strong><p>Message</p></div></div> */
+.alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  margin-bottom: 1rem;
+}
+
+.alert-banner-icon {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--kerala-white);
+  font-weight: 700;
+}
+
+.alert-banner-body strong {
+  display: block;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.15rem;
+}
+
+.alert-banner-body p { font-size: 0.85rem; margin: 0; }
+
+.alert-success { background: var(--status-success-bg); border-color: var(--status-success-border); }
+.alert-success .alert-banner-icon { background: var(--kerala-600); }
+.alert-success .alert-banner-body strong { color: var(--status-success-text); }
+
+.alert-warning { background: var(--status-warning-bg); border-color: var(--status-warning-border); }
+.alert-warning .alert-banner-icon { background: #d97706; }
+.alert-warning .alert-banner-body strong { color: var(--status-warning-text); }
+
+.alert-danger { background: var(--status-danger-bg); border-color: var(--status-danger-border); }
+.alert-danger .alert-banner-icon { background: #dc2626; }
+.alert-danger .alert-banner-body strong { color: var(--status-danger-text); }
+
+/* Empty-state icon slot — optional, .empty-state already centers text; wrap an icon in this
+   before the heading to match the reskin's icon-in-rounded-square empty state. */
+.empty-state-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  margin: 0 auto 0.75rem;
+  border-radius: var(--radius);
+  background: var(--kerala-50);
+  color: var(--kerala-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--kerala-200);
+}
+
+/* Responsive table-card pattern — generic reusable version of StopsCatalog.jsx's bespoke
+   mobile-list/desktop-table split, for components that don't have a mobile fallback yet. Add
+   `responsive-desktop` to the existing <table class="data-table">, add a sibling
+   <div class="table-card-list"> built from the same row data. Reuses the same 900/901px
+   breakpoints already established below for the stops hub — don't introduce new ones. */
+.table-card-list { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.table-card {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  background: var(--kerala-white);
+  box-shadow: var(--shadow-xs);
+}
+
+.table-card-title { font-weight: 700; margin-bottom: 0.4rem; }
+
+.table-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  padding: 0.2rem 0;
+}
+
+.table-card-row-label { color: var(--slate-500); }
+
+.table-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .table-card-list { display: flex; }
+  .data-table.responsive-desktop { display: none; }
+}
+
+@media (min-width: 901px) {
+  .table-card-list { display: none; }
+  .data-table.responsive-desktop { display: table; }
 }
 
 /* ——— Stops hub ——— */

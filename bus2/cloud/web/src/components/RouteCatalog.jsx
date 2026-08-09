@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, AlertCircle } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSelectedBus } from './BusContext.jsx';
 import { useBusAssignedRoutes } from '../hooks/useBusAssignedRoutes.js';
@@ -69,9 +70,13 @@ export default function RouteCatalog() {
         are distinguished by their unique <strong>Route ID</strong>.
       </p>
       {!buses?.length && (
-        <p className="hint" style={{ color: '#b45309' }}>
-          No buses in fleet — claim a bus first.
-        </p>
+        <div className="alert-banner alert-warning">
+          <span className="alert-banner-icon"><AlertTriangle size={18} aria-hidden="true" /></span>
+          <div className="alert-banner-body">
+            <strong>No buses in fleet</strong>
+            <p>Claim a bus first.</p>
+          </div>
+        </div>
       )}
       <div className="toolbar">
         <input
@@ -84,7 +89,7 @@ export default function RouteCatalog() {
           {loading ? 'Loading…' : 'Search'}
         </button>
       </div>
-      <table className="data-table">
+      <table className="data-table responsive-desktop">
         <thead>
           <tr>
             <th>Route ID</th>
@@ -128,7 +133,59 @@ export default function RouteCatalog() {
           })}
         </tbody>
       </table>
-      {error && <p className="hint" style={{ color: '#dc2626' }}>{error}</p>}
+
+      <div className="table-card-list">
+        {routes.map((r) => {
+          const assigned = isAssigned(r.id);
+          return (
+            <div className="table-card" key={r.id}>
+              <div className="table-card-title"><code className="route-id-code">{r.id}</code></div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Name</span>
+                <span>{r.name}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Start → End</span>
+                <span>{routeEndpointsLabel(r)}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Stops</span>
+                <span>{routeStopCount(r)}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Via</span>
+                <span>{routeViaStopsSummary(r) || '—'}</span>
+              </div>
+              <div className="table-card-actions">
+                {assigned ? (
+                  <span className="route-assigned-badge" title={`Already on ${selectedBusId}`}>
+                    ✓ Assigned
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={assigningId === r.id}
+                    onClick={() => assign(r)}
+                  >
+                    {assigningId === r.id ? 'Assigning…' : 'Assign to bus'}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {error && (
+        <div className="alert-banner alert-danger">
+          <span className="alert-banner-icon"><AlertCircle size={18} aria-hidden="true" /></span>
+          <div className="alert-banner-body">
+            <strong>Error</strong>
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
       {message && <p className="hint">{message}</p>}
       {!loading && !routes.length && (
         <p className="empty-state">

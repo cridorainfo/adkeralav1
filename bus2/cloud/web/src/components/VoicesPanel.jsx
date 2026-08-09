@@ -75,7 +75,7 @@ export default function VoicesPanel() {
         Global phrase audio (attention, next stop, etc.). One file per phrase — uploading replaces the
         previous clip. Per-stop voices are in the route editor and stops hub.
       </p>
-      <table className="data-table">
+      <table className="data-table responsive-desktop">
         <thead>
           <tr>
             <th>Phrase</th>
@@ -123,6 +123,44 @@ export default function VoicesPanel() {
           })}
         </tbody>
       </table>
+
+      <div className="table-card-list">
+        {PHRASES.map((phrase) => {
+          const file = fragments[phrase]?.en?.audioFile ?? null;
+          const busy = busyPhrase === phrase;
+          return (
+            <div className="table-card" key={phrase}>
+              <div className="table-card-title">{phrase}</div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Current file</span>
+                <span>{busy ? 'Uploading…' : file ? basename(file) : '—'}</span>
+              </div>
+              <div className="table-card-actions">
+                <input
+                  type="file"
+                  accept="audio/*,.mp3,.mpeg,.mpga,audio/mpeg"
+                  disabled={busy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) uploadPhrase(phrase, f);
+                  }}
+                />
+                {file && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={busy}
+                    onClick={() => deletePhrase(phrase)}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
       {message && <p className="hint">{message}</p>}
     </div>
   );

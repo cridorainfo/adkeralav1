@@ -1,8 +1,62 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import {
+  Bus,
+  QrCode,
+  Radio,
+  LayoutGrid,
+  Map,
+  MapPin,
+  Mic,
+  Megaphone,
+  BarChart3,
+  MonitorCog,
+  Target,
+  CalendarClock,
+  Tag,
+  Home,
+  FolderOpen,
+  AlertTriangle,
+  BookOpen,
+  Users,
+  PackageCheck,
+  Circle,
+  Menu,
+  X,
+  LogOut,
+} from 'lucide-react';
 import AdKeralaLogo from '../components/AdKeralaLogo.jsx';
 import { useAuth } from '../lib/auth.jsx';
 import { APP_NAME, ROLE_LABELS } from '../lib/brand.js';
+
+// Label -> icon lookup, keyed by the exact nav label strings already used in each dashboard's
+// own NAV array (AdminApp.jsx/OwnerApp.jsx/AdvertiserApp.jsx/DriverApp.jsx) — kept here rather
+// than adding an `icon` field to those arrays, so nav restructuring stays a separate, later
+// decision and this pass only touches this one shared shell file. Falls back to a plain dot for
+// any label not listed (defensive, not expected to trigger with the current 4 dashboards).
+const NAV_ICON_MAP = {
+  Fleet: Bus,
+  'My fleet': Bus,
+  'My bus': Bus,
+  'Claim bus': QrCode,
+  'Live bus': Radio,
+  'Live Wall': LayoutGrid,
+  Routes: Map,
+  Stops: MapPin,
+  Voices: Mic,
+  Ads: Megaphone,
+  'Ads Report': BarChart3,
+  Display: MonitorCog,
+  Campaigns: Target,
+  Schedules: CalendarClock,
+  Pricing: Tag,
+  'House ads': Home,
+  'Media browser': FolderOpen,
+  'Content gaps': AlertTriangle,
+  'Route catalog': BookOpen,
+  Users,
+  Releases: PackageCheck,
+};
 
 export default function DashboardLayout({ basePath, navItems, title, children }) {
   const { user, logout } = useAuth();
@@ -45,22 +99,27 @@ export default function DashboardLayout({ basePath, navItems, title, children })
           {APP_NAME}
         </div>
         <nav className="dashboard-nav" id="dashboard-sidebar-nav">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={`${basePath}${item.to}`}
-              end={item.end}
-              className={({ isActive }) => (isActive ? 'active' : undefined)}
-              onClick={() => setNavOpen(false)}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {navItems.map((item) => {
+            const Icon = NAV_ICON_MAP[item.label] ?? Circle;
+            return (
+              <NavLink
+                key={item.to}
+                to={`${basePath}${item.to}`}
+                end={item.end}
+                className={({ isActive }) => (isActive ? 'active' : undefined)}
+                onClick={() => setNavOpen(false)}
+              >
+                <Icon size={17} aria-hidden="true" />
+                {item.label}
+              </NavLink>
+            );
+          })}
         </nav>
         <div className="dashboard-sidebar-footer">
           <div>{user?.name}</div>
           <div>{ROLE_LABELS[user?.role] ?? user?.role}</div>
           <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: '0.5rem' }} onClick={logout}>
+            <LogOut size={15} aria-hidden="true" />
             Log out
           </button>
           <Link to="/site" style={{ display: 'block', marginTop: '0.5rem', opacity: 0.8 }}>
@@ -79,9 +138,7 @@ export default function DashboardLayout({ basePath, navItems, title, children })
             aria-label={navOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setNavOpen((open) => !open)}
           >
-            <span className="dashboard-menu-toggle-bar" aria-hidden="true" />
-            <span className="dashboard-menu-toggle-bar" aria-hidden="true" />
-            <span className="dashboard-menu-toggle-bar" aria-hidden="true" />
+            {navOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
           </button>
           <h1>{title}</h1>
         </div>

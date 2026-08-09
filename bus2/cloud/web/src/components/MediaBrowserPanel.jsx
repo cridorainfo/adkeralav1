@@ -158,25 +158,66 @@ export default function MediaBrowserPanel() {
       {data && !files.length && <p className="empty-state">No files here.</p>}
 
       {files.length > 0 && (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Size</th>
-              <th>Modified</th>
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <table className="data-table responsive-desktop">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((file) => {
+                const referencedBy = file.referencedBy ?? [];
+                return (
+                  <tr key={file.path}>
+                    <td>{file.filename}</td>
+                    <td>{formatSize(file.size)}</td>
+                    <td>{file.mtime ? new Date(file.mtime).toLocaleString() : '—'}</td>
+                    <td>
+                      {referencedBy.length ? (
+                        <span className="version-pill version-current">
+                          in use — {referencedBy.map((r) => formatReference(r, buses)).join(', ')}
+                        </span>
+                      ) : (
+                        <span className="version-pill version-below">orphaned</span>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        disabled={deletingPath === file.path}
+                        onClick={() => removeFile(file)}
+                      >
+                        {deletingPath === file.path ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="table-card-list">
             {files.map((file) => {
               const referencedBy = file.referencedBy ?? [];
               return (
-                <tr key={file.path}>
-                  <td>{file.filename}</td>
-                  <td>{formatSize(file.size)}</td>
-                  <td>{file.mtime ? new Date(file.mtime).toLocaleString() : '—'}</td>
-                  <td>
+                <div className="table-card" key={file.path}>
+                  <div className="table-card-title">{file.filename}</div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Size</span>
+                    <span>{formatSize(file.size)}</span>
+                  </div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Modified</span>
+                    <span>{file.mtime ? new Date(file.mtime).toLocaleString() : '—'}</span>
+                  </div>
+                  <div className="table-card-row">
+                    <span className="table-card-row-label">Status</span>
                     {referencedBy.length ? (
                       <span className="version-pill version-current">
                         in use — {referencedBy.map((r) => formatReference(r, buses)).join(', ')}
@@ -184,8 +225,8 @@ export default function MediaBrowserPanel() {
                     ) : (
                       <span className="version-pill version-below">orphaned</span>
                     )}
-                  </td>
-                  <td>
+                  </div>
+                  <div className="table-card-actions">
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
@@ -194,12 +235,12 @@ export default function MediaBrowserPanel() {
                     >
                       {deletingPath === file.path ? 'Deleting…' : 'Delete'}
                     </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
     </div>
   );

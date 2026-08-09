@@ -190,11 +190,19 @@ export default function DisplaySettingsPanel() {
             onChange={(e) => patch('displaySettings.theme.fontScale', Number(e.target.value))}
           />
         </div>
-        <label>
-          <input type="checkbox" checked={t.showClock} onChange={(e) => patch('displaySettings.theme.showClock', e.target.checked)} /> Show clock
+        <label className="toggle-switch-field">
+          <span>Show clock</span>
+          <span className="toggle-switch">
+            <input type="checkbox" checked={t.showClock} onChange={(e) => patch('displaySettings.theme.showClock', e.target.checked)} />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
-        <label>
-          <input type="checkbox" checked={t.showBanner} onChange={(e) => patch('displaySettings.theme.showBanner', e.target.checked)} /> Show banner strip
+        <label className="toggle-switch-field">
+          <span>Show banner strip</span>
+          <span className="toggle-switch">
+            <input type="checkbox" checked={t.showBanner} onChange={(e) => patch('displaySettings.theme.showBanner', e.target.checked)} />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
       </div>
 
@@ -203,8 +211,12 @@ export default function DisplaySettingsPanel() {
         Initial delay runs after the passenger display opens; repeat interval is the gap between later ads.
       </p>
       <div className="inline-form">
-        <label>
-          <input type="checkbox" checked={form.adSettings.enabled} onChange={(e) => patch('adSettings.enabled', e.target.checked)} /> Enabled
+        <label className="toggle-switch-field">
+          <span>Enabled</span>
+          <span className="toggle-switch">
+            <input type="checkbox" checked={form.adSettings.enabled} onChange={(e) => patch('adSettings.enabled', e.target.checked)} />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
         <div className="form-group">
           <label>Initial delay (sec)</label>
@@ -232,20 +244,27 @@ export default function DisplaySettingsPanel() {
             onChange={(e) => patch('adSettings.defaultDurationSec', Number(e.target.value))}
           />
         </div>
-        <label>
-          <input type="checkbox" checked={form.adSettings.playAudio} onChange={(e) => patch('adSettings.playAudio', e.target.checked)} /> Play ad audio
+        <label className="toggle-switch-field">
+          <span>Play ad audio</span>
+          <span className="toggle-switch">
+            <input type="checkbox" checked={form.adSettings.playAudio} onChange={(e) => patch('adSettings.playAudio', e.target.checked)} />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
       </div>
 
       <h3>Banner ads</h3>
       <div className="inline-form">
-        <label>
-          <input
-            type="checkbox"
-            checked={form.bannerAdSettings.enabled}
-            onChange={(e) => patch('bannerAdSettings.enabled', e.target.checked)}
-          />{' '}
-          Enabled
+        <label className="toggle-switch-field">
+          <span>Enabled</span>
+          <span className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.bannerAdSettings.enabled}
+              onChange={(e) => patch('bannerAdSettings.enabled', e.target.checked)}
+            />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
         <div className="form-group">
           <label>Duration (sec)</label>
@@ -259,21 +278,27 @@ export default function DisplaySettingsPanel() {
 
       <h3>Announcements</h3>
       <div className="inline-form">
-        <label>
-          <input
-            type="checkbox"
-            checked={form.announcementSettings.enabled}
-            onChange={(e) => patch('announcementSettings.enabled', e.target.checked)}
-          />{' '}
-          Enabled
+        <label className="toggle-switch-field">
+          <span>Enabled</span>
+          <span className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.announcementSettings.enabled}
+              onChange={(e) => patch('announcementSettings.enabled', e.target.checked)}
+            />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={form.announcementSettings.autoAnnounceOnForward}
-            onChange={(e) => patch('announcementSettings.autoAnnounceOnForward', e.target.checked)}
-          />{' '}
-          Auto on forward
+        <label className="toggle-switch-field">
+          <span>Auto on forward</span>
+          <span className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.announcementSettings.autoAnnounceOnForward}
+              onChange={(e) => patch('announcementSettings.autoAnnounceOnForward', e.target.checked)}
+            />
+            <span className="toggle-switch-track" />
+          </span>
         </label>
         <div className="form-group">
           <label>Pause between fragments (ms)</label>
