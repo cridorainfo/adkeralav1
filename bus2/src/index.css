@@ -2230,15 +2230,20 @@ html.kiosk-hide-cursor * {
   width: 100%;
 }
 
-.display-main:not(:has(.display-ad-view)) {
+/* Was `.display-main:not(:has(.display-ad-view))` / `.display-screen:has(...) .display-main` /
+   `.display-main:has(.display-ad-view)` / `.display-screen:has(...) .display-top-bar` below —
+   :has() needs a genuinely modern WebView (Chromium ~105+, September 2022) that a device stuck
+   on an old Android version without Play Store WebView updates (confirmed real case: a HUIDU
+   HD3288S LED controller box on Android 7.1.2) will likely never have — the rules would just
+   silently never match there, not error, so this would have quietly broken the ad/route layout
+   switch on exactly that kind of device with no visible error to debug from. DisplayScreen.jsx
+   already computes `showingAd` in JS, so a plain class on the root element (set there) does the
+   same job with zero browser-version dependency at all. */
+.display-screen:not(.display-screen--ad) .display-main {
   flex: 1;
   justify-content: stretch;
   padding: 0.35rem 0.75rem 0;
   min-height: 0;
-}
-
-.display-screen:has(.display-route-view) .display-main {
-  flex: 1;
 }
 
 .display-banner-slot {
@@ -2268,7 +2273,7 @@ html.kiosk-hide-cursor * {
   height: 100%;
 }
 
-.display-main:has(.display-ad-view) {
+.display-screen--ad .display-main {
   padding: 0;
   justify-content: stretch;
   align-items: stretch;
@@ -2277,7 +2282,7 @@ html.kiosk-hide-cursor * {
 }
 
 /* Fullscreen ad: give the ad the whole screen — branding moves into the bottom stop bar instead. */
-.display-screen:has(.display-ad-view) .display-top-bar {
+.display-screen--ad .display-top-bar {
   display: none;
 }
 
@@ -2289,7 +2294,7 @@ html.kiosk-hide-cursor * {
   flex: 1;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 0.35rem;
+  gap: clamp(0.5rem, 1.5vh, 1.1rem);
   min-height: 0;
   animation: fadeUp 0.6s ease;
 }
@@ -2309,7 +2314,10 @@ html.kiosk-hide-cursor * {
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: var(--kerala-gold-soft);
-  margin-bottom: 0.35rem;
+  /* Was 0.35rem flat — visually cramped sitting right above stop-name text that can be up to
+     8rem tall (clamp below). Fluid so it stays proportionate at any screen size instead of
+     looking tight on large/4K screens and oversized on small ones. */
+  margin-bottom: clamp(0.6rem, 1.8vh, 1.4rem);
   font-weight: 600;
 }
 
@@ -2340,7 +2348,7 @@ html.kiosk-hide-cursor * {
   justify-content: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 0;
+  margin-bottom: clamp(0.4rem, 1.2vh, 0.85rem);
 }
 
 .display-route-endpoints strong {

@@ -284,7 +284,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   return (
     <LanguageAlternateProvider intervalSec={s.displaySettings?.languageAlternateSec ?? 4}>
     <div
-      className={`display-screen ${isPassengerView ? 'fullscreen' : ''}`}
+      className={`display-screen ${isPassengerView ? 'fullscreen' : ''}${showingAd ? ' display-screen--ad' : ''}`}
       style={screenStyle}
     >
       <audio ref={audioRef} />
