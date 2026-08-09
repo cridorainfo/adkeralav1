@@ -69,6 +69,10 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   const busMode = s.busProfile?.mode;
   const isEntertainmentMode =
     busMode === 'entertainment' || (busMode === 'auto' && isScheduleWindowActive(s.schedule, Date.now()));
+  // Ads still get the full-takeover top bar (display-screen--ad hides it entirely, see index.css)
+  // regardless of mode — this only strips chrome down to the logo for the entertainment content
+  // view itself.
+  const showEntertainmentChrome = isEntertainmentMode && !showingAd;
   const fullscreenAdsEnabled = isEntertainmentMode
     ? (s.schedule?.showFullscreenAds ?? true)
     : (s.adSettings?.enabled ?? true);
@@ -321,25 +325,33 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     >
       <audio ref={audioRef} />
 
+      {/* Entertainment mode is a passenger-facing signage screen, not a route/ops display — just
+          the logo and the fullscreen content, none of route/clock/diagnostic chrome underneath. */}
       <div className="display-top-bar">
         <div className="display-brand">
           <div className="display-brand-logo-wrap">
             <AdKeralaLogo className="display-brand-icon" size="md" />
-            <DisplayStatusDots />
-            <DisplayUpdateStatusText />
+            {!showEntertainmentChrome && (
+              <>
+                <DisplayStatusDots />
+                <DisplayUpdateStatusText />
+              </>
+            )}
           </div>
-          <div className="display-brand-text">
-            <h2>{brandTitle}</h2>
-            <span>{APP_DISPLAY_TAGLINE}</span>
-          </div>
+          {!showEntertainmentChrome && (
+            <div className="display-brand-text">
+              <h2>{brandTitle}</h2>
+              <span>{APP_DISPLAY_TAGLINE}</span>
+            </div>
+          )}
         </div>
         <div className="display-top-bar-center">
-          {stopInfo.routeName && (
+          {!showEntertainmentChrome && stopInfo.routeName && (
             <div className="display-route-badge">{stopInfo.routeName}</div>
           )}
         </div>
         <div className="display-top-bar-right">
-          {showClock && (
+          {!showEntertainmentChrome && showClock && (
             <div className="display-clock" aria-live="polite">
               <span className="display-clock-time">{clockTime}</span>
               <span className="display-clock-date">{clockDate}</span>
@@ -412,6 +424,12 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
               </section>
             )}
           </div>
+        ) : isEntertainmentMode ? (
+          <SchedulePlayer
+            schedule={s.schedule}
+            onItemStart={playScheduleItem}
+            onItemEnd={handleScheduleItemEnd}
+          />
         ) : hasRouteStops && tripEnded ? (
           <div className="display-route-view display-route-view--ended">
             <div className="display-hero-center">
@@ -454,12 +472,6 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
               <StopJourneyTimeline stopInfo={stopInfo} />
             </div>
           </div>
-        ) : isEntertainmentMode ? (
-          <SchedulePlayer
-            schedule={s.schedule}
-            onItemStart={playScheduleItem}
-            onItemEnd={handleScheduleItemEnd}
-          />
         ) : (
           <div className="display-idle-view">
             <p className="display-idle-hint">

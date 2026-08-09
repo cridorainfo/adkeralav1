@@ -1819,7 +1819,11 @@ function ensureBusProfile(store, busId) {
   if (!Array.isArray(store.busProfiles[busId].assignedRouteIds)) {
     store.busProfiles[busId].assignedRouteIds = [];
   }
-  if (store.busProfiles[busId].mode !== 'entertainment') {
+  // Valid modes: 'route' (default), 'entertainment', 'auto' (see cloud/schedules.js /
+  // server.js PUT profile validation) — this used to only recognize 'entertainment', silently
+  // dropping 'auto' back to 'route' on every profile read, which broke Auto mode entirely
+  // (looked like it saved, then reverted the instant anything else touched the profile).
+  if (!['entertainment', 'auto'].includes(store.busProfiles[busId].mode)) {
     store.busProfiles[busId].mode = 'route';
   }
   return store.busProfiles[busId];
@@ -1838,7 +1842,7 @@ export async function upsertBusProfile(busId, patch = {}) {
   if (patch.assignedRouteIds) {
     patch.assignedRouteIds = [...new Set(patch.assignedRouteIds.filter(Boolean))];
   }
-  if (patch.mode != null && patch.mode !== 'entertainment') {
+  if (patch.mode != null && !['entertainment', 'auto'].includes(patch.mode)) {
     patch.mode = 'route';
   }
   Object.assign(profile, patch);

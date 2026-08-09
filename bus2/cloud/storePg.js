@@ -301,7 +301,9 @@ export async function pgUpsertBusProfile(busId, patch = {}) {
   if (patch.devicesDisconnectAt !== undefined) {
     profile.devicesDisconnectAt = patch.devicesDisconnectAt;
   }
-  if (patch.mode != null && patch.mode !== 'entertainment') {
+  // See store.js's ensureBusProfile/upsertBusProfile comment — this used to only recognize
+  // 'entertainment', silently dropping 'auto' back to 'route' on every save.
+  if (patch.mode != null && !['entertainment', 'auto'].includes(patch.mode)) {
     profile.mode = 'route';
   }
 

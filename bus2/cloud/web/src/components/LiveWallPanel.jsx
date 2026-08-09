@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import BusPreviewCard from './BusPreviewCard.jsx';
 import BusAdAnalyticsPanel from './BusAdAnalyticsPanel.jsx';
 import { busDisplayLabel } from './BusContext.jsx';
+import { sortBusesAlphabetically, filterBusesBySearch } from '../lib/busSort.js';
 
 function formatMoney(value) {
   const n = Number(value) || 0;
@@ -50,17 +51,13 @@ export default function LiveWallPanel() {
     return () => clearInterval(t);
   }, [refreshSummary]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return buses;
-    return buses.filter((bus) => {
-      const plate = (bus.profile?.plateDisplay || bus.profile?.plate || '').toLowerCase();
-      const name = (bus.profile?.displayName || '').toLowerCase();
-      const id = (bus.busId || '').toLowerCase();
-      const label = busDisplayLabel(bus).toLowerCase();
-      return plate.includes(q) || name.includes(q) || id.includes(q) || label.includes(q);
-    });
-  }, [buses, search]);
+  // Alphabetical, not API order — the API's own order shifts every ~5s poll as buses report
+  // telemetry in different sequences, which made cards visibly jump around on screen (fine for a
+  // handful of buses, unusable once the fleet is in the hundreds).
+  const filtered = useMemo(
+    () => sortBusesAlphabetically(filterBusesBySearch(buses, search)),
+    [buses, search]
+  );
 
   const selectedBus = buses.find((b) => b.busId === selectedBusId) ?? null;
 

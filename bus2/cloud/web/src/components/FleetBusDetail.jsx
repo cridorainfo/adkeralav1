@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { isBusOnline } from './FleetMap.jsx';
 import { isPlausibleMapCoord } from '../lib/mapCoords.js';
+import { isScheduleWindowActive } from '../lib/scheduleWindow.js';
 
 function stopLine(stop) {
   if (!stop?.en) return '—';
@@ -95,6 +96,18 @@ export default function FleetBusDetail({ busId, buses }) {
       : 'In progress'
     : 'Not started';
 
+  // Same isEntertainment resolution as the Live Wall tab (server.js buildLiveWallPreview /
+  // BusPreviewCard.jsx) — this "Live bus" mirror is a separate admin surface (Fleet tab's
+  // per-bus detail, not the dedicated Live Wall tab) that was still unconditionally showing
+  // route name/current-next-stop even for entertainment buses. Mirrored here client-side since
+  // this component already has the full state payload from its own telemetry fetch.
+  const state = telemetryData?.state ?? {};
+  const profile = telemetryData?.profile ?? busRow?.profile ?? {};
+  const rawMode = profile.mode;
+  const isEntertainment =
+    rawMode === 'entertainment' || (rawMode === 'auto' && isScheduleWindowActive(state.schedule));
+  const scheduleItemCount = state.schedule?.items?.length ?? 0;
+
   const driverLocation = telemetry.driverLocation ?? null;
   const hasFix = driverLocation?.lat != null && driverLocation?.lng != null && !driverLocation?.error;
   const onMap = hasFix && isPlausibleMapCoord(driverLocation.lat, driverLocation.lng);
@@ -132,22 +145,36 @@ export default function FleetBusDetail({ busId, buses }) {
         </>
       )}
 
-      <div className="display-mirror fleet-bus-mirror">
-        <div className="fleet-bus-mirror-label">
-          {view === 'ad' ? '📢 Advertisement on display' : '🚌 Route on passenger screen'}
+      {isEntertainment ? (
+        <div className="display-mirror fleet-bus-mirror">
+          <div className="fleet-bus-mirror-label">
+            {view === 'ad' ? '📢 Advertisement on display' : '🎬 Entertainment playlist on passenger screen'}
+          </div>
+          {view !== 'ad' && (
+            <>
+              <h4>{scheduleItemCount ? `Item ${(state.schedule?.currentIndex ?? 0) + 1}/${scheduleItemCount}` : 'No content assigned yet'}</h4>
+              <p className="hint">Looped {state.schedule?.loopCount ?? 0}×</p>
+            </>
+          )}
         </div>
-        <h4>{routeName}</h4>
-        <p>
-          Current: <strong>{currentStop}</strong>
-        </p>
-        <p className="next">
-          Next: <strong>{nextStop}</strong>
-        </p>
-        <p className="hint">
-          Trip: {tripLabel}
-          {trip.routeDirection ? ` · ${trip.routeDirection}` : ''}
-        </p>
-      </div>
+      ) : (
+        <div className="display-mirror fleet-bus-mirror">
+          <div className="fleet-bus-mirror-label">
+            {view === 'ad' ? '📢 Advertisement on display' : '🚌 Route on passenger screen'}
+          </div>
+          <h4>{routeName}</h4>
+          <p>
+            Current: <strong>{currentStop}</strong>
+          </p>
+          <p className="next">
+            Next: <strong>{nextStop}</strong>
+          </p>
+          <p className="hint">
+            Trip: {tripLabel}
+            {trip.routeDirection ? ` · ${trip.routeDirection}` : ''}
+          </p>
+        </div>
+      )}
 
       <h4 className="fleet-section-title">Assigned routes</h4>
       {actionMessage && <p className="hint">{actionMessage}</p>}

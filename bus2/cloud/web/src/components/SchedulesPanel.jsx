@@ -4,6 +4,7 @@ import { doubleConfirm } from '../lib/confirm.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
 import { WEEKDAY_OPTIONS, isScheduleWindowActive, describeScheduleWindow } from '../lib/scheduleWindow.js';
 import { busDisplayLabel } from './BusContext.jsx';
+import { sortBusesAlphabetically } from '../lib/busSort.js';
 import AdMediaPreview from './AdMediaPreview.jsx';
 
 /** Day-of-week + optional date-range picker, shared by the create form and every edit panel —
@@ -119,7 +120,9 @@ export default function SchedulesPanel() {
   async function load() {
     const [sJson, bJson] = await Promise.all([api('/api/schedules'), api('/api/buses')]);
     setSchedules(sJson.schedules ?? []);
-    setBuses(bJson.buses ?? []);
+    // Alphabetical, not API order — see busSort.js; matters even more here once a fleet has
+    // hundreds of buses to pick from in the target-bus checkboxes below.
+    setBuses(sortBusesAlphabetically(bJson.buses ?? []));
   }
 
   useEffect(() => {

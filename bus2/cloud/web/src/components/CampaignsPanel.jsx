@@ -5,6 +5,7 @@ import { uploadMedia } from '../lib/api.js';
 import { doubleConfirm } from '../lib/confirm.js';
 import { AD_MEDIA_ACCEPT, validateAdMediaFile, adMediaTypeFromFile } from '../lib/adMedia.js';
 import { busDisplayLabel } from './BusContext.jsx';
+import { sortBusesAlphabetically } from '../lib/busSort.js';
 import AdMediaPreview from './AdMediaPreview.jsx';
 
 export default function CampaignsPanel({ adminMode = false }) {
@@ -42,7 +43,9 @@ export default function CampaignsPanel({ adminMode = false }) {
     ]);
     const loadedCampaigns = cJson.campaigns ?? [];
     setCampaigns(loadedCampaigns);
-    setBuses(bJson.buses ?? []);
+    // Alphabetical, not API order — the target-bus checkbox lists below otherwise reshuffle
+    // every poll, unusable once the fleet is in the hundreds/thousands.
+    setBuses(sortBusesAlphabetically(bJson.buses ?? []));
     if (vJson) setStopVoiceAds(vJson.stopVoiceAds ?? {});
 
     // Proof-of-play summary per campaign — best-effort, one card's fetch failing (e.g. a

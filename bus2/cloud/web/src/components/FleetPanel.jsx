@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import FleetMap, { isBusOnline } from './FleetMap.jsx';
 import FleetBusDetail from './FleetBusDetail.jsx';
 import { busDisplayLabel, useSelectedBus } from './BusContext.jsx';
+import { sortBusesAlphabetically, filterBusesBySearch } from '../lib/busSort.js';
 
 const BUS_MODES = ['route', 'entertainment', 'auto'];
 function normalizeBusMode(mode) {
@@ -86,6 +87,7 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
   const [newBusId, setNewBusId] = useState('');
   const [newPlate, setNewPlate] = useState('');
   const [message, setMessage] = useState('');
+  const [busSearch, setBusSearch] = useState('');
 
   const refresh = useCallback(async () => {
     const json = await api('/api/buses');
@@ -263,13 +265,36 @@ export default function FleetPanel({ allowRegister = false, claimHref = null }) 
     }
   }
 
+  // Alphabetical + searchable, not raw API order — same reasoning as Live Wall (LiveWallPanel.jsx):
+  // the list otherwise reshuffles on every ~4s poll, and a 1000-bus fleet is unscannable without
+  // either.
+  const visibleBuses = useMemo(
+    () => sortBusesAlphabetically(filterBusesBySearch(buses, busSearch)),
+    [buses, busSearch]
+  );
+
   return (
     <>
       <OnboardingWizard allowRegister={allowRegister} claimHref={claimHref} />
       <div className="grid-2">
         <div className="card">
           <h2>Fleet</h2>
-          {(buses ?? []).map((bus) => (
+          <div className="form-group">
+            <input
+              type="search"
+              value={busSearch}
+              onChange={(e) => setBusSearch(e.target.value)}
+              placeholder="Search by name, plate, or bus ID"
+            />
+          </div>
+          <p className="hint">
+            {visibleBuses.length} bus{visibleBuses.length === 1 ? '' : 'es'}
+            {busSearch.trim() ? ' matching' : ''}
+          </p>
+          {buses.length > 0 && !visibleBuses.length && (
+            <p className="empty-state">No buses match “{busSearch.trim()}”.</p>
+          )}
+          {visibleBuses.map((bus) => (
             <div
               key={bus.busId}
               className={`bus-list-item ${bus.busId === selectedBusId ? 'selected' : ''}`}
