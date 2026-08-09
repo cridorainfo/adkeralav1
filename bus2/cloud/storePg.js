@@ -3,7 +3,20 @@ import { query } from './db/pool.js';
 import { pgRevokeDevicesForBus, pgResetEnrollmentsForBus } from './fleetPg.js';
 
 const FULL_STATE_INTERVAL_MS = Number(process.env.ADKERALA_FULL_STATE_INTERVAL_MS ?? 60000);
-const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+// Was 20000 (20s) — raised after a real fleet device (4G-connected) was flickering "offline"
+// with a perfectly working connection. Root cause: server/cloudSync.js's telemetry push (what
+// actually updates this bus's `updatedAt`) shares one serialized sync tick with much slower
+// operations — media downloads, route/ads/schedule sync — all sequentially awaited, and a
+// reentrancy guard blocks the *next* tick from starting until the current one fully finishes.
+// On a slow link, a single heavy media download can push the effective gap between successful
+// telemetry pushes well past the old 20s threshold even though the connection never actually
+// died. The real fix is decoupling telemetry onto its own fast independent timer, not covered
+// here — this is the safe, low-risk mitigation (just give slow-but-working connections more
+// room) since this loop runs against a live production fleet with no hardware here to test a
+// bigger sync-loop change against. Same duplicated constant in cloud/server.js, cloud/store.js,
+// cloud/releases.js, cloud/fleet.js (ONLINE_THRESHOLD_MS there) — keep them in sync if this
+// changes again.
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 45000);
 
 const telemetryStateCache = new Map();
 

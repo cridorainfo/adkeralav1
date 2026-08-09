@@ -207,7 +207,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 45000);
 
 async function assertBusAccess(req, res, busId) {
   const profile = await getBusProfile(busId);

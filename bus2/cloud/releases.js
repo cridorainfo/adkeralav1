@@ -212,7 +212,7 @@ export function buildPcLatestYml(pcRelease) {
   return lines.join('\n');
 }
 
-const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 45000);
 
 export async function getFleetVersions() {
   const config = await getReleaseConfig();

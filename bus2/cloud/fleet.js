@@ -17,7 +17,7 @@ import {
 } from './fleetPg.js';
 
 const ENROLL_TTL_MS = 30 * 60 * 1000;
-const ONLINE_THRESHOLD_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+const ONLINE_THRESHOLD_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 45000);
 /** Only list unclaimed devices that polled enroll recently (not every past app start). */
 const ENROLL_ACTIVE_MS = Number(process.env.ADKERALA_ENROLL_ACTIVE_MS ?? 90000);
 

@@ -1851,7 +1851,7 @@ export async function setBusProfilePlate(busId, plateInput) {
   return profile;
 }
 
-const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 20000);
+const ONLINE_MS = Number(process.env.ADKERALA_ONLINE_MS ?? 45000);
 
 function findBusIdByPlateOrCode(store, plateOrCode) {
   const raw = String(plateOrCode ?? '').trim();
