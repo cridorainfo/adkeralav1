@@ -1,5 +1,6 @@
 package com.adkerala.display;
 
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -13,6 +14,7 @@ import android.content.pm.PackageInstaller;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -35,11 +37,18 @@ import java.security.MessageDigest;
 
 /**
  * Silent, zero-tap self-update for Android display units — the Android counterpart to
- * kiosk/updater.cjs on PC. Requires this app to be enrolled as Device Owner (see
- * AdKeralaDeviceAdminReceiver + ANDROID-UPDATE.md) — PackageInstaller sessions committed by a
- * Device Owner app install without any confirmation dialog. On a non-enrolled device this class
- * still runs (harmless) but every install attempt fails with STATUS_PENDING_USER_ACTION, logged
- * clearly so that's an obvious, diagnosable field symptom rather than a silent no-op.
+ * kiosk/updater.cjs on PC. Two install mechanisms, tried in order:
+ *
+ * 1. Huidu vendor SDK (see HuiduSilentInstaller) — on the fleet's Huidu-brand mainboards, their
+ *    rooted "Toolbox" system app can install silently on this app's behalf with no enrollment
+ *    step at all. Tried first because it needs no per-device setup.
+ * 2. Device Owner + PackageInstaller (see AdKeralaDeviceAdminReceiver + ANDROID-UPDATE.md) —
+ *    PackageInstaller sessions committed by a Device Owner app install without any confirmation
+ *    dialog. Falls back to this whenever the Huidu path is unavailable (non-Huidu hardware, e.g.
+ *    test phones) or fails. On a device that's neither Huidu-capable nor Device-Owner-enrolled,
+ *    this class still runs (harmless) but every install attempt fails with
+ *    STATUS_PENDING_USER_ACTION, logged clearly so that's an obvious, diagnosable field symptom
+ *    rather than a silent no-op.
  *
  * Same shape as PC: checks once at boot, then every CHECK_INTERVAL_MS; trip-aware install
  * timing (defers while a trip is in progress, same `Boolean(tripStarted) && !tripEnded` check
@@ -130,9 +139,9 @@ public class AdKeralaUpdateChecker {
     }
 
     public void start() {
-        if (!isDeviceOwner(context)) {
-            Log.w(TAG, "not enrolled as Device Owner — updates will require manual tap-through "
-                + "if they run at all. See ANDROID-UPDATE.md.");
+        if (!isDeviceOwner(context) && !HuiduSilentInstaller.getInstance(context).isAvailable()) {
+            Log.w(TAG, "not enrolled as Device Owner and no Huidu silent-install path available — "
+                + "updates will require manual tap-through if they run at all. See ANDROID-UPDATE.md.");
         }
         handler.postDelayed(this::checkNow, BOOT_CHECK_DELAY_MS);
     }
@@ -273,6 +282,21 @@ public class AdKeralaUpdateChecker {
                     throw new IOException("checksum mismatch: expected " + expectedSha256 + " got " + actual);
                 }
             }
+
+            // Huidu vendor path first — no Device Owner enrollment needed on this hardware, see
+            // HuiduSilentInstaller's doc comment. isAvailable() is false on any device without
+            // toolkit.jar bundled (e.g. test phones), so this is a no-op fall-through there.
+            HuiduSilentInstaller huidu = HuiduSilentInstaller.getInstance(context);
+            if (huidu.isAvailable()) {
+                if (huidu.install(apkFile.getAbsolutePath())) {
+                    apkFile.delete();
+                    restartAfterHuiduInstall(version);
+                    return;
+                }
+                Log.w(TAG, "Huidu install() reported failure — falling back to Device Owner / "
+                    + "PackageInstaller path");
+            }
+
             installSilently(apkFile, version);
             apkFile.delete(); // bytes are already inside the PackageInstaller session by now
         } catch (Exception e) {
@@ -280,6 +304,32 @@ public class AdKeralaUpdateChecker {
             installInFlight = false;
             handler.postDelayed(this::checkNow, CHECK_INTERVAL_MS);
         }
+    }
+
+    /** Huidu's install() (unlike installAndStart) only installs — it doesn't relaunch, and per
+     * the manual installAndStart doesn't work on Toolbox 2.0+ anyway, so relaunching ourselves
+     * here works uniformly across Toolbox generations instead of depending on that caveat-laden
+     * call. Schedules MainActivity to reopen via AlarmManager, then kills this process — same
+     * "exit and let the alarm bring it back up on the new bytes" shape as a normal silent update
+     * restart, and reuses AdKeralaBootReceiver's own launch flags/intent shape. */
+    private void restartAfterHuiduInstall(String version) {
+        Log.i(TAG, "Huidu silent install succeeded (v" + version + ") — restarting to apply it");
+        notifyStatus("AdKerala updated", "Now on v" + version);
+        Intent relaunch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+        if (relaunch == null) {
+            relaunch = new Intent(context, com.adkerala.display.MainActivity.class);
+        }
+        relaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            context, 0, relaunch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (alarmManager != null) {
+            alarmManager.set(AlarmManager.RTC, System.currentTimeMillis() + 2000, pendingIntent);
+        } else {
+            Log.w(TAG, "no AlarmManager — relying on AdKeralaBootReceiver/manual relaunch instead");
+        }
+        installInFlight = false;
+        handler.postDelayed(() -> Process.killProcess(Process.myPid()), 500);
     }
 
     private void cleanupStaleUpdateFiles(File keep) {

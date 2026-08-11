@@ -1,11 +1,51 @@
 # AdKerala Android Display — silent updates
 
 Mirrors [PC-UPDATE.md](../PC-UPDATE.md)'s shape, but the mechanism is different: Android has no
-equivalent of NSIS's silent installer, so a **zero-tap** install requires the app to be enrolled
-as **Device Owner** — an Android device-management status that can only be granted on a device
-with **no Google account ever added**. That's the one real cost of the "silent everywhere"
-choice: every device this app runs on, including casual test phones, needs this one-time setup
-*before* anyone signs into it.
+equivalent of NSIS's silent installer, so a **zero-tap** install needs one of two things:
+
+1. **Huidu vendor SDK** (see below) — on the fleet's Huidu-brand mainboards, works with **no
+   per-device setup at all**. Tried first, whenever it's available.
+2. **Device Owner** enrollment — an Android device-management status that can only be granted on
+   a device with **no Google account ever added**. Real field friction: every device that isn't
+   Huidu-capable (including casual test phones) needs this one-time setup *before* anyone signs
+   into it. `AdKeralaUpdateChecker` falls back to this automatically whenever the Huidu path
+   isn't available or fails.
+
+---
+
+## Huidu-board silent install (no Device Owner needed)
+
+The fleet's Huidu-brand Android mainboards ship with a privileged, already-rooted system app
+("Toolbox"). Huidu support provided `灰度主板API编程手册_1.13.0.docx` ("Huidu mainboard API
+programming manual") in response to a request for a silent-upgrade mechanism — it documents a
+`toolkit.jar` SDK exposing that root through a `HuiduTech` object, including a plain
+`boolean install(String apkPath)` silent-install call third-party apps can use directly. That's
+what [`HuiduSilentInstaller.java`](android/app/src/main/java/com/adkerala/display/HuiduSilentInstaller.java)
+wraps, and it's what `AdKeralaUpdateChecker` tries **before** falling back to the Device Owner
+path below.
+
+- Uses `install(apkPath)`, not the manual's `installAndStart(apkPath, pkgName, activity)` —
+  the manual states `installAndStart` does not work on Toolbox 2.0+, while `install` carries no
+  such caveat, so this works uniformly across Toolbox generations. `AdKeralaUpdateChecker`
+  relaunches the app itself afterward (AlarmManager + process kill) instead of relying on
+  `installAndStart`'s built-in launch.
+- Called via reflection, not a compile-time import — `toolkit.jar` is a proprietary file Huidu
+  hands out directly (see [`android/app/libs/README.md`](android/app/libs/README.md)). Without
+  it present, `HuiduSilentInstaller.isAvailable()` is simply `false` and this whole section is a
+  no-op — the app builds and updates exactly as it did before this integration existed.
+
+**Status**: `toolkit.jar` (delivered as `toolbox_kit_1.13.0_20250717.jar.zip`) is already in
+`android/app/libs/` — picked up automatically by `build.gradle`'s `fileTree(include: ['*.jar'],
+dir: 'libs')`, no gradle edit needed. `HuiduSilentInstaller.HUIDU_TECH_CLASS`
+(`cn.huidu.toolkit.HuiduTech`) has been verified against this exact jar with `javap`, along with
+every method signature `HuiduSilentInstaller` calls — see that class's doc comment. **Not yet
+committed to the repo** — see libs/README.md's CI note before assuming CI-built APKs will have
+this path available.
+
+**Confirm it worked**: launch the app, `adb logcat -s AdKeralaHuidu` — should show
+`toolkit.jar detected ... — Huidu silent-install path available` rather than the
+"not bundled" line. `adb logcat -s AdKeralaUpdate` will then show `Huidu silent install
+succeeded` instead of the PackageInstaller status lines on the next update.
 
 ---
 
@@ -88,24 +128,28 @@ before invoking Gradle), `npm run build:display-bundle`, then Build APK(s) in An
 
 ### After registering
 
-- **Enrolled (Device Owner) units**: check every 15 minutes (and once ~20s after boot), download,
-  and install with **zero interaction** — unless a trip is in progress (`tripStarted` and not
-  `tripEnded` in local state), in which case they wait and recheck every minute until idle.
+- **Huidu-capable units** (`toolkit.jar` bundled, see above): check every 15 minutes (and once
+  ~20s after boot), download, and install with **zero interaction and no enrollment step at
+  all** — unless a trip is in progress, same deferral rule as below.
+- **Enrolled (Device Owner) units**: same cadence, install with **zero interaction** — unless a
+  trip is in progress (`tripStarted` and not `tripEnded` in local state), in which case they wait
+  and recheck every minute until idle.
 - **Force an immediate install regardless of trip state**: raise the minimum version in cloud
   admin → Releases → **Min Android version**. This is the Android equivalent of PC's
   "Push update to all buses now" button — there's no separate push endpoint for Android, the
   min-version escape hatch does the same job.
-- **Non-enrolled units** (Device Owner never set up, or lost): the app still checks and tries to
-  install, but `PackageInstaller` falls back to requiring a confirmation tap it never gets shown
-  to anyone, so nothing visibly happens. `adb logcat -s AdKeralaUpdate` will show
-  `install requires user confirmation — this device is NOT enrolled as Device Owner` — that
-  log line is the tell.
+- **Neither Huidu-capable nor enrolled units** (Device Owner never set up, or lost, and no
+  `toolkit.jar`): the app still checks and tries to install, but `PackageInstaller` falls back to
+  requiring a confirmation tap it never gets shown to anyone, so nothing visibly happens.
+  `adb logcat -s AdKeralaUpdate` will show `install requires user confirmation — this device is
+  NOT enrolled as Device Owner` — that log line is the tell.
 
 ## Diagnosing a stuck update
 
 ```bash
-adb logcat -s AdKeralaUpdate AdKeralaDisplay
+adb logcat -s AdKeralaUpdate AdKeralaHuidu AdKeralaDisplay
 ```
 Shows: check results (`up to date` / `installing update X`), download/checksum failures, trip-
-deferral messages, and the install outcome (`installed successfully` / the Device-Owner-missing
-message above / any other `PackageInstaller` status code).
+deferral messages, whether the Huidu path is available (`AdKeralaHuidu`), and the install outcome
+(`Huidu silent install succeeded` / `installed successfully` / the Device-Owner-missing message
+above / any other `PackageInstaller` status code).
