@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
 import { busDisplayLabel } from './BusContext.jsx';
 
@@ -34,17 +34,26 @@ export default function ReleasesPanel() {
     }
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     const json = await api('/api/releases/fleet');
     setFleet(json);
     setMinPc(json.minPcVersion ?? '');
     setMinDriver(json.minDriverVersion ?? '');
     setMinAndroid(json.minAndroidVersion ?? '');
-  }
+  }, []);
 
+  // Was fetch-once-on-mount only — every bus's reported appVersion comes from its own live
+  // telemetry (server/cloudSync.js), which updates on its own the moment a bus finishes a
+  // silent self-update, but this panel never re-fetched to pick that up. An admin watching a
+  // rollout land (e.g. after "Push update to all buses now") saw every bus stuck showing its
+  // pre-update version until they manually reloaded the whole page. Every sibling fleet-status
+  // panel already polls (FleetPanel, LiveBusPanel, LiveWallPanel, BusContext — all 4-5s); this
+  // just brings ReleasesPanel in line with that existing convention.
   useEffect(() => {
     load();
-  }, []);
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
 
   async function saveMinVersions() {
     await api('/api/releases/min-versions', {
@@ -148,6 +157,9 @@ export default function ReleasesPanel() {
             value={busQuery}
             onChange={(e) => setBusQuery(e.target.value)}
           />
+          <button type="button" className="btn btn-secondary btn-sm" onClick={load}>
+            Refresh now
+          </button>
         </div>
         <table className="data-table responsive-desktop">
           <thead>
