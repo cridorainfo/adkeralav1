@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AdKerala GPS Test</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <h1>AdKerala GPS Test</h1>
+    <p class="hint">Isolated reliability test — does not touch the real driver app or any live bus.</p>
+
+    <section id="setup">
+      <label>Cloud URL</label>
+      <div class="row">
+        <input id="cloudUrl" type="text" value="https://adkerala.com" />
+        <button id="loadRoutesBtn" class="btn">Load routes</button>
+      </div>
+
+      <label>Test route</label>
+      <select id="routeSelect"><option value="">— load routes above —</option></select>
+      <div id="routeInfo" class="hint"></div>
+    </section>
+
+    <section id="direction" class="hidden">
+      <label>Which direction are you starting?</label>
+      <div class="row">
+        <button id="goForwardBtn" class="btn btn-big">Going to Office →</button>
+        <button id="goReverseBtn" class="btn btn-big">← Going Home</button>
+      </div>
+    </section>
+
+    <section id="running" class="hidden">
+      <div id="statusCard" class="status-card">
+        <div class="status-phase" id="statusPhase">—</div>
+        <div class="status-detail" id="statusDetail">—</div>
+        <div class="status-meta" id="statusMeta">—</div>
+      </div>
+      <button id="stopBtn" class="btn btn-stop">End test</button>
+    </section>
+
+    <section>
+      <label>Event log</label>
+      <div id="eventLog" class="event-log"></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

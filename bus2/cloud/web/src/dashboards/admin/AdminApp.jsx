@@ -20,6 +20,7 @@ import PricingPanel from '../../components/PricingPanel.jsx';
 import HouseAdsPanel from '../../components/HouseAdsPanel.jsx';
 import MediaBrowserPanel from '../../components/MediaBrowserPanel.jsx';
 import ReleasesPanel from '../../components/ReleasesPanel.jsx';
+import TestLabPanel from '../../components/TestLabPanel.jsx';
 import ClaimBus from '../../pages/ClaimBus.jsx';
 import DisplaySettingsPanel from '../../components/DisplaySettingsPanel.jsx';
 import RouteCatalog from '../../components/RouteCatalog.jsx';
@@ -44,6 +45,7 @@ const NAV = [
   { to: '/catalog', label: 'Route catalog' },
   { to: '/users', label: 'Users' },
   { to: '/releases', label: 'Releases' },
+  { to: '/testlab', label: 'Test Lab' },
   { to: '/backup', label: 'Backup' },
   { to: '/audit-log', label: 'Audit log' },
 ];
@@ -79,6 +81,7 @@ function AdminRoutes() {
         <Route path="catalog" element={<RouteCatalog />} />
         <Route path="users" element={<UsersPanel />} />
         <Route path="releases" element={<ReleasesPanel />} />
+        <Route path="testlab" element={<TestLabPanel />} />
         <Route path="backup" element={<BackupPanel />} />
         <Route path="audit-log" element={<AuditLogPanel />} />
       </Routes>

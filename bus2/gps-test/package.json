@@ -1,0 +1,17 @@
+{
+  "name": "adkerala-gps-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone GPS auto-stop-progression reliability test app. Fully isolated from the real driver app (cloud/web) and display app (display/) — separate applicationId, separate install, never touches production fleet data. Built to validate the geofence engine against a real commute before wiring it into the real driver app.",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1"
+  }
+}

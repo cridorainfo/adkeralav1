@@ -101,6 +101,13 @@ import {
   setPcRelease,
 } from './releases.js';
 import {
+  listTestRoutes,
+  getTestRoute,
+  saveTestRoute,
+  deleteTestRoute,
+  recordTestEvent,
+} from './testlab.js';
+import {
   authSession,
   requireAuth,
   requireRole,
@@ -157,7 +164,7 @@ import {
   findBusIdByDeviceToken,
   withMediaFiles,
 } from './fleet.js';
-import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter, claimLimiter } from './middleware/rateLimit.js';
+import { enrollLimiter, pairLimiter, authLimiter, locationLimiter, driveLimiter, claimLimiter, testLabLimiter } from './middleware/rateLimit.js';
 import { requestLogger, writeAudit, listAuditLog } from './logger.js';
 import { verifyR2Config, uploadMediaBuffer, getPublicMediaUrl, deleteMediaFile } from './mediaStorage.js';
 import { collectAdMediaPathsFromLists, collectRemovedAdMediaPaths } from './adsCatalog.js';
@@ -2375,6 +2382,67 @@ app.put('/api/releases/pc', authAdminOnly, async (req, res) => {
   }
   const pc = await setPcRelease({ version, downloadUrl, sha512, size, releaseNotes });
   res.json({ ok: true, pc });
+});
+
+/** ——— Test Lab: standalone GPS reliability test app (bus2/gps-test/) ———
+ * Deliberately isolated from every live-fleet endpoint above: nothing here reads or writes
+ * bus/route/driver data, and nothing in the real fleet code reads what's stored here. GET
+ * routes/list is unauthenticated on purpose — the test app has no admin session, and test-route
+ * data (a name + a handful of coordinates) isn't sensitive. Mutations (create/edit/delete) stay
+ * admin-only, same as every other config surface. */
+app.get('/api/testlab/routes', testLabLimiter, async (_req, res) => {
+  const routes = await listTestRoutes();
+  res.json({ ok: true, routes: routes.map(({ events, ...r }) => r) });
+});
+
+app.get('/api/testlab/routes/:id', testLabLimiter, async (req, res) => {
+  const route = await getTestRoute(req.params.id);
+  if (!route) {
+    res.status(404).json({ ok: false, error: 'Test route not found' });
+    return;
+  }
+  res.json({ ok: true, route });
+});
+
+app.post('/api/testlab/routes', authAdminOnly, async (req, res) => {
+  const { name, stops } = req.body ?? {};
+  if (!name || !Array.isArray(stops) || !stops.length) {
+    res.status(400).json({ ok: false, error: 'name and at least one stop required' });
+    return;
+  }
+  const route = await saveTestRoute({ name, stops });
+  res.json({ ok: true, route });
+});
+
+app.put('/api/testlab/routes/:id', authAdminOnly, async (req, res) => {
+  const { name, stops } = req.body ?? {};
+  try {
+    const route = await saveTestRoute({ id: req.params.id, name, stops });
+    res.json({ ok: true, route });
+  } catch (err) {
+    res.status(404).json({ ok: false, error: err.message });
+  }
+});
+
+app.delete('/api/testlab/routes/:id', authAdminOnly, async (req, res) => {
+  const removed = await deleteTestRoute(req.params.id);
+  if (!removed) {
+    res.status(404).json({ ok: false, error: 'Test route not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+/** Called by GpsTestService (the phone's own foreground service) — best-effort, fire-and-forget
+ * from the device's perspective; its own local event log (SharedPreferences on-device) stays
+ * authoritative regardless of whether this succeeds. */
+app.post('/api/testlab/events', testLabLimiter, async (req, res) => {
+  try {
+    await recordTestEvent(req.body ?? {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 app.put('/api/releases/pc/hotpatch', authAdminOnly, async (req, res) => {

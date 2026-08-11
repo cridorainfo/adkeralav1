@@ -1,0 +1,42 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, Roboto, Segoe UI, sans-serif;
+  background: #0f1115;
+  color: #e8eaed;
+  padding: env(safe-area-inset-top) 16px 24px;
+}
+main { max-width: 480px; margin: 0 auto; padding-top: 16px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.hint { color: #9aa0a6; font-size: 13px; margin: 0 0 16px; }
+label { display: block; font-size: 12px; color: #9aa0a6; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.row { display: flex; gap: 8px; }
+input, select {
+  width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #33363d;
+  background: #1a1c22; color: #e8eaed; font-size: 15px;
+}
+.btn {
+  padding: 10px 14px; border-radius: 8px; border: none; background: #2d6cdf; color: white;
+  font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn:active { opacity: 0.8; }
+.btn-big { flex: 1; padding: 18px 10px; font-size: 15px; white-space: normal; }
+.btn-stop { width: 100%; background: #d93025; margin-top: 12px; }
+.hidden { display: none; }
+.status-card {
+  background: #1a1c22; border-radius: 12px; padding: 16px; border: 1px solid #33363d;
+}
+.status-phase { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.status-detail { font-size: 14px; color: #c7cad1; margin-bottom: 8px; }
+.status-meta { font-size: 12px; color: #9aa0a6; }
+.event-log {
+  background: #1a1c22; border-radius: 8px; border: 1px solid #33363d; padding: 8px;
+  max-height: 340px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 12px;
+}
+.event-log .ev { padding: 5px 4px; border-bottom: 1px solid #24262c; }
+.event-log .ev:last-child { border-bottom: none; }
+.event-log .ev .t { color: #6c7078; margin-right: 6px; }
+.event-log .ev.arrived .m { color: #34a853; }
+.event-log .ev.departed .m { color: #4c9dff; }
+.event-log .ev.trip-complete .m { color: #f4b400; font-weight: 700; }
+.event-log .ev.waiting .m, .event-log .ev.cooldown .m { color: #9aa0a6; }

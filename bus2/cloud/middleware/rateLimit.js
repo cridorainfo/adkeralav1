@@ -33,3 +33,6 @@ export const pairLimiter = rateLimit({ windowMs: 60000, max: 30 });
 export const authLimiter = rateLimit({ windowMs: 900000, max: 20 });
 export const locationLimiter = rateLimit({ windowMs: 60000, max: 120 });
 export const driveLimiter = rateLimit({ windowMs: 60000, max: 40 });
+// Standalone GPS test app (bus2/gps-test/) — one device, personal reliability testing, not
+// fleet-scale — so a generous but bounded ceiling is enough (same shape as locationLimiter).
+export const testLabLimiter = rateLimit({ windowMs: 60000, max: 60 });

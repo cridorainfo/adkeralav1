@@ -1174,6 +1174,29 @@ body.dashboard-nav-open {
 
 .data-table tbody tr:last-child td { border-bottom: none; }
 
+/* Test Lab event log (TestLabPanel.jsx) */
+.event-log-admin {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+.event-log-admin .ev-row {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--slate-100);
+}
+.event-log-admin .ev-row:last-child { border-bottom: none; }
+.event-log-admin .ev-time { color: var(--slate-400); white-space: nowrap; }
+.event-log-admin .ev-type { text-transform: uppercase; font-size: 0.7rem; font-weight: 800; white-space: nowrap; }
+.event-log-admin .ev-dir { color: var(--slate-400); }
+.event-log-admin .ev-arrived .ev-type { color: #1a9e5c; }
+.event-log-admin .ev-departed .ev-type { color: #2d6cdf; }
+.event-log-admin .ev-trip-complete .ev-type { color: #b8860b; }
+
 .gap-tag {
   display: inline-block;
   background: var(--status-warning-bg);

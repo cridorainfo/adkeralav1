@@ -1,0 +1,69 @@
+name: GPS Test APK
+
+# Builds the standalone GPS reliability test app (bus2/gps-test/) — completely separate from the
+# real driver/display apps' Release workflow (release.yml), on purpose: this is a throwaway
+# personal test tool, not a versioned fleet release, so it doesn't need signing, ABI splits, or
+# cloud registration. A debug build is fine — it's never distributed beyond one test phone.
+on:
+  push:
+    paths:
+      - 'bus2/gps-test/**'
+      - '.github/workflows/gps-test-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bus2/gps-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 21, not 17 — same reason as release.yml's Android job: Capacitor's own
+      # capacitor-android library module targets Java 21.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: cap sync (regenerate native project glue)
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: bus2/gps-test/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk AdKeralaGpsTest-debug.apk
+
+      # A stable, always-overwritten release rather than one-per-push — this is a personal test
+      # tool with one "latest build" that matters, not a versioned artifact history. Gives a
+      # fixed download URL that doesn't change between iterations, so it only has to be shared
+      # (or bookmarked) once.
+      - name: Publish/update "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gps-test-latest
+          name: GPS Test — latest build
+          body: |
+            Debug build of the standalone GPS reliability test app (bus2/gps-test/).
+            Isolated from the real driver/display apps — safe to install alongside them.
+            Rebuilt automatically on every change; this release is overwritten each time.
+          files: bus2/gps-test/AdKeralaGpsTest-debug.apk
+          prerelease: true
