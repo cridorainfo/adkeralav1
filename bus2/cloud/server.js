@@ -210,6 +210,27 @@ app.use(express.json({ limit: '140mb' }));
 app.use(cookieParser());
 app.use(requestLogger);
 
+// Test Lab's phone-facing endpoints are a deliberate exception to the origin whitelist below:
+// the standalone GPS test app (bus2/gps-test/) is a Capacitor WebView, whose origin is something
+// like https://localhost, not any real cloud URL — it will never appear in getCloudUrls(), so
+// the credentialed whitelist check always fails it, and its fetch() calls get silently blocked
+// with no response headers (this is exactly what "load routes" failing in the app turned out to
+// be). Safe to open wide here specifically because these endpoints never read cookies/session —
+// GET routes/list/detail and POST events are all intentionally unauthenticated already (see
+// testlab.js's doc comment) — so there's no credential to leak by allowing any origin to read
+// the response.
+app.use('/api/testlab', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Vary', 'Origin');
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowed = Boolean(origin && getCloudUrls().includes(origin.replace(/\/+$/, '')));
