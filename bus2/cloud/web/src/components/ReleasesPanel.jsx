@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
 import { busDisplayLabel } from './BusContext.jsx';
+import { formatRelativeTime } from '../lib/timeAgo.js';
+
+// Full local date/time for the title tooltip — formatRelativeTime()'s "3d ago" is the at-a-glance
+// read, but an admin comparing against "when did I push that update" needs the precise moment too.
+function lastSeenTitle(at) {
+  return at ? new Date(at).toLocaleString() : 'Never reported';
+}
 
 export default function ReleasesPanel() {
   const [fleet, setFleet] = useState(null);
@@ -168,6 +175,7 @@ export default function ReleasesPanel() {
               <th>Plate</th>
               <th>Platform</th>
               <th>Online</th>
+              <th>Last seen</th>
               <th>App version</th>
               <th>Status</th>
             </tr>
@@ -183,6 +191,7 @@ export default function ReleasesPanel() {
                 <td>{row.plateDisplay ?? '—'}</td>
                 <td>{row.platform === 'android' ? 'Android' : 'PC'}</td>
                 <td>{row.online ? 'Yes' : 'No'}</td>
+                <td title={lastSeenTitle(row.updatedAt)}>{formatRelativeTime(row.updatedAt)}</td>
                 <td>{row.appVersion ?? '—'}</td>
                 <td>
                   <span className={`version-pill version-${row.pcStatus === 'current' ? 'current' : row.pcStatus === 'outdated' ? 'outdated' : row.pcStatus === 'below-minimum' ? 'below' : 'unknown'}`}>
@@ -192,7 +201,7 @@ export default function ReleasesPanel() {
               </tr>
             ))}
             {!filteredBuses.length && (
-              <tr><td colSpan={6} className="hint">No buses match "{busQuery}"</td></tr>
+              <tr><td colSpan={7} className="hint">No buses match "{busQuery}"</td></tr>
             )}
           </tbody>
         </table>
@@ -218,6 +227,10 @@ export default function ReleasesPanel() {
               <div className="table-card-row">
                 <span className="table-card-row-label">Online</span>
                 <span>{row.online ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Last seen</span>
+                <span title={lastSeenTitle(row.updatedAt)}>{formatRelativeTime(row.updatedAt)}</span>
               </div>
               <div className="table-card-row">
                 <span className="table-card-row-label">App version</span>
@@ -248,6 +261,7 @@ export default function ReleasesPanel() {
             <tr>
               <th>Driver</th>
               <th>Bus</th>
+              <th>Last seen</th>
               <th>App version</th>
               <th>Status</th>
               <th></th>
@@ -261,6 +275,7 @@ export default function ReleasesPanel() {
                   {row.linkedBusId ?? '—'}
                   {row.orphaned && <span className="version-pill version-below"> orphaned</span>}
                 </td>
+                <td title={lastSeenTitle(row.lastSeenAt)}>{formatRelativeTime(row.lastSeenAt)}</td>
                 <td>{row.appVersion ?? '—'}</td>
                 <td>
                   <span className={`version-pill version-${row.status === 'current' ? 'current' : row.status === 'outdated' ? 'outdated' : row.status === 'below-minimum' ? 'below' : 'unknown'}`}>
@@ -280,7 +295,7 @@ export default function ReleasesPanel() {
               </tr>
             ))}
             {!fleet?.drivers?.length && (
-              <tr><td colSpan={5} className="hint">No driver version reports yet</td></tr>
+              <tr><td colSpan={6} className="hint">No driver version reports yet</td></tr>
             )}
           </tbody>
         </table>
@@ -297,6 +312,10 @@ export default function ReleasesPanel() {
                   {row.linkedBusId ?? '—'}
                   {row.orphaned && <span className="version-pill version-below"> orphaned</span>}
                 </span>
+              </div>
+              <div className="table-card-row">
+                <span className="table-card-row-label">Last seen</span>
+                <span title={lastSeenTitle(row.lastSeenAt)}>{formatRelativeTime(row.lastSeenAt)}</span>
               </div>
               <div className="table-card-row">
                 <span className="table-card-row-label">App version</span>
