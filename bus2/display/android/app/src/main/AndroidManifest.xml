@@ -75,6 +75,19 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Reliable relaunch-after-self-update backstop — see AdKeralaPackageReplacedReceiver's
+             doc comment. MY_PACKAGE_REPLACED is a protected system broadcast sent only to this
+             app by the OS itself, so exported="false" is correct (no other app can send it to
+             us) and, like BOOT_COMPLETED, it's exempted from Android 8+'s background-broadcast
+             restrictions — no extra manifest wiring needed for that exemption. -->
+        <receiver
+            android:name=".AdKeralaPackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- ESP32 console over USB — required="false" so this build still installs on hardware

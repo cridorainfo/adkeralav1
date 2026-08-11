@@ -27,25 +27,52 @@ path below.
 - Uses `install(apkPath)`, not the manual's `installAndStart(apkPath, pkgName, activity)` —
   the manual states `installAndStart` does not work on Toolbox 2.0+, while `install` carries no
   such caveat, so this works uniformly across Toolbox generations. `AdKeralaUpdateChecker`
-  relaunches the app itself afterward (AlarmManager + process kill) instead of relying on
-  `installAndStart`'s built-in launch.
+  relaunches the app itself afterward instead of relying on `installAndStart`'s built-in launch
+  (see "Relaunch after silent install" below — this took two iterations to get reliable).
 - Called via reflection, not a compile-time import — `toolkit.jar` is a proprietary file Huidu
   hands out directly (see [`android/app/libs/README.md`](android/app/libs/README.md)). Without
   it present, `HuiduSilentInstaller.isAvailable()` is simply `false` and this whole section is a
   no-op — the app builds and updates exactly as it did before this integration existed.
 
-**Status**: `toolkit.jar` (delivered as `toolbox_kit_1.13.0_20250717.jar.zip`) is already in
-`android/app/libs/` — picked up automatically by `build.gradle`'s `fileTree(include: ['*.jar'],
-dir: 'libs')`, no gradle edit needed. `HuiduSilentInstaller.HUIDU_TECH_CLASS`
-(`cn.huidu.toolkit.HuiduTech`) has been verified against this exact jar with `javap`, along with
-every method signature `HuiduSilentInstaller` calls — see that class's doc comment. **Not yet
-committed to the repo** — see libs/README.md's CI note before assuming CI-built APKs will have
-this path available.
+**Status**: `toolkit.jar` (delivered as `toolbox_kit_1.13.0_20250717.jar.zip`) is committed at
+`android/app/libs/toolkit.jar` — picked up automatically by `build.gradle`'s
+`fileTree(include: ['*.jar'], dir: 'libs')`, no gradle edit needed, and CI-built releases carry
+it. `HuiduSilentInstaller.HUIDU_TECH_CLASS` (`cn.huidu.toolkit.HuiduTech`) has been verified
+against this exact jar with `javap`, along with every method signature `HuiduSilentInstaller`
+calls — see that class's doc comment. Confirmed working end-to-end on real field hardware
+2026-08-11 (v1.0.24 → v1.0.25 installed with zero taps).
 
 **Confirm it worked**: launch the app, `adb logcat -s AdKeralaHuidu` — should show
 `toolkit.jar detected ... — Huidu silent-install path available` rather than the
 "not bundled" line. `adb logcat -s AdKeralaUpdate` will then show `Huidu silent install
 succeeded` instead of the PackageInstaller status lines on the next update.
+
+### Relaunch after silent install
+
+Getting the app to reliably come back to the *foreground* after killing its own process to load
+the new APK's code turned out to be the hard part — silent install itself worked on the first
+try, but relaunch didn't. Two things had to be layered on top of each other before it was
+reliable:
+
+1. **suExec-based restart** (`HuiduSilentInstaller.restartApp()`) — runs `am force-stop` + `am
+   start -n` via the Toolbox's root shell (`suExec`), the same two commands proven reliable
+   manually over `adb shell` on this hardware. This replaced an earlier AlarmManager-scheduled
+   `PendingIntent` approach that a field test (2026-08-11, v1.0.26) caught landing on the home
+   launcher instead of MainActivity — almost certainly Doze / background-activity-start deferral
+   racing against the dying process, since `lastUpdateTime` confirmed the install itself had
+   completed cleanly.
+2. **AdKeralaPackageReplacedReceiver** (`MY_PACKAGE_REPLACED`) — a backstop that doesn't depend
+   on the old, dying process at all. Android sends this broadcast to the app itself the moment
+   *any* install mechanism replaces its APK (Huidu, Device Owner PackageInstaller, or a manual
+   `adb install -r`), and — like `BOOT_COMPLETED` — it's exempted from Android 8+'s background-
+   broadcast restrictions. This also quietly fixes a gap in the *original* Device Owner path,
+   which never had an explicit relaunch step and was relying on an unverified assumption that
+   Android would just handle it.
+
+If a future device shows a successful `lastUpdateTime` but the wrong app in `mCurrentFocus`
+(check both the same way as "Confirm it worked" above), this is the first place to look —
+specifically whether `AdKeralaPkgReplaced` ever logged "package replaced — launching display" in
+`adb logcat -s AdKeralaPkgReplaced`.
 
 ---
 

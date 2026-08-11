@@ -155,6 +155,38 @@ public final class HuiduSilentInstaller {
         return invokeBooleanMethod("uninstall", new Class<?>[]{String.class}, new Object[]{packageName});
     }
 
+    /**
+     * Force-stops and relaunches an app via root shell (`am force-stop` + `am start -n`), using
+     * the same suExec the manual (String... commands) documents. This exists specifically as a
+     * more reliable alternative to an in-process AlarmManager-scheduled relaunch: a field case
+     * (2026-08-11, v1.0.26) showed the AlarmManager approach landing on the home launcher
+     * instead of MainActivity after an otherwise successful silent install — most likely Doze /
+     * background-activity-start deferral on this hardware. `am start` run via root shell doesn't
+     * have that problem: it's the exact same command sequence proven reliable over `adb shell`
+     * during manual testing of this same device. Runs independently of this calling process's
+     * own lifetime — the command already reached Toolbox by the time this process gets killed,
+     * so it completes even if the caller doesn't survive to see the result.
+     */
+    public boolean restartApp(String packageName, String activityClassName) {
+        String component = packageName + "/" + activityClassName;
+        String result = suExec("am force-stop " + packageName, "am start -n " + component);
+        return result != null;
+    }
+
+    /** String suExec(String... commands) — runs shell commands with root, per the manual. */
+    public String suExec(String... commands) {
+        if (!available) return null;
+        ensureConnected();
+        try {
+            Method m = huiduTech.getClass().getMethod("suExec", String[].class);
+            Object result = m.invoke(huiduTech, (Object) commands);
+            return (String) result;
+        } catch (Exception e) {
+            Log.w(TAG, "HuiduTech.suExec() failed", e);
+            return null;
+        }
+    }
+
     private boolean invokeBooleanMethod(String name, Class<?>[] paramTypes, Object[] args) {
         if (!available) return false;
         ensureConnected();

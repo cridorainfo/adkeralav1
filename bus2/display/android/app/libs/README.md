@@ -28,9 +28,8 @@ javap -p -classpath toolkit.jar cn.huidu.toolkit.HuiduTech
 
 and update the constant if it moved.
 
-**CI note**: `.github/workflows/release.yml`'s `build-android` job builds from a fresh checkout
-of this repo — if `toolkit.jar` isn't committed here, CI-built APKs won't have the Huidu path
-available (they'll silently fall back to the Device Owner path, same as any non-Huidu device).
-Decide with the team whether this proprietary file should be committed to the repo or supplied
-to CI another way (e.g. a repo secret decoded to this path, mirroring how the release keystore is
-handled) before relying on Huidu-path updates from CI-built releases.
+**CI note**: `toolkit.jar` is committed here, so `.github/workflows/release.yml`'s `build-android`
+job (which builds from a fresh checkout) already carries the Huidu path in every CI-built
+release — confirmed 2026-08-11 (v1.0.24 onward). If this file is ever removed from the repo in
+favor of another delivery mechanism (e.g. a repo secret decoded to this path, mirroring how the
+release keystore is handled), update this note.

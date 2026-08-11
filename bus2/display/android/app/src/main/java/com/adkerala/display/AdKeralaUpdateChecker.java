@@ -1,6 +1,5 @@
 package com.adkerala.display;
 
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -309,24 +308,25 @@ public class AdKeralaUpdateChecker {
     /** Huidu's install() (unlike installAndStart) only installs — it doesn't relaunch, and per
      * the manual installAndStart doesn't work on Toolbox 2.0+ anyway, so relaunching ourselves
      * here works uniformly across Toolbox generations instead of depending on that caveat-laden
-     * call. Schedules MainActivity to reopen via AlarmManager, then kills this process — same
-     * "exit and let the alarm bring it back up on the new bytes" shape as a normal silent update
-     * restart, and reuses AdKeralaBootReceiver's own launch flags/intent shape. */
+     * call.
+     *
+     * Uses HuiduSilentInstaller.restartApp() (root `am force-stop` + `am start -n`) rather than
+     * an in-process AlarmManager-scheduled PendingIntent — a field case (2026-08-11, v1.0.26)
+     * showed the AlarmManager approach landing on the home launcher instead of MainActivity
+     * after an otherwise-successful silent install, almost certainly Doze/background-activity-
+     * start deferral racing against this process's own death. suExec-based restart doesn't have
+     * that race: it's a root shell command completed by Toolbox independently of whether this
+     * process survives to see it finish, and it's the exact sequence proven reliable manually
+     * over `adb shell` on this same hardware. AdKeralaPackageReplacedReceiver (MY_PACKAGE_REPLACED)
+     * is the belt-and-suspenders fallback if this call itself fails or Huidu isn't available. */
     private void restartAfterHuiduInstall(String version) {
         Log.i(TAG, "Huidu silent install succeeded (v" + version + ") — restarting to apply it");
         notifyStatus("AdKerala updated", "Now on v" + version);
-        Intent relaunch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-        if (relaunch == null) {
-            relaunch = new Intent(context, com.adkerala.display.MainActivity.class);
-        }
-        relaunch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            context, 0, relaunch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (alarmManager != null) {
-            alarmManager.set(AlarmManager.RTC, System.currentTimeMillis() + 2000, pendingIntent);
-        } else {
-            Log.w(TAG, "no AlarmManager — relying on AdKeralaBootReceiver/manual relaunch instead");
+        boolean restarted = HuiduSilentInstaller.getInstance(context)
+            .restartApp(context.getPackageName(), ".MainActivity");
+        if (!restarted) {
+            Log.w(TAG, "suExec restart failed — falling back to AdKeralaPackageReplacedReceiver "
+                + "(fires on MY_PACKAGE_REPLACED) after process death");
         }
         installInFlight = false;
         handler.postDelayed(() -> Process.killProcess(Process.myPid()), 500);
