@@ -144,8 +144,17 @@ public class AdKeralaNodeRunner {
     static String getInstalledVersionName(Context context) {
         try {
             PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            return info.versionName != null ? info.versionName : "0.0.0";
+            if (info.versionName != null) return info.versionName;
+            // Shouldn't happen on a normal Gradle-built APK (build.gradle always sets
+            // versionName), but logged loudly rather than silently falling back — this exact
+            // "0.0.0" string is also the embedded server bundle's own placeholder version (see
+            // server/version.js), so a silent fallback here is indistinguishable in cloud
+            // telemetry from the override never being threaded through at all.
+            Log.w(TAG, "PackageInfo.versionName is null for our own package — falling back to "
+                + "0.0.0. This device's fleet telemetry will show 0.0.0 until this is fixed.");
+            return "0.0.0";
         } catch (PackageManager.NameNotFoundException e) {
+            Log.w(TAG, "getPackageInfo() couldn't find our own package — falling back to 0.0.0", e);
             return "0.0.0";
         }
     }

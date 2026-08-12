@@ -18,7 +18,7 @@ import { resetBusStateForUnclaim } from './fleetUnclaim.js';
 import { isFleetRevoked } from './fleetRevoke.js';
 import { clearAllHubSessions, disconnectAllDrivers, readDevicesDisconnectAt } from './hubSessions.js';
 import { syncStopAudioWithCatalog } from './audioMerge.js';
-import { APP_VERSION } from './version.js';
+import { getAppVersion } from './version.js';
 import { DEFAULT_CLOUD_URLS, DEFAULT_PUBLIC_CLOUD_URL, resolveCloudUrl } from '../shared/cloudUrls.js';
 
 // Bus PCs are often on mobile hotspots / consumer routers with flaky or half-configured IPv6.
@@ -188,7 +188,7 @@ function buildTelemetry(state, busId) {
     scheduleLoopCount: state.schedule?.loopCount ?? 0,
     scheduleCurrentIndex: state.schedule?.currentIndex ?? 0,
     scheduleItemCount: state.schedule?.items?.length ?? 0,
-    appVersion: APP_VERSION,
+    appVersion: getAppVersion(),
     // Set by server/androidMain.js on Android display units (unset/undefined -> 'pc' — every
     // installed base before this field existed). Lets cloud/releases.js's getFleetVersions()
     // compare a bus's appVersion against the right release channel (pc vs android) instead of
@@ -215,7 +215,7 @@ async function tryFleetEnrollment(root) {
     body: JSON.stringify({
       installId: config.installId,
       fleetClaimCode: config.fleetClaimCode,
-      appVersion: APP_VERSION,
+      appVersion: getAppVersion(),
     }),
   });
 
