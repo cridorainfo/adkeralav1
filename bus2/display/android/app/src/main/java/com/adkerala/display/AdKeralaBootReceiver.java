@@ -27,8 +27,6 @@ public class AdKeralaBootReceiver extends BroadcastReceiver {
             return;
         }
         Log.i(TAG, "boot completed — launching display (" + action + ")");
-        Intent launch = new Intent(context, MainActivity.class);
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        context.startActivity(launch);
+        AdKeralaRelaunch.bringToForeground(context, "boot completed");
     }
 }

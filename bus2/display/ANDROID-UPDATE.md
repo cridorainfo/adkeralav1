@@ -74,6 +74,28 @@ If a future device shows a successful `lastUpdateTime` but the wrong app in `mCu
 specifically whether `AdKeralaPkgReplaced` ever logged "package replaced — launching display" in
 `adb logcat -s AdKeralaPkgReplaced`.
 
+**v1.0.29 field case — the receiver logged but the screen still didn't come up**: a Huidu-path
+device installed v1.0.29 cleanly (embedded server + update checker running, cloud showed it
+"online" with a fresh `lastSeen`) but the physical screen sat on the Android home launcher. Root
+cause: `AdKeralaPackageReplacedReceiver` was calling `Context.startActivity()` directly, which is
+subject to Android's background-activity-start (BAL) restrictions — and this app is deliberately
+*not* Device-Owner-enrolled on Huidu hardware, so it doesn't get the BAL exemption Device Owner
+apps do. The call can silently no-op on exactly the hardware this whole Huidu path exists for.
+
+Fixed by routing every relaunch trigger (post-install backstop, boot, and a new periodic
+foreground watchdog — see below) through `AdKeralaRelaunch`, which prefers the same root suExec
+`am start` `HuiduSilentInstaller.restartApp()` already uses, since a root shell start is never
+subject to BAL restrictions. Plain `startActivity()` is now only the fallback for non-Huidu
+devices, where the Device Owner BAL exemption already makes it reliable.
+
+**Foreground watchdog**: `AdKeralaUpdateChecker` now also checks every 60s (via
+`MainActivity.isForeground`, set from `onResume`/`onPause`) whether the Activity is actually on
+screen, and forces a relaunch through `AdKeralaRelaunch` after two consecutive misses (~2 minutes)
+regardless of cause — a relaunch race, a WebView crash, an ANR, anything. This is the self-healing
+backstop for a kiosk display with no one in the field to notice or fix it manually.
+`adb logcat -s AdKeralaUpdate` shows `MainActivity not in foreground` / `forcing relaunch` if this
+ever fires.
+
 ---
 
 ## Per-device, one-time: enroll as Device Owner

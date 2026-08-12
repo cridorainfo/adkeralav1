@@ -61,6 +61,12 @@ public class AdKeralaUpdateChecker {
     private static final long CHECK_INTERVAL_MS = 15 * 60 * 1000; // matches kiosk/updater.cjs
     private static final long BOOT_CHECK_DELAY_MS = 20 * 1000; // let the embedded server come up first
     private static final long TRIP_RECHECK_MS = 60 * 1000;
+    private static final long WATCHDOG_INTERVAL_MS = 60 * 1000;
+    // Require 2 consecutive not-foreground checks (~2 watchdog cycles) before forcing a
+    // relaunch — tolerates the brief legitimate gap while a Huidu-triggered restart itself is
+    // in flight, without tolerating the actual stuck-on-launcher failure mode this exists for
+    // (see AdKeralaRelaunch's doc comment for the field case).
+    private static final int WATCHDOG_TRIGGER_CHECKS = 2;
     private static final String ACTION_INSTALL_COMPLETE = "com.adkerala.display.INSTALL_COMPLETE";
     private static final String NOTIFICATION_CHANNEL_ID = "adkerala-updates";
     private static final int NOTIFICATION_ID_STATUS = 1001;
@@ -71,6 +77,7 @@ public class AdKeralaUpdateChecker {
     private final int localPort;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean installInFlight = false;
+    private int consecutiveNotForeground = 0;
 
     public AdKeralaUpdateChecker(Context context, String cloudUrl, int localPort) {
         this.context = context.getApplicationContext();
@@ -143,6 +150,28 @@ public class AdKeralaUpdateChecker {
                 + "updates will require manual tap-through if they run at all. See ANDROID-UPDATE.md.");
         }
         handler.postDelayed(this::checkNow, BOOT_CHECK_DELAY_MS);
+        handler.postDelayed(this::checkForeground, WATCHDOG_INTERVAL_MS);
+    }
+
+    /** Self-healing backstop for "the display isn't actually showing MainActivity" regardless of
+     * cause — a relaunch call that silently lost to Android's background-activity-start
+     * restriction (the exact v1.0.29 field case AdKeralaRelaunch's doc comment describes), a
+     * WebView crash, an ANR, anything. This kiosk display has no one to notice or manually fix
+     * that in the field, so it has to notice and fix itself. */
+    private void checkForeground() {
+        if (MainActivity.isForeground) {
+            consecutiveNotForeground = 0;
+        } else {
+            consecutiveNotForeground++;
+            Log.w(TAG, "MainActivity not in foreground (" + consecutiveNotForeground
+                + " consecutive watchdog check(s))");
+            if (consecutiveNotForeground >= WATCHDOG_TRIGGER_CHECKS) {
+                Log.w(TAG, "display has been off-screen for over a watchdog cycle — forcing relaunch");
+                AdKeralaRelaunch.bringToForeground(context, "foreground watchdog");
+                consecutiveNotForeground = 0;
+            }
+        }
+        handler.postDelayed(this::checkForeground, WATCHDOG_INTERVAL_MS);
     }
 
     private void scheduleNext() {

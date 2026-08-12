@@ -21,6 +21,15 @@ import android.util.Log;
  * reliable backstop: even if the in-process relaunch attempt loses its race (or Huidu isn't
  * available at all, e.g. the Device Owner PackageInstaller path, which never had an explicit
  * relaunch step), this still fires once the freshly-installed APK's own receivers are live.
+ *
+ * Relaunches via AdKeralaRelaunch (root suExec `am start` when Huidu is available), not a plain
+ * Context.startActivity() call — a v1.0.29 field case showed exactly this receiver's *previous*
+ * plain-startActivity version firing (logged "package replaced — launching display") while the
+ * screen still sat on the home launcher: the embedded server + update checker kept running and
+ * reporting "online" to cloud, which only happens from inside MainActivity.onCreate(), yet the
+ * Activity itself never actually came to the foreground — the signature of a startActivity()
+ * call from a BroadcastReceiver silently losing to Android's background-activity-start
+ * restriction on this non-Device-Owner-enrolled hardware. See AdKeralaRelaunch's doc comment.
  */
 public class AdKeralaPackageReplacedReceiver extends BroadcastReceiver {
 
@@ -30,8 +39,6 @@ public class AdKeralaPackageReplacedReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (!Intent.ACTION_MY_PACKAGE_REPLACED.equals(intent.getAction())) return;
         Log.i(TAG, "package replaced — launching display");
-        Intent launch = new Intent(context, MainActivity.class);
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        context.startActivity(launch);
+        AdKeralaRelaunch.bringToForeground(context, "package replaced");
     }
 }

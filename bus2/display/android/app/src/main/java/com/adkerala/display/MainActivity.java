@@ -57,6 +57,27 @@ public class MainActivity extends BridgeActivity {
 
     private AdKeralaSerialManager serialManager;
 
+    // Read by AdKeralaUpdateChecker's foreground watchdog — this is a kiosk display that should
+    // never legitimately sit behind another window, so "not foreground for more than a couple of
+    // watchdog cycles" is treated as a stuck relaunch, not a normal app-lifecycle event. See
+    // AdKeralaRelaunch's doc comment for the field case (v1.0.29) this closes: an update whose
+    // relaunch silently failed to bring the Activity to the foreground while the embedded
+    // server + update checker (both started from onCreate below) kept running and reporting
+    // "online" to cloud, with nothing to notice or correct it before this watchdog existed.
+    static volatile boolean isForeground = false;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        isForeground = true;
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        isForeground = false;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
