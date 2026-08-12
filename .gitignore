@@ -1,2 +1,5 @@
 # Portable kiosk build output (see bus2/scripts/prepare-bustestsss.ps1)
 bustestsss/
+
+# Claude Code local plugin data (not project source)
+.claude/data/
