@@ -58,7 +58,13 @@ export default function SchedulePlayer({ schedule, onItemStart, onItemEnd }) {
   return (
     <div className="display-schedule-view">
       {currentItem.kind === 'video' ? (
+        // key={currentItem.id} forces a brand-new <video> element per playlist item instead of
+        // reusing the same DOM node with a swapped `src` — without it, switching from item N to
+        // item N+1 on the same element was unreliable (observed as the previous item appearing to
+        // play again instead of advancing), the same class of bug the fullscreen ad player avoids
+        // by unmounting/remounting its own <video> on every ad change.
         <video
+          key={currentItem.id}
           ref={videoRef}
           src={url}
           autoPlay
@@ -68,7 +74,7 @@ export default function SchedulePlayer({ schedule, onItemStart, onItemEnd }) {
           onError={() => onItemEnd?.()}
         />
       ) : (
-        <img src={url} alt="" />
+        <img key={currentItem.id} src={url} alt="" />
       )}
     </div>
   );
