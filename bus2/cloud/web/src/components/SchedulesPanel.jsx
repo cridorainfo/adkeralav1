@@ -452,9 +452,14 @@ export default function SchedulesPanel() {
               multiple
               disabled={uploading}
               onChange={(e) => {
-                const files = e.target.files;
+                // Snapshot into a real array before clearing the input — e.target.files is a
+                // live FileList, and in some Chromium builds resetting e.target.value empties
+                // that same live list out from under an already-captured reference, silently
+                // dropping every file (no error, no upload, nothing). Array.from() copies the
+                // File objects out so clearing the input can't touch them.
+                const files = Array.from(e.target.files ?? []);
                 e.target.value = '';
-                if (files?.length) uploadItems(files);
+                if (files.length) uploadItems(files);
               }}
             />
             <UploadStatusList queue={uploadQueue} />
@@ -607,9 +612,11 @@ export default function SchedulesPanel() {
                     multiple
                     disabled={editSlot}
                     onChange={(e) => {
-                      const files = e.target.files;
+                      // See the create-form input above for why this must be a real array
+                      // snapshot, not the live e.target.files, before clearing the input.
+                      const files = Array.from(e.target.files ?? []);
                       e.target.value = '';
-                      if (files?.length) uploadEditItems(s.id, files);
+                      if (files.length) uploadEditItems(s.id, files);
                     }}
                   />
                   <UploadStatusList queue={editUploadQueue[s.id] ?? []} />
