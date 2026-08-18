@@ -33,7 +33,7 @@ import {
 import { collectUsedStopAudioKeys } from '../lib/audioFragments';
 import { runAnnouncementPlayback } from '../lib/runAnnouncementPlayback';
 import { isDisplayRole, isControlRole } from '../lib/appRole';
-import { nextPlayableAdIndex, adHasPlayableMedia } from '../lib/adPlayback';
+import { nextPlayableAdIndex, adHasPlayableMedia, decrementAdQuota } from '../lib/adPlayback';
 import {
   mergeStopWithCatalog,
   upsertCatalogEntry,
@@ -48,6 +48,7 @@ import {
   applySetRouteDirection,
   applyUndoForward,
 } from '../store/driveActions';
+import { applyPlayScheduleItem, applyEndScheduleItem } from '../store/scheduleActions';
 
 /**
  * Shared by endAd/endBannerAd/endAudioAd — builds one play event and appends it to the
@@ -67,23 +68,6 @@ function pushPendingAdPlay(prev, { adId, campaignId, playedAt, durationPlayedSec
     completed,
   };
   return [...(prev.pendingAdPlays ?? []), playEvent].slice(-500);
-}
-
-/** Decrements a bus's own local copy of an ad's remaining play-count quota (`playsRemaining`,
- * stamped by the cloud — see cloud/server.js stampExhaustion) the instant a play finishes, so
- * the hard stop applies immediately even fully offline, without waiting for the next sync to
- * tell this bus it's exhausted. Self-corrects next sync once the cloud has an authoritative
- * count of this bus's actual reported plays (fullscreen ads only — same scope as the budget/
- * quota system itself; banner/audio ads aren't budget-instrumented). */
-function decrementAdQuota(ads, adId) {
-  let changed = false;
-  const next = (ads ?? []).map((ad) => {
-    if (ad.id !== adId || !Number.isFinite(ad.playsRemaining)) return ad;
-    changed = true;
-    const playsRemaining = Math.max(0, ad.playsRemaining - 1);
-    return { ...ad, playsRemaining, exhausted: ad.exhausted || playsRemaining <= 0 };
-  });
-  return changed ? next : ads;
 }
 
 function useBusStoreLogic() {
@@ -953,40 +937,13 @@ function useBusStoreLogic() {
    * push (server/cloudSync.js's buildTelemetry), not a separate play-tracking upload.
    */
   const playScheduleItem = useCallback((index) => {
-    update((s) => {
-      const items = s.schedule?.items ?? [];
-      if (!items.length) return s;
-      const clamped = ((index % items.length) + items.length) % items.length;
-      if (s.schedule?.currentIndex === clamped && s.schedule?.itemStartedAt) return s;
-      return {
-        ...s,
-        schedule: { ...(s.schedule ?? {}), currentIndex: clamped, itemStartedAt: Date.now() },
-      };
-    });
+    update((s) => applyPlayScheduleItem(s, index));
   }, [update]);
 
-  /** Current item finished (natural end or its durationSec elapsed) — advance to the next one,
-   * wrapping to 0 and incrementing loopCount once the whole playlist has played through. This
-   * is the one place loopCount ever increments, so "has it looped N times" always means "has it
-   * reached the end of the list and wrapped N times", not e.g. a per-item repeat count. */
+  /** Current item finished (natural end or its durationSec elapsed) — advance to the next one.
+   * See scheduleActions.js's applyEndScheduleItem for the wrap/loopCount semantics. */
   const endScheduleItem = useCallback(() => {
-    update((s) => {
-      const items = s.schedule?.items ?? [];
-      if (!items.length) return s;
-      const current = s.schedule?.currentIndex ?? 0;
-      const wrapped = current + 1 >= items.length;
-      const nextIndex = wrapped ? 0 : current + 1;
-      return {
-        ...s,
-        schedule: {
-          ...(s.schedule ?? {}),
-          currentIndex: nextIndex,
-          loopCount: wrapped ? (s.schedule?.loopCount ?? 0) + 1 : (s.schedule?.loopCount ?? 0),
-          lastItemEndedAt: Date.now(),
-          itemStartedAt: Date.now(),
-        },
-      };
-    });
+    update((s) => applyEndScheduleItem(s));
   }, [update]);
 
   /** Banner-ad equivalent of endAd() — BannerAdStrip.jsx tracks its own start time (no shared

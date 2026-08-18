@@ -69,8 +69,6 @@ import {
   recordAdPlays,
   getCampaignPlaysSummary,
   getAdPlaysRaw,
-  getAdPlayCountForBus,
-  getAdPlayCountForBusSince,
   getPricingSettings,
   setPricingSettings,
   getHouseAds,
@@ -81,14 +79,8 @@ import {
   describeMediaReferences,
   removeMediaReferenceEverywhere,
 } from './store.js';
-import {
-  computeAdSpend,
-  isAdExhausted,
-  estimateCostPerPlay,
-  computeBusPlayQuota,
-  computeWeeklyViewShare,
-  weekStartMs,
-} from './pricing.js';
+import { computeAdSpend, weekStartMs } from './pricing.js';
+import { stampExhaustion } from './adExhaustion.js';
 import {
   CLOUD_VERSION,
   buildPcLatestYml,
@@ -1554,84 +1546,6 @@ app.get('/api/buses/:busId/ads/live', authFleet, async (req, res) => {
   const bannerAds = [...catalog.bannerAds, ...houseAds.bannerAds];
   res.json({ ok: true, ads, bannerAds, adsSavedAt: catalog.adsSavedAt });
 });
-
-// Stamps `exhausted`/`playsRemaining` onto each budgeted ad for one specific bus, so the bus's
-// own rotation (src/lib/adPlayback.js nextPlayableAdIndex) can skip exhausted paid ads and fall
-// back to house ads without needing any cloud round-trip of its own. Budget/exhaustion is a
-// fullscreen-only concept (banner ads aren't instrumented by endAd()'s play tracking), so this
-// only applies to the fullscreen list — banner house ads are appended separately, unconditionally.
-//
-// Two enforcement mechanisms are combined:
-//  - `playsRemaining` (a fixed per-bus play-count quota, this ad's budget divided across every
-//    bus its owning campaign targets) is what the bus itself enforces locally as plays happen —
-//    including fully offline — so it never "over-shows" past its share while waiting on a sync.
-//    The bus decrements its own copy as it plays (BusStoreProvider.jsx endAd()); this stamping
-//    just gives it a fresh authoritative number (quota minus this bus's actual reported plays)
-//    each time it syncs, so a pricing/budget/targeting change made by admin, or any drift from
-//    the bus's own optimistic local count, converges next time that bus is back online.
-//  - `exhausted` (unchanged from before) is still additionally true once the ad's real fleet-
-//    wide spend reaches its budget — a belt-and-suspenders backstop for the rare case where the
-//    quota estimate (based on an assumed per-play cost) doesn't match actual watch-time.
-async function stampExhaustion(list = [], busId, format = 'fullscreen') {
-  const pricingSettings = await getPricingSettings();
-  return Promise.all(
-    list.map(async (ad) => {
-      const hasAmount = Number.isFinite(Number(ad.amount)) && Number(ad.amount) > 0;
-      // weeklyViewTarget is a separate, independent budget concept from `amount` (see
-      // cloud/pricing.js computeWeeklyViewShare's doc comment) — an ad can carry either, both, or
-      // neither, so this can't just piggyback on the hasAmount guard below it used to share.
-      const hasWeeklyTarget = Number.isFinite(Number(ad.weeklyViewTarget)) && Number(ad.weeklyViewTarget) > 0;
-      if (!hasAmount && !hasWeeklyTarget) return ad;
-
-      let exhaustedBySpend = false;
-      if (hasAmount) {
-        const plays = await getAdPlaysRaw(ad.id);
-        const { spend } = computeAdSpend(plays, format, pricingSettings);
-        exhaustedBySpend = isAdExhausted(ad.amount, spend);
-      }
-
-      let playQuota = null;
-      let playsUsed = null;
-      let playsRemaining = null;
-      let weeklyPerBusTarget = null;
-      let weeklyViewsUsed = null;
-      const campaign = ad.campaignId ? await getCampaign(ad.campaignId) : null;
-      if (campaign) {
-        if (hasAmount) {
-          const costPerPlay = estimateCostPerPlay(ad, format, pricingSettings);
-          playQuota = computeBusPlayQuota({
-            amount: ad.amount,
-            costPerPlay,
-            busCount: campaign.targetBusIds?.length ?? 0,
-          });
-          if (playQuota != null && busId) {
-            playsUsed = await getAdPlayCountForBus(busId, ad.id);
-            playsRemaining = Math.max(0, playQuota - playsUsed);
-          }
-        }
-
-        // Weekly view-pacing (distinct from the money-budget quota above) — fullscreen-only,
-        // same as the rest of this function's per-bus stamping. The bus-side rotation
-        // (src/lib/adPlayback.js isAdOnWeeklyPace) uses weeklyPerBusTarget/weeklyViewsUsed to
-        // throttle itself so ~50 views/week spreads evenly instead of bursting on day one — see
-        // that file for the actual pacing math.
-        if (hasWeeklyTarget) {
-          weeklyPerBusTarget = computeWeeklyViewShare(ad.weeklyViewTarget, campaign.targetBusIds?.length ?? 0);
-          if (weeklyPerBusTarget != null && busId) {
-            weeklyViewsUsed = await getAdPlayCountForBusSince(busId, ad.id, weekStartMs());
-          }
-        }
-      }
-
-      return {
-        ...ad,
-        exhausted: exhaustedBySpend || (playsRemaining != null && playsRemaining <= 0),
-        ...(playQuota != null ? { playQuota, playsUsed, playsRemaining } : {}),
-        ...(weeklyPerBusTarget != null ? { weeklyPerBusTarget, weeklyViewsUsed } : {}),
-      };
-    })
-  );
-}
 
 // Bus device pull sync for ads/banner ads (full reconciliation, mirrors GET .../routes above).
 // The UPDATE_ADS command gives near-instant updates while the bus is online, but this periodic

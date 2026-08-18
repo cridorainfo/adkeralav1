@@ -109,7 +109,16 @@ export function msIntoWeek(timestampMs = Date.now(), timeZone = PEAK_TIMEZONE) {
   }).formatToParts(new Date(timestampMs));
   const get = (type) => parts.find((p) => p.type === type)?.value;
   const dayIndex = WEEKDAY_INDEX[get('weekday')] ?? 0;
-  const msIntoDay = ((Number(get('hour')) * 60 + Number(get('minute'))) * 60 + Number(get('second'))) * 1000;
+  // Intl only reports whole seconds, but `timestampMs` (what weekStartMs subtracts this from) has
+  // millisecond precision — without adding its own millisecond-of-second back in here,
+  // weekStartMs(timestampMs) would carry a residual equal to `timestampMs % 1000` and drift by a
+  // few ms on every call. That was harmless while this was only ever used as a transient DB-query
+  // cutoff, but src/lib/adPlayback.js's effectiveWeeklyState now needs the device's independently
+  // computed weekStartMs to compare *equal* to this cloud-stamped one for the same real week, so
+  // it must be a stable, reproducible value. Milliseconds don't shift across timezones, so
+  // `timestampMs % 1000` is safe to add directly regardless of `timeZone`.
+  const msIntoDay = ((Number(get('hour')) * 60 + Number(get('minute'))) * 60 + Number(get('second'))) * 1000
+    + (((timestampMs % 1000) + 1000) % 1000);
   return dayIndex * 24 * 60 * 60 * 1000 + msIntoDay;
 }
 
@@ -128,6 +137,18 @@ export function computeWeeklyViewShare(weeklyViewTarget, busCount) {
   if (!Number.isFinite(target) || target <= 0) return null;
   const buses = Math.max(1, Number(busCount) || 0);
   return Math.max(1, Math.round(target / buses));
+}
+
+/** A bus's remaining plays against its weekly-view share for the current week — same
+ * floor-at-zero shape as computeBusPlayQuota's playsRemaining, just for the weekly-view cap
+ * instead of the money-budget one. Returns null (no cap) when there's no target — kept as a
+ * separate function from computeWeeklyViewShare (which computes the target itself) since the
+ * device needs to recompute this fresh at read/decrement time too (src/lib/adPlayback.js
+ * effectiveWeeklyState), independent of a fresh weeklyViewsUsed round-trip to the cloud. */
+export function computeWeeklyPlaysRemaining(weeklyPerBusTarget, weeklyViewsUsed) {
+  const target = Number(weeklyPerBusTarget);
+  if (!Number.isFinite(target) || target <= 0) return null;
+  return Math.max(0, target - (Number(weeklyViewsUsed) || 0));
 }
 
 /** Divides an ad's total budget into a fixed play-count quota per bus it's targeted at, so each

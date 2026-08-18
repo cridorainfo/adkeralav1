@@ -8,7 +8,7 @@ export default function BannerAdStrip({ bannerAds, settings, onAdEnd }) {
   const adStartedAtRef = useRef(null);
 
   const enabled = settings?.enabled !== false;
-  const ads = (bannerAds ?? []).filter(adHasPlayableMedia);
+  const ads = (bannerAds ?? []).filter((ad) => adHasPlayableMedia(ad));
   const current = ads.length ? ads[index % ads.length] : null;
   const durationSec = current?.durationSec ?? settings?.defaultDurationSec ?? 8;
   const isVideo = current?.type === 'video';

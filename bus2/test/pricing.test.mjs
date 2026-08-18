@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeAdSpend, isAdExhausted, isPeakMinute, minuteOfDay } from '../cloud/pricing.js';
+import {
+  computeAdSpend,
+  isAdExhausted,
+  isPeakMinute,
+  minuteOfDay,
+  computeWeeklyPlaysRemaining,
+} from '../cloud/pricing.js';
 
 test('minuteOfDay converts a UTC timestamp to Asia/Kolkata minute-of-day', () => {
   // 2026-01-01T02:30:00Z = 08:00 IST (UTC+5:30) = 480 minutes since midnight.
@@ -55,4 +61,26 @@ test('isAdExhausted flags exactly-at and over budget, not under', () => {
   assert.equal(isAdExhausted(100, 99), false);
   assert.equal(isAdExhausted(100, 100), true);
   assert.equal(isAdExhausted(100, 101), true);
+});
+
+test('computeWeeklyPlaysRemaining subtracts used from target', () => {
+  assert.equal(computeWeeklyPlaysRemaining(10, 4), 6);
+  assert.equal(computeWeeklyPlaysRemaining(10, 0), 10);
+});
+
+test('computeWeeklyPlaysRemaining floors at 0, never negative', () => {
+  assert.equal(computeWeeklyPlaysRemaining(10, 10), 0);
+  assert.equal(computeWeeklyPlaysRemaining(10, 15), 0);
+});
+
+test('computeWeeklyPlaysRemaining returns null when there is no weekly target', () => {
+  assert.equal(computeWeeklyPlaysRemaining(0, 5), null);
+  assert.equal(computeWeeklyPlaysRemaining(null, 5), null);
+  assert.equal(computeWeeklyPlaysRemaining(undefined, 5), null);
+  assert.equal(computeWeeklyPlaysRemaining(-3, 5), null);
+});
+
+test('computeWeeklyPlaysRemaining treats a missing/non-numeric weeklyViewsUsed as 0', () => {
+  assert.equal(computeWeeklyPlaysRemaining(10, undefined), 10);
+  assert.equal(computeWeeklyPlaysRemaining(10, null), 10);
 });

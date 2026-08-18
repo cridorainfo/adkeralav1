@@ -6,6 +6,7 @@ import { notifyStateChanged } from './stateEvents.js';
 import { applyCloudCommands, buildDisplaySnapshot, collectMediaDownloads, collectAdMediaFromState, collectAudioMediaFromState, collectScheduleMediaFromState } from './cloudCommands.js';
 import { syncCloudMedia, deleteLocalMediaFiles, downloadToFile } from './cloudMediaSync.js';
 import { getStopInfo } from '../src/store/busStore.js';
+import { effectiveWeeklyState, weekStartMs } from '../src/lib/adPlayback.js';
 import { getLanAddresses, getWifiSsid } from './networkInfo.js';
 import {
   loadDeviceConfig,
@@ -428,6 +429,50 @@ async function syncDevicesDisconnectFromCloud(root, cloudAt, cloudPairingCode = 
   console.log('AdKerala cloud sync: admin disconnected all paired phones for this bus');
 }
 
+/** Reconciles the weekly-view-cap fields (weeklyPerBusTarget/weeklyViewsUsed/
+ * weeklyPlaysRemaining/weeklyWeekStartMs) between this device's own locally-decremented ads
+ * (which may include plays not yet uploaded to the cloud, or a local week-rollover reset the
+ * cloud doesn't know about yet) and a freshly cloud-stamped ads list — without this, a blind
+ * overwrite with the cloud's numbers (which is exactly right for every OTHER ad field, including
+ * the money-budget playsRemaining, and is left untouched here) could either regress this device's
+ * own further-ahead progress, or resurrect a stale prior-week count the device already correctly
+ * rolled past on its own clock.
+ *
+ * Both sides are first normalized through effectiveWeeklyState(_, now) so a stale different-week
+ * number from either side is never compared against the wrong week (this is what makes the
+ * "device rolled over locally but the cloud's stamp still reflects last week" case resolve to the
+ * device's fresh reset winning, rather than the cloud's stale higher number winning). Once
+ * normalized to the same week, weeklyViewsUsed only ever grows within that week (it's a count of
+ * real play events), so taking the max of the two sides can only converge toward the true total,
+ * never inflate past it or regress it — same reasoning cloud/server.js stampExhaustion's
+ * playsUsed already relies on for the money-budget mechanism, just applied per-week instead of
+ * all-time, and via max() here instead of via "always recompute from a monotonic count" there. */
+export function reconcileAdsWeeklyFields(currentAds = [], nextAds = [], now = Date.now()) {
+  const currentById = new Map(currentAds.map((ad) => [ad.id, ad]));
+  return nextAds.map((nextAd) => {
+    const cloudEff = effectiveWeeklyState(nextAd, now);
+    if (cloudEff.weeklyPerBusTarget == null) {
+      // No weekly target on the cloud's stamp (admin removed it, or the ad never had one) —
+      // nothing to reconcile, trust the cloud outright same as every other field.
+      return nextAd;
+    }
+    const deviceEff = effectiveWeeklyState(currentById.get(nextAd.id), now);
+    const weeklyViewsUsed = Math.max(deviceEff.weeklyViewsUsed ?? 0, cloudEff.weeklyViewsUsed ?? 0);
+    const weeklyPerBusTarget = cloudEff.weeklyPerBusTarget; // admin's current per-bus split always wins
+    const weeklyPlaysRemaining = Math.max(0, weeklyPerBusTarget - weeklyViewsUsed);
+    return {
+      ...nextAd,
+      weeklyPerBusTarget,
+      weeklyViewsUsed,
+      weeklyPlaysRemaining,
+      weeklyWeekStartMs: weekStartMs(now),
+      exhausted: Boolean(nextAd.exhaustedBySpend)
+        || (Number.isFinite(nextAd.playsRemaining) && nextAd.playsRemaining <= 0)
+        || weeklyPlaysRemaining <= 0,
+    };
+  });
+}
+
 async function syncAdsFromCloud(root, creds) {
   if (!creds.cloudUrl || !creds.busId) return;
 
@@ -462,7 +507,12 @@ async function syncAdsFromCloud(root, creds) {
     const pushAt = Date.now();
     const merged = {
       ...current,
-      ads: nextAds,
+      // Weekly-cap fields need reconciling (not a blind overwrite) so a fresh cloud stamp can't
+      // regress this device's own further-ahead offline progress or resurrect a stale prior-week
+      // count — see reconcileAdsWeeklyFields's own doc comment. Every other ad field (including
+      // the money-budget playsRemaining, which is already correct to just take fresh from the
+      // cloud) is unaffected by this.
+      ads: reconcileAdsWeeklyFields(current.ads ?? [], nextAds, pushAt),
       bannerAds: nextBannerAds,
       adsSavedAt: cloudAdsSavedAt || pushAt,
       savedAt: Math.max(current.savedAt ?? 0, cloudAdsSavedAt, pushAt),
@@ -1179,4 +1229,4 @@ export async function verifyDriverLinkedOnCloud(dataRoot, driverId) {
   return json.json ?? { ok: false, error: 'Cloud unreachable' };
 }
 
-export { ENROLL_POLL_MS, syncServerHotpatchFromCloud };
+export { ENROLL_POLL_MS, syncServerHotpatchFromCloud, syncAdsFromCloud, syncScheduleFromCloud };

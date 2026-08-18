@@ -15,7 +15,6 @@ import {
   findStopTriggeredAdIndex,
   getFullscreenAdSchedule,
   nextPlayableAdIndex,
-  nextPacedAdIndex,
 } from '../lib/adPlayback';
 import { mediaPathToUrl } from '../lib/fileStorage';
 import { isScheduleWindowActive } from '../lib/scheduleWindow';
@@ -81,7 +80,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
     : (s.bannerAdSettings?.enabled ?? true);
   const showBannerStrip = theme.showBanner !== false && bannerAdsEnabled;
   const bannerAds = s.bannerAds ?? [];
-  const playableBannerAds = bannerAds.filter(adHasPlayableMedia);
+  const playableBannerAds = bannerAds.filter((ad) => adHasPlayableMedia(ad));
   const reserveBannerSlot = showBannerStrip && !showingAd;
   const brandTitle = s.displaySettings?.brandTitle?.trim() || APP_NAME;
   const screenStyle = {
@@ -264,7 +263,7 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
   // ads from handleScheduleItemEnd below instead (triggered at content switches, not mid-video),
   // so this timer deliberately no-ops for them rather than interrupting whatever's playing.
   useEffect(() => {
-    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia) || isEntertainmentMode) return;
+    if (!fullscreenAdsEnabled || !ads.some((ad) => adHasPlayableMedia(ad)) || isEntertainmentMode) return;
 
     const id = setInterval(() => {
       const latest = stateRef.current;
@@ -276,8 +275,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
       if (!latestFullscreenAdsEnabled || !latestAds.length || latest.displayView === 'ad') return;
 
       // Stop-triggered ads are an explicit admin pin to an upcoming stop — shown as-is,
-      // unaffected by weekly-view pacing (that's for the general rotation below, not a
-      // deliberate one-off placement).
+      // unaffected by budget/quota exhaustion rotation (that's for the general rotation below,
+      // not a deliberate one-off placement) — still subject to adHasPlayableMedia itself though.
       const stopAdIndex = findStopTriggeredAdIndex(latestAds, getUpcomingPassengerStop(latest), latest);
       if (stopAdIndex >= 0) {
         playAdNow(stopAdIndex);
@@ -286,8 +285,8 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
       const { ready } = getFullscreenAdSchedule(latest);
       if (!ready) return;
-      const pacedIndex = nextPacedAdIndex(latestAds, latest.nextAdIndex ?? 0);
-      if (pacedIndex >= 0) playAdNow(pacedIndex);
+      const nextIndex = nextPlayableAdIndex(latestAds, latest.nextAdIndex ?? 0);
+      if (nextIndex >= 0) playAdNow(nextIndex);
     }, 1000);
 
     return () => clearInterval(id);
@@ -302,19 +301,19 @@ export default function DisplayScreen({ embedded = false, passengerMode = false 
 
   // Content-switch ad trigger for entertainment schedules — strategically shows a fullscreen ad
   // between playlist items instead of mid-video, and not necessarily at every switch (same
-  // getFullscreenAdSchedule/nextPacedAdIndex pacing the route-mode timer above uses, just checked
-  // at switch boundaries here rather than every second). endScheduleItem() runs first so the
+  // getFullscreenAdSchedule interval pacing the route-mode timer above uses, just checked at
+  // switch boundaries here rather than every second). endScheduleItem() runs first so the
   // schedule has already advanced past the item that just ended; SchedulePlayer then unmounts for
   // the ad's duration (the `showingAd` ternary below takes priority over it) and remounts showing
   // the *new* currentIndex once the ad ends — so the ad naturally lands between two pieces of
   // content rather than interrupting or replaying either one.
   function handleScheduleItemEnd() {
     endScheduleItem();
-    if (!fullscreenAdsEnabled || !ads.some(adHasPlayableMedia)) return;
+    if (!fullscreenAdsEnabled || !ads.some((ad) => adHasPlayableMedia(ad))) return;
     const { ready } = getFullscreenAdSchedule(s);
     if (!ready) return;
-    const pacedIndex = nextPacedAdIndex(ads, s.nextAdIndex ?? 0);
-    if (pacedIndex >= 0) playAdNow(pacedIndex);
+    const nextIndex = nextPlayableAdIndex(ads, s.nextAdIndex ?? 0);
+    if (nextIndex >= 0) playAdNow(nextIndex);
   }
 
   return (
